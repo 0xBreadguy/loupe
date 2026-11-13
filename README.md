@@ -117,6 +117,9 @@ dedicated [foot](https://codeberg.org/dnkl/foot) window.
 | `x` | CRT effects, purely for fun |
 | `?` / `q` | help and legend / quit |
 
+The numpad works too: its Enter opens threads, and with Num Lock off its arrows,
+Home, End and Page Up/Down act like the main keys.
+
 | Mark | Meaning |
 | --- | --- |
 | `⠹` | running |

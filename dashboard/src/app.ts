@@ -6,6 +6,7 @@ import {
 } from "@opentui/core"
 import { CONTINUATION, Canvas } from "./canvas.ts"
 import { T3Window, environmentId, openLink, threadLink } from "./focus.ts"
+import { keyName } from "./keys.ts"
 import { Source, type Snapshot } from "./source.ts"
 import { ThemeWatcher } from "./theme.ts"
 import { UsageReader } from "./usage.ts"
@@ -172,25 +173,26 @@ export class App {
   key(k: KeyEvent) {
     const st = this.st
     const seq = k.sequence
+    const name = keyName(k.name) // numpad keys act like their main-keyboard twins
     const row = this.frame?.rows.find((r) => r.agent.id === st.selected)
-    if (k.name === "escape" || seq === "q") {
-      if (st.help && k.name === "escape") st.help = false
+    if (name === "escape" || seq === "q") {
+      if (st.help && name === "escape") st.help = false
       else return this.quit()
     } else if (seq === "?" || seq === "h") st.help = !st.help
-    else if (k.name === "down" || seq === "j") this.select(1)
-    else if (k.name === "up" || seq === "k") this.select(-1)
-    else if (k.name === "home" || seq === "g") this.select(-1e6)
-    else if (k.name === "end" || seq === "G") this.select(1e6)
-    else if (k.name === "pagedown" || seq === "J") this.scrollDetail(5)
-    else if (k.name === "pageup" || seq === "K") this.scrollDetail(-5)
-    else if (k.name === "space" && row?.hasChildren) {
+    else if (name === "down" || seq === "j") this.select(1)
+    else if (name === "up" || seq === "k") this.select(-1)
+    else if (name === "home" || seq === "g") this.select(-1e6)
+    else if (name === "end" || seq === "G") this.select(1e6)
+    else if (name === "pagedown" || seq === "J") this.scrollDetail(5)
+    else if (name === "pageup" || seq === "K") this.scrollDetail(-5)
+    else if (name === "space" && row?.hasChildren) {
       if (st.collapsed.has(row.agent.id)) st.collapsed.delete(row.agent.id)
       else st.collapsed.add(row.agent.id)
-    } else if (k.name === "left" && row) {
+    } else if (name === "left" && row) {
       if (row.hasChildren && !st.collapsed.has(row.agent.id)) st.collapsed.add(row.agent.id)
       else if (row.agent.parent) st.selected = row.agent.parent
-    } else if (k.name === "right" && row) st.collapsed.delete(row.agent.id)
-    else if (k.name === "return" || k.name === "enter" || seq === "o") this.openInT3()
+    } else if (name === "right" && row) st.collapsed.delete(row.agent.id)
+    else if (name === "return" || name === "enter" || seq === "o") this.openInT3()
     else if (seq === "a") st.activeOnly = !st.activeOnly
     else if (seq === "f") {
       st.follow = !st.follow
