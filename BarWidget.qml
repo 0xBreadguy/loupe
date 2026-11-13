@@ -7,12 +7,15 @@ import "Status.js" as Status
 
 // T3 agents at a glance: a spinner and a count while agents run, and the bar's
 // alert color with a diamond when one needs you. Click opens the dashboard.
+// When the monitor cannot see T3, a warning sign at full strength says so.
 BarWidget {
   id: root
   moduleName: "0xbreadguy.t3-agents"
 
   readonly property var service: bar && bar.shell ? bar.shell.serviceFor("0xbreadguy.t3-agents") : null
-  readonly property var status: service ? service.status : null
+  // Without the service there is nothing to show; say so rather than look idle.
+  readonly property var status: service ? service.status : Status.unavailable("", "service")
+  readonly property bool broken: !!status && !!status.error
   readonly property bool available: !!status && !status.error
   readonly property int running: available ? status.running : 0
   readonly property int waiting: available ? status.waiting : 0
@@ -25,13 +28,27 @@ BarWidget {
 
   Commons.Translations { id: strings; directory: Qt.resolvedUrl("i18n") }
 
-  visible: !(root.setting("hideWhenIdle", false) && root.quiet)
+  // hideWhenIdle never hides a broken monitor: that must not pass for calm.
+  visible: root.broken || !(root.setting("hideWhenIdle", false) && root.quiet)
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
+  // Why there is no status, in plain words.
+  function reason() {
+    var s = root.status
+    if (s.cause === "service") return strings.t("tooltip.noService")
+    if (s.cause === "launcher") return strings.t("tooltip.noLauncher").arg("~/.local/bin/t3-agents")
+    if (s.cause === "exited") return strings.t("tooltip.exited").arg(s.code === null ? "?" : String(s.code))
+    return s.error // the watcher's own message, which names the path it tried
+  }
+
   function tooltip() {
-    if (!root.service) return strings.t("tooltip.noService")
-    if (!root.available) return strings.t("tooltip.unavailable")
+    if (root.broken) {
+      var why = [strings.t("tooltip.unavailable"), root.reason()]
+      if (root.service) why.push(strings.t("tooltip.retry"))
+      return why.join("\n")
+    }
+    if (!root.available) return strings.t("tooltip.starting")
     var format = function(n) { return Commons.I18n.formatNumber(n) }
     var counts = []
     if (root.waiting > 0) counts.push(strings.tn("tooltip.waiting", root.waiting).arg(format(root.waiting)))
@@ -46,11 +63,14 @@ BarWidget {
     return lines.join("\n")
   }
 
+  // The frame comes from the clock on a beat shared with the dashboard, so the
+  // bar and the dashboard spin in phase.
   Timer {
     interval: 100
     repeat: true
+    triggeredOnStart: true
     running: root.visible && root.animate && root.waiting === 0 && root.running > 0
-    onTriggered: root.frame = (root.frame + 1) % 10
+    onTriggered: root.frame = Status.frameAt(Date.now())
   }
 
   BarIconButton {
@@ -76,7 +96,7 @@ BarWidget {
       y: (button.height - height) / 2
       spacing: Style.space(3)
       scale: button.pressScale
-      opacity: root.available && !root.quiet ? 1 : 0.45
+      opacity: root.broken || (root.available && !root.quiet) ? 1 : 0.45
 
       Text {
         anchors.verticalCenter: parent.verticalCenter

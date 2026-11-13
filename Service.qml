@@ -12,9 +12,12 @@ Item {
   property var shell: null
   property var manifest: null
 
-  // Last status from the watcher (see Status.parse), or null before the first line.
+  // Last status from the watcher (see Status.parse), an unavailable status when
+  // the watcher cannot run, or null until its first line.
   property var status: null
   readonly property string launcher: Quickshell.env("HOME") + "/.local/bin/t3-agents"
+  property bool started: false // the current watcher run got as far as starting
+  property bool restarting: false // a stop asked for by restart(), not a failure
 
   function openDashboard() {
     // Fixed argv, no shell: the launcher focuses an open dashboard or opens one.
@@ -22,9 +25,12 @@ Item {
   }
 
   function restart() {
-    retry.stop()
-    watcher.running = false
-    Qt.callLater(function() { watcher.running = true })
+    if (!watcher.running) {
+      watcher.running = true
+      return
+    }
+    root.restarting = true
+    watcher.running = false // the stop handler starts it again
   }
 
   Process {
@@ -37,16 +43,38 @@ Item {
         if (next) root.status = next
       }
     }
+    onStarted: root.started = true
     onExited: function(exitCode) {
-      root.status = Status.unavailable("watcher exited with code " + exitCode)
-      retry.restart()
+      if (root.restarting) return
+      // Keep the watcher's own last words (say, no Node.js) over a bare exit code.
+      if (!root.status || !root.status.error) root.status = Status.unavailable("exit code " + exitCode, "exited", exitCode)
+    }
+    onRunningChanged: {
+      if (running) return
+      if (root.restarting) {
+        root.restarting = false
+        root.started = false
+        Qt.callLater(function() { watcher.running = true })
+        return
+      }
+      // Quickshell reports a launcher that cannot start (not installed yet) only
+      // by stopping, with no exit code and no output.
+      if (!root.started) root.status = Status.unavailable("cannot start " + root.launcher, "launcher")
+      root.started = false
     }
   }
 
-  // Back off when the launcher is missing or the database cannot be read.
+  // Keep trying while the watcher is down, so installing the dashboard after the
+  // widget, or a crash, recovers without a shell restart.
   Timer {
-    id: retry
     interval: 15000
-    onTriggered: watcher.running = true
+    repeat: true
+    running: true
+    onTriggered: {
+      if (watcher.running) return
+      // Stopped without a recorded reason: it never managed to start.
+      if (!root.status || !root.status.error) root.status = Status.unavailable("cannot start " + root.launcher, "launcher")
+      watcher.running = true
+    }
   }
 }

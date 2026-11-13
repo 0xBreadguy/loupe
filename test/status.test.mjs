@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs"
 import { test } from "node:test"
 
 const source = readFileSync(new URL("../Status.js", import.meta.url), "utf8").replace(/^\.pragma library\s*$/m, "")
-const S = new Function(source + "\nreturn { plain, parse, glyph, agentLine, unavailable }")()
+const S = new Function(source + "\nreturn { plain, parse, glyph, agentLine, unavailable, frameAt, SPIN }")()
 
 const line = (extra = {}) => JSON.stringify({ v: 1, running: 2, waiting: 1, failed: 0,
   agents: [{ title: "Fix the build", state: "waiting", ctx: 0.364, model: "opus 5.5" },
@@ -37,6 +37,20 @@ test("unusable lines are rejected and errors become an unavailable status", () =
   const e = S.parse(JSON.stringify({ v: 1, error: "Unsupported T3 schema" }))
   assert.equal(e.running, 0)
   assert.equal(e.error, "Unsupported T3 schema")
+  assert.equal(e.cause, "watcher")
+})
+
+test("an unavailable status keeps why, bounded", () => {
+  const launcher = S.unavailable("cannot start /home/u/.local/bin/t3-agents", "launcher")
+  assert.equal(launcher.cause, "launcher")
+  assert.equal(launcher.code, null)
+  const exited = S.unavailable("exit code 127", "exited", 127)
+  assert.equal(exited.cause, "exited")
+  assert.equal(exited.code, 127)
+  assert.equal(S.unavailable("x", "<b>").cause, "watcher", "unknown causes fall back")
+  assert.equal(S.unavailable("x", "exited", "9").code, null, "only numeric codes")
+  assert.ok(S.unavailable("y".repeat(500)).error.length <= 120)
+  assert.ok(S.unavailable("").error, "always carries an error, so it never reads as idle")
 })
 
 test("counts and lists are bounded", () => {
@@ -54,6 +68,26 @@ test("the bar mark follows the most important state", () => {
   const running = S.parse(line({ waiting: 0 }))
   assert.equal(S.glyph(running, 2, true), "⠹")
   assert.equal(S.glyph(running, 2, false), "⠿", "no spinner when animations are off")
-  assert.equal(S.glyph(S.unavailable("x"), 0, true), "⠿")
-  assert.equal(S.glyph(null, 0, true), "⠿")
+  assert.equal(S.glyph(null, 0, true), "⠿", "idle until the first line")
+  assert.equal(S.glyph(S.parse(line({ running: 0, waiting: 0, agents: [] })), 0, true), "⠿")
+})
+
+test("a monitor that cannot see T3 shows its own mark, never the idle one", () => {
+  for (const cause of ["watcher", "launcher", "exited", "service"]) {
+    const g = S.glyph(S.unavailable("x", cause), 4, true)
+    assert.equal(g, "⚠")
+    assert.notEqual(g, S.glyph(null, 4, true))
+  }
+  assert.equal(S.glyph(S.parse(JSON.stringify({ v: 1, error: "No T3 database" })), 0, false), "⚠", "also without animations")
+})
+
+test("the spinner follows the shared 100 ms beat", () => {
+  assert.equal(S.SPIN.join(""), "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
+  assert.equal(S.frameAt(0), 0)
+  assert.equal(S.frameAt(99), 0)
+  assert.equal(S.frameAt(100), 1)
+  assert.equal(S.frameAt(1_000), 0, "ten frames per second")
+  const now = 1_763_000_000_123
+  assert.equal(S.frameAt(now), Math.floor(now / 100) % 10)
+  assert.equal(S.glyph(S.parse(line({ waiting: 0 })), S.frameAt(250), true), "⠹")
 })

@@ -3,6 +3,11 @@
 // Pure helpers for the T3 Agents bar widget, shared by the QML and its tests.
 
 var SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+var BEAT_MS = 100
+var IDLE = "⠿"
+// Never the idle mark: a monitor that cannot see T3 must not look calm.
+var UNAVAILABLE = "⚠"
+var CAUSES = { watcher: true, launcher: true, exited: true, service: true }
 var STATES = { waiting: true, running: true, active: true, starting: true, preparing: true, queued: true, pending: true }
 
 // Text from another process: no control or bidi characters and nothing markup-shaped.
@@ -20,8 +25,18 @@ function count(n) {
   return isFinite(n) ? Math.max(0, Math.min(999, Math.floor(n))) : 0
 }
 
-function unavailable(reason) {
-  return { running: 0, waiting: 0, failed: 0, agents: [], error: plain(reason || "unavailable", 120) }
+// No status to show, and why: the watcher reported an error ("watcher"), could
+// not start ("launcher"), stopped ("exited", with its exit code), or the
+// plugin's service is missing ("service").
+function unavailable(reason, cause, code) {
+  return { running: 0, waiting: 0, failed: 0, agents: [], error: plain(reason || "unavailable", 120),
+    cause: CAUSES[cause] === true ? cause : "watcher", code: typeof code === "number" && isFinite(code) ? code : null }
+}
+
+// The spinner frame at a moment. The dashboard uses the same beat, so the bar
+// and the dashboard tick in phase.
+function frameAt(ms) {
+  return Math.floor(ms / BEAT_MS) % SPIN.length
 }
 
 // One line from `t3-agents --status --watch`, validated and bounded; null when unusable.
@@ -33,7 +48,7 @@ function parse(line) {
     return null
   }
   if (!raw || typeof raw !== "object" || raw.v !== 1) return null
-  if (raw.error) return unavailable(raw.error)
+  if (raw.error) return unavailable(raw.error, "watcher")
   var agents = []
   var list = Array.isArray(raw.agents) ? raw.agents.slice(0, 8) : []
   for (var i = 0; i < list.length; i++) {
@@ -49,12 +64,13 @@ function parse(line) {
   return { running: count(raw.running), waiting: count(raw.waiting), failed: count(raw.failed), agents: agents, error: "" }
 }
 
-// The bar mark: a diamond when an agent needs you, a spinner while agents run.
+// The bar mark: a warning sign when the monitor is blind, a diamond when an
+// agent needs you, a spinner while agents run.
 function glyph(status, frame, animate) {
-  var ok = status && !status.error
-  if (ok && status.waiting > 0) return "◆"
-  if (ok && status.running > 0 && animate) return SPIN[Math.abs(Math.floor(frame)) % SPIN.length]
-  return "⠿"
+  if (status && status.error) return UNAVAILABLE
+  if (status && status.waiting > 0) return "◆"
+  if (status && status.running > 0 && animate) return SPIN[Math.abs(Math.floor(frame)) % SPIN.length]
+  return IDLE
 }
 
 // "◆ Title · opus 5.5 · 36%"; formatNumber keeps digits in the user's language.
