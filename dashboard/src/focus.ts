@@ -12,7 +12,7 @@ import { dirname, join } from "node:path"
 import { clean } from "./format.ts"
 import type { Agent } from "./source.ts"
 
-const T3_CLASS = /t3code/i // com.t3tools.T3Code; never this dashboard (org.omarchy.t3-agents)
+const T3_CLASS = /t3code/i // com.t3tools.T3Code; never this dashboard (t3-agents)
 const RETRY_MS = 10_000
 const strip = (address: string) => address.trim().replace(/^0x/, "")
 const norm = (s: string) => clean(s).trim()
