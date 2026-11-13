@@ -1,0 +1,29 @@
+{
+  "name": "t3-agents",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Live visual terminal dashboard for local T3 Code agents and subagents",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xBreadguy/t3-agents.git",
+    "directory": "dashboard"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=26.4.0"
+  },
+  "scripts": {
+    "start": "node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts",
+    "once": "node src/main.ts --once",
+    "test": "node --experimental-ffi --disable-warning=ExperimentalWarning --test test/*.test.ts",
+    "check": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@opentui/core": "0.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}

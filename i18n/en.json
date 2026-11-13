@@ -1,0 +1,11 @@
+{
+  "tooltip.title": "T3 agents",
+  "tooltip.idle": "No agents running",
+  "tooltip.running": { "one": "%1 running", "other": "%1 running" },
+  "tooltip.waiting": { "one": "%1 needs you", "other": "%1 need you" },
+  "tooltip.more": { "one": "+%1 more", "other": "+%1 more" },
+  "tooltip.failed": { "one": "%1 failed tool call in the last 10 minutes", "other": "%1 failed tool calls in the last 10 minutes" },
+  "tooltip.unavailable": "T3 agent data is unavailable. Is t3-agents installed?",
+  "tooltip.noService": "The T3 Agents service is not running.",
+  "tooltip.hint": "Click: open the dashboard · Middle-click: restart the watcher"
+}
