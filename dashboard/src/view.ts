@@ -4,7 +4,7 @@
 import { BIG_ROWS, BOLD, Braille, Canvas, bigWidth, clean, drawBig, drawFont, fit, hbar, level, textWidth } from "./canvas.ts"
 import { duration, shortModel, tokens, wrap } from "./format.ts"
 import { t3Thread } from "./focus.ts"
-import { LIVE, SLOW_TOOL_MS, SourceError, isLive, isRunning, ms, needsYou, pace, tree, category, type Agent, type Item, type Pace, type Snapshot,
+import { LIVE, SLOW_TOOL_MS, SourceError, isLive, isRunning, ms, needsYou, request, waitingSince, pace, tree, category, type Agent, type Item, type Pace, type Snapshot,
   type SourceProblem, type TreeRow, tilde } from "./source.ts"
 import { TEXT_CONTRAST, family, mix, ramp, reach, type Color, type Family, type Palette } from "./theme.ts"
 import type { Provider } from "./usage.ts"
@@ -39,13 +39,17 @@ export interface ViewState {
   follow: boolean // select the thread T3 Code shows whenever it changes
   notice: { text: string; at: number; error: boolean } | null // a short footer message
   demo: boolean // made-up data: say so in the header
+  picked: { id: string; at: number } | null // the user's last deliberate selection, and when
+  waits: Map<string, number> // agent waiting on you -> when this dashboard first saw it waiting
+  acked: Set<string> // waiting agents the user has seen since they began waiting: their ◆ holds still
 }
 
 export function initialState(interval = 2): ViewState {
   return { selected: null, collapsed: new Set(), activeOnly: false, paused: false, help: false, helpScroll: 0, fx: false,
     detailScroll: 0, listScroll: 0, windowIndex: 1, error: null, cause: null, interval, bootAt: Date.now(), lastFrame: 0,
     tween: new Map(), firstSeen: new Map(), seeded: false, shimmer: new Map(), calm: false, frozenAt: null,
-    t3Title: null, t3Linked: null, t3Link: false, follow: true, notice: null, demo: false }
+    t3Title: null, t3Linked: null, t3Link: false, follow: true, notice: null, demo: false,
+    picked: null, waits: new Map(), acked: new Set() }
 }
 
 /** Why T3's database could not be read: SourceError's classification, or "other". */
@@ -57,7 +61,8 @@ export function trouble(err: unknown, path: string): Trouble {
 }
 
 export interface Rect { x: number; y: number; w: number; h: number }
-export interface Hit { y: number; x0: number; x1: number; id: string; area: "list" | "detail" }
+export interface Hit { y: number; x0: number; x1: number; id: string; area: "list" | "detail" | "tile" }
+export const NEEDS_YOU_TILE = "needs-you" // the id of the NEEDS YOU tile's hits
 export interface Frame {
   rows: TreeRow[]
   hits: Hit[]
@@ -121,8 +126,9 @@ const blink = (now: number, period = 1000) => now % period < period * 0.55
 /** Running and getting on with it: the only agents whose marks may move. Quiet, queued and waiting ones stay still. */
 const working = (a: Agent, pc: Pace | undefined) => (a.status === "running" || a.status === "active") && !needsYou(a) && !pc?.quiet
 
-export function statusOf(a: Agent, now: number, p: Palette, pc?: Pace, calm = false): { glyph: string; color: Color; label: string } {
-  if (needsYou(a)) return { glyph: blink(now) ? "◆" : "◇", color: p.hot, label: "NEEDS YOU" }
+/** `seen`: the user has acknowledged this wait, so its ◆ holds still (as it always does in calm mode). */
+export function statusOf(a: Agent, now: number, p: Palette, pc?: Pace, calm = false, seen = false): { glyph: string; color: Color; label: string } {
+  if (needsYou(a)) return { glyph: calm || seen || blink(now) ? "◆" : "◇", color: p.hot, label: "NEEDS YOU" }
   // A quiet agent's spinner stops: motion means work is happening.
   if (pc?.quiet) return { glyph: "◌", color: pc.stalled ? p.warn : p.text2, label: "RUNNING" }
   switch (a.status) {
@@ -280,11 +286,12 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
       if (at !== undefined && now >= at && now - at < SHIMMER_MS) frame.smooth = true
     }
   }
-  if (waiting.length && !st.calm) frame.beat = true // the "needs you" blink
+  const unseen = acknowledge(st, waiting, frame.linked, now)
+  if (unseen.length && !st.calm) frame.beat = true // the "needs you" blink, until each wait is acknowledged
 
   header(c, st, snap, p, now, W)
   let y = 1
-  y += kpis(c, y, W, H >= KPI_BIG_MIN_H, st, agents, running, waiting, usage, p, now, frame.paces, blind)
+  y += kpis(c, y, W, H >= KPI_BIG_MIN_H, st, agents, running, waiting, unseen, usage, p, now, frame, blind)
   const limited = usage.filter((u) => u.limits.length)
   // Short windows (beside T3) keep LIMITS to one line, so the agents get the rows.
   if (limited.length) y += H < LIMITS_FULL_MIN_H ? limitsLine(c, y, W, limited, p) : limits(c, y, W, limited, p, now)
@@ -417,6 +424,54 @@ export function fitDoing(d: Doing, w: number): string {
   return fit(d.lead + d.tail, w)
 }
 
+// ── Needs you ───────────────────────────────────────────────────────────────
+
+/** A deliberate selection by the user (keys, click, n): unlike the default selection, it acknowledges a wait. */
+export function pick(st: ViewState, id: string, now: number) {
+  if (id !== st.selected) st.detailScroll = 0
+  st.selected = id
+  st.picked = { id, at: now }
+}
+
+/**
+ * Track which waits the user has seen. A wait is acknowledged once the user
+ * picks that agent after it began waiting, or its thread is the one open in T3;
+ * landing on it as the default selection does not count. A wait that ends is
+ * forgotten, so the next one blinks again. Returns the waits not yet seen.
+ */
+function acknowledge(st: ViewState, waiting: Agent[], linked: Set<string>, now: number): Agent[] {
+  const ids = new Set(waiting.map((a) => a.id))
+  for (const id of st.waits.keys()) {
+    if (ids.has(id)) continue
+    st.waits.delete(id)
+    st.acked.delete(id)
+  }
+  for (const a of waiting) {
+    if (!st.waits.has(a.id)) st.waits.set(a.id, now)
+    if (linked.has(a.id) || (st.picked?.id === a.id && st.picked.at >= st.waits.get(a.id)!)) st.acked.add(a.id)
+  }
+  return waiting.filter((a) => !st.acked.has(a.id))
+}
+
+/**
+ * Select the next agent waiting on you after the selection, in list order,
+ * wrapping around, and unfold its parents so its row shows. Null when nobody waits.
+ */
+export function nextWaiting(st: ViewState, agents: Agent[], now: number): string | null {
+  const order = tree(agents, new Set(), st.activeOnly).map((r) => r.agent) // as listed, with everything unfolded
+  const at = order.findIndex((a) => a.id === st.selected)
+  const next = order.slice(at + 1).find(needsYou) ?? order.find(needsYou)
+  if (!next) return null
+  const parent = new Map(agents.map((a) => [a.id, a.parent]))
+  const seen = new Set<string>()
+  for (let up = parent.get(next.id) ?? null; up && !seen.has(up); up = parent.get(up) ?? null) {
+    seen.add(up)
+    st.collapsed.delete(up)
+  }
+  pick(st, next.id, now)
+  return next.id
+}
+
 // ── T3 Code link ────────────────────────────────────────────────────────────
 
 /**
@@ -487,7 +542,8 @@ function header(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
 const KPI_BIG_MIN_H = 30
 
 function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agents: Agent[], running: Agent[], waiting: Agent[],
-  usage: Provider[], p: Palette, now: number, paces: Map<string, Pace>, blind: boolean): number {
+  unseen: Agent[], usage: Provider[], p: Palette, now: number, frame: Frame, blind: boolean): number {
+  const paces = frame.paces
   const windowMs = WINDOWS[st.windowIndex] * 60_000
   const all = agents.flatMap((a) => a.events)
   const recent = all.filter((e) => e.t >= now - 5 * 60_000 && TOOL(e.cat))
@@ -534,7 +590,20 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agen
       for (const q of parts) col += c.text(x + col, yy, q.text, q.color) + 1
     } },
     blind ? unread("NEEDS YOU") : !waiting.length ? zero("NEEDS YOU", "0", note("nothing pending")) : { label: "NEEDS YOU", value: String(waiting.length), color: p.hot, alert: true,
-      sub: (x, yy, w) => void c.text(x, yy, "◆ " + fit(waiting[0].title, w - 2), p.hot, { max: w }) },
+      sub: (x, yy, w) => {
+        // What is needed, by whom, and for how long: the longest wait not yet seen, else the longest wait.
+        const first = [...waiting].sort((a, b) => Number(st.acked.has(a.id)) - Number(st.acked.has(b.id))
+          || (waitingSince(a) ?? now) - (waitingSince(b) ?? now))[0]
+        const ask = request(first)
+        const since = waitingSince(first)
+        const tail = (since === null ? "" : " " + duration(Math.max(0, now - since) / 1000).replace(/ \d+s$/, ""))
+          + (waiting.length > 1 ? ` +${waiting.length - 1} more` : "")
+        // The time and the count stay whole; the label gives way.
+        const room = w - 2 - textWidth(tail)
+        const what = room >= 4 ? fit(ask ? itemLabel(ask) : first.title, room) : ""
+        const col = c.text(x, yy, "◆ " + what, p.hot, { max: w })
+        c.text(x + col, yy, what ? tail : tail.trim(), p.text2, { max: w - col })
+      } },
     blind ? unread("TOOLS / MIN") : { label: "TOOLS / MIN", value: rate >= 10 ? String(Math.round(rate)) : rate ? rate.toFixed(1) : "0", color: p.fg, quiet: !rate, sub: (x, yy, w) => {
       const counts = Array(w).fill(0)
       const { col } = slices(w, windowMs, now)
@@ -574,7 +643,10 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agen
     const x = n * (tw + 1)
     const w = n === count - 1 ? W - x : tw
     c.fill(x, y, w, h, p.panel)
-    if (t.alert) for (let yy = y; yy < y + h; yy++) c.set(x, yy, "▌", blink(now) ? p.hot : mix(p.hot, p.panel, 0.6), p.panel)
+    // The alert edge blinks while a wait is unseen; once all are seen (or in calm mode) it holds steady.
+    const steady = st.calm || !unseen.length
+    if (t.alert) for (let yy = y; yy < y + h; yy++) c.set(x, yy, "▌", steady || blink(now) ? p.hot : mix(p.hot, p.panel, 0.6), p.panel)
+    if (t.label === "NEEDS YOU") for (let yy = y; yy < y + h; yy++) frame.hits.push({ y: yy, x0: x, x1: x + w, id: NEEDS_YOU_TILE, area: "tile" })
     c.text(x + 2, y, t.label, t.alert ? p.hot : p.dim, { attr: BOLD, max: w - 3 })
     // Quiet values and values too wide for big digits are text on the big digits' baseline.
     if (t.quiet) c.text(x + 2, y + valueRows, t.value, p.dim, { max: w - 3 })
@@ -722,7 +794,7 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
     frame.hits.push({ y, x0: X, x1: X + W, id: a.id, area: "list" })
     if (per === 2) frame.hits.push({ y: y + 1, x0: X, x1: X + W, id: a.id, area: "list" })
     const pc = frame.paces.get(a.id)
-    const s = statusOf(a, now, p, pc, st.calm)
+    const s = statusOf(a, now, p, pc, st.calm, st.acked.has(a.id))
     const attention = needsYou(a)
     // The selection's edge is a bright half block; the linked band's a thin dim rule.
     const edge = selected || attention ? "▌" : linked ? "▎" : " "
@@ -943,7 +1015,7 @@ type Block = (x: number, y: number, w: number, room: number) => number
 function detail(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: number, frame: Frame): number {
   return c.clipped(r.x, r.y, r.w, r.h, st.detailScroll, () => {
     const W = r.w
-    const top = r.y + titleBlock(c, r.x, r.y, W, a, p, now, frame.paces.get(a.id), st.calm)
+    const top = r.y + titleBlock(c, r.x, r.y, W, a, p, now, frame.paces.get(a.id), st.calm, st.acked.has(a.id))
     const b = blocks(c, r, a, st, p, now, frame)
     if (W >= 100) {
       // Wide: measurements on the left, what the agent is doing on the right.
@@ -961,9 +1033,9 @@ function detail(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
   })
 }
 
-function titleBlock(c: Canvas, X: number, Y: number, W: number, a: Agent, p: Palette, now: number, pc?: Pace, calm = false): number {
+function titleBlock(c: Canvas, X: number, Y: number, W: number, a: Agent, p: Palette, now: number, pc?: Pace, calm = false, seen = false): number {
   let y = Y
-  const s = statusOf(a, now, p, pc, calm)
+  const s = statusOf(a, now, p, pc, calm, seen)
   const attention = needsYou(a)
   c.text(X, y++, fit(a.title, W), p.bright, { attr: BOLD })
   const opts = a.options.filter((o) => o && o.id && o.value !== undefined).map((o) => `${o.id} ${o.value}`)
@@ -1132,8 +1204,10 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
         const bg = flash > 0 ? mix(p.bg, p.accent, 0.35 * flash) : undefined
         if (bg !== undefined) c.fill(X, y, W, 1, bg)
         // A running call spins only while its agent works (not while it waits on you).
-        const mark = running ? (moving ? spin(now, st.calm) : GLYPH[cat] ?? "·") : failed ? "✗" : GLYPH[cat] ?? "·"
-        c.text(X, y, mark, failed ? p.hot : running ? p.bright : mix(fade, p.accent, 0.3), { bg })
+        // A request still waiting on you is the hot ◆, wherever it shows.
+        const asking = running && cat === "ask"
+        const mark = asking ? "◆" : running ? (moving ? spin(now, st.calm) : GLYPH[cat] ?? "·") : failed ? "✗" : GLYPH[cat] ?? "·"
+        c.text(X, y, mark, asking || failed ? p.hot : running ? p.bright : mix(fade, p.accent, 0.3), { bg, attr: asking ? BOLD : 0 })
         c.text(X + 2, y, duration(age).replace(/ \d+s$/, "").padStart(6), running ? p.text2 : p.dim, { bg })
         c.text(X + 9, y++, fit(itemLabel(item), W - 9), failed ? mix(p.hot, fade, 0.3) : fade, { bg })
       }
@@ -1208,7 +1282,9 @@ function footer(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
     c.text(1, y, fit(`SOURCE ERROR · ${snap.at ? "last snapshot kept · " : ""}retrying every ${st.interval}s · ${st.error}`, W - 2), p.hot)
     return
   }
-  const keys: [string, string][] = [["↑↓", "select"], ["⏎", "open in T3"], ["␣", "fold"], ["a", "active"],
+  // n leads while someone waits on you: it is the key that matters then.
+  const waiting = snap.agents.some(needsYou) ? [["n", "needs you"] as [string, string]] : []
+  const keys: [string, string][] = [...waiting, ["↑↓", "select"], ["⏎", "open in T3"], ["␣", "fold"], ["a", "active"],
     ...(st.t3Link ? [["f", st.follow ? "follow T3" : "follow off"] as [string, string]] : []),
     ["t", "lane"], ["x", "fx"], ["?", "help"], ["q", "quit"]]
   // A message after an action (opening a thread) replaces the hints for a few seconds.
@@ -1229,13 +1305,13 @@ function footer(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
 function help(c: Canvas, st: ViewState, p: Palette, W: number, H: number): number {
   c.tint(0, 0, W, H, (f, b) => [mix(f, p.bg, 0.7), mix(b, p.bg, 0.5)])
   const keys: [string, string][] = [
-    ["↑↓ j k", "select agent"], ["⏎ o", "open the thread in T3 Code"], ["␣ ← →", "fold / expand"], ["a", "active agents only"], ["t", "lane 15m · 30m · 1h · 3h"],
+    ["↑↓ j k", "select agent"], ["n", "next agent waiting on you"], ["⏎ o", "open the thread in T3 Code"], ["␣ ← →", "fold / expand"], ["a", "active agents only"], ["t", "lane 15m · 30m · 1h · 3h"],
     ["J K PgDn", "scroll details"], ["f", "follow the thread open in T3"], ["p", "pause updates"], ["x", "CRT effects"],
     ["r", "refresh now"], ["m", "calm mode: nothing moves"],
     ["mouse", "click selects, wheel scrolls"], ["q Esc", "quit (Esc closes help)"],
   ]
   const legend: [string, string][] = [
-    ["⠹ ◆ ✓ ✗ ⊘", "running · needs you · done · failed · interrupted"],
+    ["⠹ ◆ ✓ ✗ ⊘", "running · needs you (blinks until seen) · done · failed · interrupted"],
     ["█████▌", "context used; warm past 75%, hot past 90%"],
     ["▂▄█", "lane: tool and model activity per time slice"],
     ["tint", "lane: a run was in progress"],

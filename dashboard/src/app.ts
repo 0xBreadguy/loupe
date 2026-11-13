@@ -10,7 +10,7 @@ import { keyName } from "./keys.ts"
 import { Source, type Snapshot } from "./source.ts"
 import { ThemeWatcher } from "./theme.ts"
 import { UsageReader } from "./usage.ts"
-import { WINDOWS, draw, initialState, observe, trouble, type Frame, type ViewState } from "./view.ts"
+import { NEEDS_YOU_TILE, WINDOWS, draw, initialState, nextWaiting, observe, pick, trouble, type Frame, type ViewState } from "./view.ts"
 
 /**
  * Frame rates. Idle keeps the clock ticking; the beat matches the spinners'
@@ -179,10 +179,12 @@ export class App {
     if (!ids.length) return
     const i = Math.max(0, ids.indexOf(this.st.selected ?? ""))
     const next = ids[Math.max(0, Math.min(ids.length - 1, i + delta))]
-    if (next !== this.st.selected) {
-      this.st.selected = next
-      this.st.detailScroll = 0
-    }
+    if (next !== this.st.selected) pick(this.st, next, Date.now())
+  }
+
+  /** n, or a click on the NEEDS YOU tile: the next agent waiting on you. Enter then opens it in T3. */
+  needsYou() {
+    if (!nextWaiting(this.st, this.snap.agents, Date.now())) this.note("Nobody is waiting on you")
   }
 
   private scrollHelp(delta: number) {
@@ -219,8 +221,9 @@ export class App {
       else st.collapsed.add(row.agent.id)
     } else if (name === "left" && row) {
       if (row.hasChildren && !st.collapsed.has(row.agent.id)) st.collapsed.add(row.agent.id)
-      else if (row.agent.parent) st.selected = row.agent.parent
+      else if (row.agent.parent) pick(st, row.agent.parent, Date.now())
     } else if (name === "right" && row) st.collapsed.delete(row.agent.id)
+    else if (seq === "n") this.needsYou()
     else if (name === "return" || name === "enter" || seq === "o") this.openInT3()
     else if (seq === "a") st.activeOnly = !st.activeOnly
     else if (seq === "f") {
@@ -283,11 +286,11 @@ export class App {
       return void this.renderer?.requestRender()
     }
     const hit = this.frame?.hits.find((h) => h.y === e.y && e.x >= h.x0 && e.x < h.x1)
-    if (hit && hit.id !== this.st.selected) {
-      this.st.selected = hit.id
-      this.st.detailScroll = 0
-      this.renderer?.requestRender()
-    }
+    if (!hit) return
+    // A click on a row is a deliberate pick, even of the row already selected: it acknowledges a wait.
+    if (hit.area === "tile" && hit.id === NEEDS_YOU_TILE) this.needsYou()
+    else if (hit.area !== "tile") pick(this.st, hit.id, Date.now())
+    this.renderer?.requestRender()
   }
 
   wheel(e: MouseEvent) {

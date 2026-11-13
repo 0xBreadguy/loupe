@@ -6,7 +6,7 @@ import { dirname, join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { test } from "node:test"
 import { clean } from "../src/canvas.ts"
-import { Source, SourceError, buildAgents, category, isRunning, tilde, tree, type Agent } from "../src/source.ts"
+import { Source, SourceError, buildAgents, category, isRunning, request, tilde, tree, waitingSince, type Agent } from "../src/source.ts"
 
 function snapshot(childThread = false): Agent[] {
   const threads: any[] = [{ id: "root", projectId: "p", title: "Root", activeProviderThreadId: "pr" }]
@@ -164,4 +164,23 @@ test("prompts, results and other message text never leave the database", () => {
   } finally {
     rmSync(dirname(db), { recursive: true, force: true })
   }
+})
+
+test("how long an agent has waited on you: its request's time, else its pending question's, else its last activity", () => {
+  const t = (m: number) => new Date(Date.parse("2026-11-12T12:00:00Z") + m * 60_000).toISOString()
+  const threads = [{ id: "a", projectId: "p", title: "Asks" }, { id: "b", projectId: "p", title: "Asks too" }]
+  const runs = new Map<string, any>([["a", { id: "ra", status: "running" }], ["b", { id: "rb", status: "running" }]])
+  const question: any = { thread_id: "b", run_id: "rb", node_id: null, provider_thread_id: null, type: "user_input_request",
+    status: "pending", updated_at: t(3), started_at: t(2), label: "Which layout?", command: "", file: "", tool: null }
+  const agents = buildAgents(threads, runs, [], new Map(), new Map(), new Map(), new Map(), [
+    { thread_id: "a", node_id: null, kind: "command", created_at: t(5) },
+    { thread_id: "a", node_id: null, kind: "user_input", created_at: t(1) },
+    { thread_id: "b", node_id: null, kind: "user_input", created_at: null },
+  ], [question])
+  const [a, b] = ["a", "b"].map((id) => agents.find((x) => x.id === id)!)
+  assert.equal(a.asked, t(1), "the oldest open request")
+  assert.equal(waitingSince(a), Date.parse(t(1)))
+  assert.equal(b.asked, null, "an older T3 without created_at")
+  assert.equal(request(b)?.label, "Which layout?")
+  assert.equal(waitingSince(b), Date.parse(t(2)), "when the question was asked")
 })

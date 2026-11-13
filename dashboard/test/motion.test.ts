@@ -273,7 +273,7 @@ test("calm mode: still running glyphs, values jump, no boot wipe, idle frame rat
   assert.ok(![...a.cells.text].some((ch) => SPIN.includes(ch)), "no spinner frames")
   assert.match(a.cells.text, /◉ Migrate billing to the v2 API/)
   assert.match(a.cells.text, /◌ Write migration tests/, "quiet stays distinct")
-  const footer = (c.h - 1) * c.w + 2
+  const footer = (c.h - 1) * c.w + 1 // the first key hint
   assert.notEqual(a.cells.fg[footer], a.cells.bg[footer], "the footer is not wiped out")
   assert.deepEqual(changes(a.cells, frameAt(c, st, snap, NOW + 400).cells), [], "nothing at all moves")
 })

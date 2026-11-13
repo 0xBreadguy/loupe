@@ -92,6 +92,7 @@ export interface Agent {
   remote: Json | null
   items: Item[] // tool activity of the latest run, newest first
   requests: string[]
+  asked: string | null // when its oldest open request was made, where T3 records it
   thread_id: string
   branch: string | null
   options: Json[]
@@ -241,7 +242,10 @@ export class Source {
       .map((r) => [r.node_id as string, r]))
     const projects = new Map(all("SELECT project_id,title,workspace_root FROM projection_projects")
       .map((r) => [r.project_id as string, r]))
-    const requests = all(`SELECT thread_id,node_id,kind,status FROM ${PREFIX}runtime_requests ${where}
+    // created_at says how long a request has waited; older databases may not have it.
+    const asked = all(`SELECT name FROM pragma_table_info('${PREFIX}runtime_requests')`).some((r) => r.name === "created_at")
+    const requests = all(`SELECT thread_id,node_id,kind,status,${asked ? "created_at" : "NULL AS created_at"}
+        FROM ${PREFIX}runtime_requests ${where}
         AND resolved_at IS NULL AND status IN ('pending','open','waiting','requested')`, ...ids)
 
     const runIds = [...new Set([...latest.values()].map((r) => r.id).concat(subs.map((s) => s.runId)).filter(Boolean))]
@@ -317,7 +321,7 @@ export function buildAgents(threads: Json[], latest: Map<string, Json>, subs: Js
     if (ctx.usedTokens == null) ctx = p.contextUsage || {}
     return [ctx, turn]
   }
-  const blank = { items: [], requests: [], history: [], events: [], spans: [], plan: null, mix: {}, failures: 0, now: null }
+  const blank = { items: [], requests: [], asked: null, history: [], events: [], spans: [], plan: null, mix: {}, failures: 0, now: null }
   for (const thread of threads) {
     const tid = thread.id
     const run = latest.get(tid) ?? {}
@@ -363,7 +367,9 @@ export function buildAgents(threads: Json[], latest: Map<string, Json>, subs: Js
   }
   for (const req of requests) {
     const a = agents.get(target(req as never))
-    if (a) a.requests.push(req.kind)
+    if (!a) continue
+    a.requests.push(req.kind)
+    if (req.created_at && (!a.asked || req.created_at < a.asked)) a.asked = req.created_at
   }
   for (const a of agents.values()) {
     a.items.sort((x, y) => (x.updated_at < y.updated_at ? 1 : x.updated_at > y.updated_at ? -1 : 0))
@@ -449,6 +455,17 @@ export interface TreeRow {
 }
 
 export const needsYou = (a: Agent) => a.requests.length > 0 || a.status === "waiting"
+
+/** The question or approval an agent is waiting on, when its activity has one: a pending request item. */
+export const request = (a: Agent): Item | null =>
+  needsYou(a) ? a.items.find((i) => category(i.type, i.tool) === "ask" && LIVE.has(i.status)) ?? null : null
+
+/** Since when an agent has waited on you: its request's time, else its pending request item's, else its last activity. */
+export function waitingSince(a: Agent): number | null {
+  if (!needsYou(a)) return null
+  const item = request(a)
+  return ms(a.asked) ?? ms(item?.started_at) ?? ms(item?.updated_at) ?? ms(a.updated)
+}
 export const isLive = (a: Agent) => LIVE.has(a.status)
 /** Running, as the dashboard's ACTIVE tile, `--once` and the bar all count it: live and not waiting on you. */
 export const isRunning = (a: Agent) => isLive(a) && !needsYou(a)

@@ -185,7 +185,7 @@ CREATE TABLE ${PREFIX}provider_turns (thread_id TEXT, provider_thread_id TEXT, o
 CREATE TABLE ${PREFIX}turn_items (item_id TEXT PRIMARY KEY, thread_id TEXT, run_id TEXT, node_id TEXT,
   provider_thread_id TEXT, type TEXT, status TEXT, updated_at TEXT, ordinal INTEGER, payload_json TEXT);
 CREATE TABLE ${PREFIX}runtime_requests (request_id TEXT PRIMARY KEY, thread_id TEXT, node_id TEXT, kind TEXT,
-  status TEXT, resolved_at TEXT);
+  status TEXT, created_at TEXT, resolved_at TEXT);
 `
 
 /** A stable pseudo-random number in [0, 1) for the given keys, so rebuilds agree with each other. */
@@ -435,7 +435,7 @@ class Scene {
     for (const [minutes, spec, status] of r.tail ?? []) {
       if (!spec.startsWith("@") || status !== "pending" || this.at(minutes) > this.now) continue
       this.w.row(`${PREFIX}runtime_requests`, { request_id: `req-${r.id}`, thread_id: r.id, node_id: null, kind: "user_input",
-        status: "pending", resolved_at: null })
+        status: "pending", created_at: iso(this.at(minutes)), resolved_at: null })
     }
     this.w.row(`${PREFIX}threads`, {
       thread_id: r.id, deleted_at: null, archived_at: null,
