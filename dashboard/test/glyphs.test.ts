@@ -16,7 +16,7 @@ import { WINDOWS, draw, initialState, type ViewState } from "../src/view.ts"
 // Checked one by one against the font's Regular and Bold faces
 // (fc-list "JetBrainsMono Nerd Font:charset=<hex code point>"). The last test
 // rechecks the list wherever the font is installed.
-const SYMBOLS = "·×±»…‖•−←↑→↓↩⇉∴≡⊕⊘⌥⏎␣─│┃┊└├═║╔╗╚╝╭╮╯╰╵▀▁▂▃▄▅▆▇█▉▊▋▌▍▎▏▔▕■▲▸▼◆◇◈◉○◌◎●◔✓✗❯"
+const SYMBOLS = "·×±»—…‖•−←↑→↓↩⇉∴≡⊕⊘⌥⏎␣─│┃┊└├═║╔╗╚╝╭╮╯╰╵▀▁▂▃▄▅▆▇█▉▊▋▌▍▎▏▔▕■▲▸▼◆◇◈◉○◌◎●◔✓✗❯"
 const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => String.fromCodePoint(a + i))
 const ALLOWED = new Set([
   ...range(0x20, 0x7e), // ASCII
@@ -67,6 +67,7 @@ test("a rendered demo frame draws only characters the font has", () => {
     // Every agent's details, the source failing, updates paused, and nothing to show.
     for (const a of snap.agents) render(snap, 200, 80, now, (st) => (st.selected = a.id), a.title)
     render(snap, 140, 45, now, (st) => (st.error = "database is locked"), "error")
+    render({ agents: [], at: 0, path: "" }, 140, 45, now, (st) => (st.error = "No T3 database at ~/.t3/userdata/statev2.sqlite."), "never read")
     render(snap, 140, 45, now, (st) => (st.paused = true), "paused")
     render({ ...snap, agents: [] }, 140, 45, now, () => {}, "empty")
   }

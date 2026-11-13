@@ -2,10 +2,10 @@
 // Encoding rules: shape + brightness carry state (works in monochrome themes);
 // the theme's hot color is reserved for "needs you", failures and limits.
 import { BIG_ROWS, BOLD, Braille, Canvas, bigWidth, clean, drawBig, drawFont, fit, hbar, level, textWidth } from "./canvas.ts"
-import { duration, shortModel, tokens } from "./format.ts"
+import { duration, shortModel, tokens, wrap } from "./format.ts"
 import { t3Thread } from "./focus.ts"
-import { LIVE, SLOW_TOOL_MS, isLive, ms, needsYou, pace, tree, category, type Agent, type Item, type Pace, type Snapshot,
-  type TreeRow } from "./source.ts"
+import { LIVE, SLOW_TOOL_MS, SourceError, isLive, isRunning, ms, needsYou, pace, tree, category, type Agent, type Item, type Pace, type Snapshot,
+  type SourceProblem, type TreeRow, tilde } from "./source.ts"
 import { TEXT_CONTRAST, family, mix, ramp, reach, type Color, type Family, type Palette } from "./theme.ts"
 import type { Provider } from "./usage.ts"
 
@@ -21,7 +21,8 @@ export interface ViewState {
   detailScroll: number
   listScroll: number
   windowIndex: number
-  error: string | null
+  error: string | null // the source's last error; the last snapshot, if any, stays on screen
+  cause: Trouble | null // what that error was, for the advice in the agent list
   interval: number
   bootAt: number
   lastFrame: number
@@ -41,9 +42,17 @@ export interface ViewState {
 
 export function initialState(interval = 2): ViewState {
   return { selected: null, collapsed: new Set(), activeOnly: false, paused: false, help: false, fx: false,
-    detailScroll: 0, listScroll: 0, windowIndex: 1, error: null, interval, bootAt: Date.now(), lastFrame: 0,
+    detailScroll: 0, listScroll: 0, windowIndex: 1, error: null, cause: null, interval, bootAt: Date.now(), lastFrame: 0,
     tween: new Map(), firstSeen: new Map(), seeded: false, shimmer: new Map(), calm: false, frozenAt: null,
     t3Title: null, t3Linked: null, t3Link: false, follow: true, notice: null, demo: false }
+}
+
+/** Why T3's database could not be read: SourceError's classification, or "other". */
+export interface Trouble { kind: SourceProblem | "other"; path: string; detail: string }
+
+export function trouble(err: unknown, path: string): Trouble {
+  if (err instanceof SourceError) return { kind: err.kind, path: err.path, detail: err.detail }
+  return { kind: "other", path, detail: err instanceof Error ? err.message : String(err) }
 }
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -256,8 +265,10 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
       frame.smooth = true
     }
   }
-  const live = agents.filter((a) => isLive(a) && !needsYou(a))
+  const running = agents.filter(isRunning) // the same count as --once and --status
   const waiting = agents.filter(needsYou)
+  // T3 not read yet, or failing: nothing on screen may claim all is calm.
+  const blind = !snap.at || st.error !== null
   // Spinners turn only for agents at work; a name shimmer plays once per new tool call.
   if (!st.calm) {
     for (const a of agents) {
@@ -271,7 +282,7 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
 
   header(c, st, snap, p, now, W)
   let y = 1
-  y += kpis(c, y, W, H >= KPI_BIG_MIN_H, st, agents, live, waiting, usage, p, now, frame.paces)
+  y += kpis(c, y, W, H >= KPI_BIG_MIN_H, st, agents, running, waiting, usage, p, now, frame.paces, blind)
   const limited = usage.filter((u) => u.limits.length)
   if (limited.length) y += limits(c, y, W, limited, p, now)
   const mainTop = y
@@ -284,20 +295,18 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
     for (let yy = mainTop; yy < H - 1; yy++) c.set(lw, yy, "│", p.rule)
   } else {
     const need = frame.rows.length * 2 + 2
-    const lh = Math.max(5, Math.min(need, Math.floor(mainH * 0.46)))
+    const lh = !snap.at ? mainH : Math.max(5, Math.min(need, Math.floor(mainH * 0.46)))
     frame.list = { x: 0, y: mainTop, w: W, h: lh }
     frame.detail = { x: 1, y: mainTop + lh, w: W - 2, h: mainH - lh }
   }
-  const listEnd = list(c, frame, st, p, now)
+  const listEnd = list(c, frame, st, snap, p, now)
   // Wide layouts: spend the spare list-column rows on cross-agent views.
-  if (wide && mainTop + mainH - listEnd >= 8) extras(c, { x: 1, y: listEnd + 1, w: frame.list.w - 2, h: mainTop + mainH - listEnd - 1 }, st, agents, usage, p, now)
+  if (wide && snap.at && mainTop + mainH - listEnd >= 8) extras(c, { x: 1, y: listEnd + 1, w: frame.list.w - 2, h: mainTop + mainH - listEnd - 1 }, st, agents, usage, p, now)
   const sel = agents.find((a) => a.id === st.selected)
   if (sel && frame.detail.h > 3) {
     const height = detail(c, frame.detail, sel, st, p, now, frame)
     frame.detailMax = Math.max(0, height - frame.detail.h)
     if (st.detailScroll > frame.detailMax) st.detailScroll = frame.detailMax
-  } else if (!agents.length) {
-    c.text(frame.detail.x + 1, frame.detail.y + 1, "No unarchived T3 threads found.", p.dim)
   }
   footer(c, st, snap, p, now, W, H)
   if (st.help) help(c, p, W, H)
@@ -424,7 +433,7 @@ function header(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
   // The product name as plain text: a badge would read as T3's own branding.
   let x = 1 + c.text(1, 0, "T3 Agents", p.bright, { attr: BOLD }) + 2
   if (st.paused) x += c.text(x, 0, "‖ PAUSED", p.warn, { attr: BOLD })
-  else if (st.error) x += c.text(x, 0, blink(now) ? `${RETRY} RETRYING` : "  RETRYING", p.hot, { attr: BOLD })
+  else if (st.error) x += c.text(x, 0, st.calm || blink(now) ? `${RETRY} RETRYING` : "  RETRYING", p.hot, { attr: BOLD })
   else {
     // The dot breathes on each refresh: bright right after a snapshot, fading out. Calm mode holds it.
     const age = st.calm ? 1 : Math.min(1, (now - snap.at) / (st.interval * 1000))
@@ -449,41 +458,46 @@ function header(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
 // Below this height the tiles show their values as bold text to leave room for agents.
 const KPI_BIG_MIN_H = 30
 
-function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agents: Agent[], live: Agent[], waiting: Agent[],
-  usage: Provider[], p: Palette, now: number, paces: Map<string, Pace>): number {
+function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agents: Agent[], running: Agent[], waiting: Agent[],
+  usage: Provider[], p: Palette, now: number, paces: Map<string, Pace>, blind: boolean): number {
   const windowMs = WINDOWS[st.windowIndex] * 60_000
   const all = agents.flatMap((a) => a.events)
   const recent = all.filter((e) => e.t >= now - 5 * 60_000 && TOOL(e.cat))
   const rate = recent.length / 5
   const fails = all.filter((e) => e.failed && e.t >= now - windowMs)
   const lastFail = fails.length ? Math.max(...fails.map((e) => e.t)) : null
-  const peakPool = live.length ? live : agents
+  const peakPool = running.length ? running : agents
   const peak = peakPool.reduce<Agent | null>((best, a) => ((ratio(a) ?? -1) > (best ? ratio(best) ?? -1 : -1) ? a : best), null)
   const peakRatio = peak ? ratio(peak) : null
   const today = usage.reduce((n, u) => n + u.today, 0)
 
-  type Tile = { label: string; big: string; color: Color; sub: (x: number, y: number, w: number) => void; alert?: boolean }
+  // A value is news (big digits), zero (small and dim: nothing to look at) or
+  // missing (a small dash, with the reason underneath). Big bright numbers mean "look here".
+  type Tile = { label: string; value: string; color: Color; quiet?: boolean; sub: (x: number, y: number, w: number) => void; alert?: boolean }
+  const note = (text: string, color = p.dim) => (x: number, yy: number, w: number) => void c.text(x, yy, fit(text, w), color)
+  const zero = (label: string, value: string, sub: Tile["sub"]): Tile => ({ label, value, color: p.dim, quiet: true, sub })
+  const missing = (label: string, why: string, color = p.dim): Tile => ({ label, value: "—", color: p.dim, quiet: true, sub: note(why, color) })
+  // Unread T3 must never pass for a calm one: no zeros, just a dash and why.
+  const unread = (label: string) => missing(label, "can't read T3", p.text2)
   const tiles: Tile[] = [
-    { label: "ACTIVE", big: String(live.length), color: live.length ? p.bright : p.dim, sub: (x, yy, w) => {
-      if (!live.length) return void c.text(x, yy, "nothing running", p.dim)
+    blind ? unread("ACTIVE") : !running.length ? zero("ACTIVE", "0", note("nothing running")) : { label: "ACTIVE", value: String(running.length), color: p.bright, sub: (x, yy, w) => {
       // One mark per agent, as in its row: a spinner while it works (all on one beat),
       // a still ◌ once it goes quiet, a still ◔ while it is queued.
-      const quiet = live.filter((a) => paces.get(a.id)?.quiet).length
+      const quiet = running.filter((a) => paces.get(a.id)?.quiet).length
       const room = quiet ? w - 9 : w
       let col = 0
-      for (const a of live) {
+      for (const a of running) {
         if (col + 2 > room) break
         const s = statusOf(a, now, p, paces.get(a.id), st.calm)
         c.set(x + col, yy, s.glyph, s.color)
         col += 2
       }
-      const long = live.some((a) => paces.get(a.id)?.quiet && paces.get(a.id)?.stalled)
+      const long = running.some((a) => paces.get(a.id)?.quiet && paces.get(a.id)?.stalled)
       if (quiet) c.text(x + col, yy, `${quiet} quiet`, long ? p.warn : p.text2, { max: w - col })
     } },
-    { label: "NEEDS YOU", big: String(waiting.length), color: waiting.length ? p.hot : p.dim, alert: waiting.length > 0,
-      sub: (x, yy, w) => void c.text(x, yy, waiting.length ? "◆ " + fit(waiting[0].title, w - 2) : "nothing pending",
-        waiting.length ? p.hot : p.dim, { max: w }) },
-    { label: "TOOLS / MIN", big: rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1), color: rate ? p.fg : p.dim, sub: (x, yy, w) => {
+    blind ? unread("NEEDS YOU") : !waiting.length ? zero("NEEDS YOU", "0", note("nothing pending")) : { label: "NEEDS YOU", value: String(waiting.length), color: p.hot, alert: true,
+      sub: (x, yy, w) => void c.text(x, yy, "◆ " + fit(waiting[0].title, w - 2), p.hot, { max: w }) },
+    blind ? unread("TOOLS / MIN") : { label: "TOOLS / MIN", value: rate >= 10 ? String(Math.round(rate)) : rate ? rate.toFixed(1) : "0", color: p.fg, quiet: !rate, sub: (x, yy, w) => {
       const counts = Array(w).fill(0)
       const { col } = slices(w, windowMs, now)
       for (const e of all) {
@@ -493,22 +507,23 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agen
       const max = Math.max(1, ...counts)
       counts.forEach((n, i) => c.set(x + i, yy, n ? level(n, max) : "▁", n ? ramp(p, 0.3 + 0.7 * (n / max)) : p.track))
     } },
-    { label: "PEAK CONTEXT", big: peakRatio === null ? "--" : Math.round(peakRatio * 100) + "%",
-      color: peakRatio === null ? p.dim : zoneColor(p, Math.max(0.5, peakRatio)), sub: (x, yy, w) =>
-        void c.text(x, yy, peak && peakRatio !== null ? fit(peak.title, w) : "not reported", p.dim, { max: w }) },
-    { label: "TOKENS TODAY", big: today ? tokens(today) : "--", color: today ? p.fg : p.dim, sub: (x, yy, w) => {
-      const shown = usage.filter((u) => u.today)
-      if (!shown.length) return void c.text(x, yy, "no records", p.dim)
-      let col = 0
-      for (const u of shown) {
-        const t = `${u.id} ${tokens(u.today)}`
-        if (col + textWidth(t) + 2 > w) break
-        c.set(x + col, yy, "●", p.provider[usageFamily(u.id)])
-        col += 2 + c.text(x + col + 2, yy, t, p.dim) + 2
-      }
-    } },
-    { label: "FAILED", big: String(fails.length), color: fails.length && lastFail && now - lastFail < 10 * 60_000 ? p.hot : fails.length ? p.warn : p.dim,
-      sub: (x, yy, w) => void c.text(x, yy, lastFail ? `last ${duration((now - lastFail) / 1000)} ago` : "clean run", p.dim, { max: w }) },
+    blind ? unread("PEAK CONTEXT") : peakRatio === null ? missing("PEAK CONTEXT", agents.length ? "not reported" : "no agents")
+      : { label: "PEAK CONTEXT", value: Math.round(peakRatio * 100) + "%", color: zoneColor(p, Math.max(0.5, peakRatio)),
+        sub: note(peak!.title) },
+    // Omarchy's records, not T3's: this one still counts when T3 can't be read.
+    !usage.length ? missing("TOKENS TODAY", "no Omarchy usage data") : !today ? zero("TOKENS TODAY", "0", note("none yet today"))
+      : { label: "TOKENS TODAY", value: tokens(today), color: p.fg, sub: (x, yy, w) => {
+        let col = 0
+        for (const u of usage.filter((u) => u.today)) {
+          const t = `${u.id} ${tokens(u.today)}`
+          if (col + textWidth(t) + 2 > w) break
+          c.set(x + col, yy, "●", p.provider[usageFamily(u.id)])
+          col += 2 + c.text(x + col + 2, yy, t, p.dim) + 2
+        }
+      } },
+    blind ? unread("FAILED") : !fails.length ? zero("FAILED", "0", note("clean run"))
+      : { label: "FAILED", value: String(fails.length), color: lastFail && now - lastFail < 10 * 60_000 ? p.hot : p.warn,
+        sub: note(`last ${duration((now - lastFail!) / 1000)} ago`) },
   ]
   const count = Math.max(2, Math.min(tiles.length, Math.floor((W + 1) / 19)))
   const tw = Math.floor((W - (count - 1)) / count)
@@ -523,9 +538,10 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agen
     c.fill(x, y, w, h, p.panel)
     if (t.alert) for (let yy = y; yy < y + h; yy++) c.set(x, yy, "▌", blink(now) ? p.hot : mix(p.hot, p.panel, 0.6), p.panel)
     c.text(x + 2, y, t.label, t.alert ? p.hot : p.dim, { attr: BOLD, max: w - 3 })
-    // A value too wide for its tile falls back to text on the big digits' baseline.
-    if (big && bigWidth(t.big) <= w - 3) drawBig(c, x + 2, y + 1, t.big, t.color)
-    else c.text(x + 2, y + valueRows, t.big, t.color, { attr: BOLD, max: w - 3 })
+    // Quiet values and values too wide for big digits are text on the big digits' baseline.
+    if (t.quiet) c.text(x + 2, y + valueRows, t.value, p.dim, { max: w - 3 })
+    else if (big && bigWidth(t.value) <= w - 3) drawBig(c, x + 2, y + 1, t.value, t.color)
+    else c.text(x + 2, y + valueRows, t.value, t.color, { attr: BOLD, max: w - 3 })
     t.sub(x + 2, y + valueRows + gap + 1, w - 3)
   })
   return h
@@ -572,11 +588,12 @@ function limitRow(c: Canvas, X: number, y: number, W: number, u: Provider, l: Pr
   if (pace) c.text(x + 9, y, pace, hot || ahead ? p.hot : p.dim)
 }
 
-function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): number {
+function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette, now: number): number {
   const { x: X, y: Y, w: W, h: H } = frame.list
   const rows = frame.rows
   const windowMs = WINDOWS[st.windowIndex] * 60_000
   const liveN = rows.filter((r) => isLive(r.agent)).length
+  if (!snap.at) return unread(c, frame.list, st, snap, p)
   section(c, X + 1, Y, W - 2, "AGENTS", p, `${rows.length} shown · ${liveN} live`)
   const bodyY = Y + 1
   const bodyH = H - 1
@@ -704,6 +721,36 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
   return bodyY + 1 + Math.min(visible, rows.length - first) * per
 }
 
+/** No snapshot to show: one message in place of the agents, naming the database and what to try. */
+function unread(c: Canvas, r: Rect, st: ViewState, snap: Snapshot, p: Palette): number {
+  const { x: X, y: Y, w: W, h: H } = r
+  const t = st.cause
+  const path = tilde(t?.path || snap.path) || "T3's database"
+  section(c, X + 1, Y, W - 2, "AGENTS", p, st.error ? "can't read T3" : "reading T3…", st.error ? p.hot : p.dim)
+  const head = !st.error ? `Reading ${path}…`
+    : t?.kind === "missing" ? `No T3 database at ${path}.`
+    : t?.kind === "schema" ? `T3's database at ${path} has a layout this version doesn't know: ${t.detail}.`
+    : `Can't read the T3 database at ${path}: ${t?.detail || st.error}.`
+  const tries = !st.error ? [] : t?.kind === "schema"
+    ? ["T3 Code may have changed its database: look for a newer T3 Agents."]
+    : [t?.kind === "unreadable" ? "Check it is T3 Code's statev2.sqlite and that your user can read it."
+        : "Is T3 Code installed, and has it been opened at least once?",
+      "T3 data somewhere else? Start with --db PATH, or set T3CODE_HOME to its folder."]
+  if (st.error) tries.push("Just looking? t3-agents --demo shows made-up agents.")
+  let y = Y + 2
+  const w = W - 4
+  for (const line of wrap(head, w)) if (y < Y + H) c.text(X + 2, y++, line, p.fg, { attr: BOLD })
+  y++
+  for (const tip of tries) {
+    wrap(tip, w - 2).forEach((line, i) => {
+      if (y >= Y + H) return
+      if (i === 0) c.text(X + 2, y, "·", p.dim)
+      c.text(X + 4, y++, line, p.text2)
+    })
+  }
+  return y
+}
+
 // ── Cross-agent panels for spare room in the list column ───────────────────
 
 function extras(c: Canvas, r: Rect, st: ViewState, agents: Agent[], usage: Provider[], p: Palette, now: number) {
@@ -753,7 +800,8 @@ function pulse(c: Canvas, X: number, Y: number, W: number, h: number, st: ViewSt
   const height = (n: number) => Math.max(0.08, n / max)
   counts.forEach((n, i) => n && plot.column(i, height(n)))
   const perMin = max / (size / 60_000)
-  section(c, X, Y, W, "PULSE", p, `tool calls, all agents · peak ${perMin >= 10 ? Math.round(perMin) : perMin.toFixed(1)}/min`)
+  const any = counts.some((n) => n > 0)
+  section(c, X, Y, W, "PULSE", p, any ? `tool calls, all agents · peak ${perMin >= 10 ? Math.round(perMin) : perMin.toFixed(1)}/min` : "no tool calls in this window")
   plot.draw(c, X, Y + 1, (col, row) => {
     const f = byFam[col]
     const fam = (Object.keys(f) as Family[]).reduce((a, b) => (f[b] > f[a] ? b : a), "other")
@@ -1052,7 +1100,7 @@ function footer(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
   const y = H - 1
   c.fill(0, y, W, 1, p.panel)
   if (st.error) {
-    c.text(1, y, fit("SOURCE ERROR · last snapshot kept · " + st.error, W - 2), p.hot)
+    c.text(1, y, fit(`SOURCE ERROR · ${snap.at ? "last snapshot kept · " : ""}retrying every ${st.interval}s · ${st.error}`, W - 2), p.hot)
     return
   }
   const keys: [string, string][] = [["↑↓", "select"], ["⏎", "open in T3"], ["␣", "fold"], ["a", "active"],

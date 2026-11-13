@@ -10,7 +10,7 @@ import { keyName } from "./keys.ts"
 import { Source, type Snapshot } from "./source.ts"
 import { ThemeWatcher } from "./theme.ts"
 import { UsageReader } from "./usage.ts"
-import { WINDOWS, draw, initialState, observe, type Frame, type ViewState } from "./view.ts"
+import { WINDOWS, draw, initialState, observe, trouble, type Frame, type ViewState } from "./view.ts"
 
 /**
  * Frame rates. Idle keeps the clock ticking; the beat matches the spinners'
@@ -131,9 +131,11 @@ export class App {
     try {
       this.snap = this.source.snapshot()
       this.st.error = null
+      this.st.cause = null
       observe(this.st, this.snap, Date.now()) // what this snapshot brought is what flashes
     } catch (err) {
       this.st.error = err instanceof Error ? err.message : String(err)
+      this.st.cause = trouble(err, this.source.path) // the agent list says what to try
     }
     this.renderer?.requestRender()
   }

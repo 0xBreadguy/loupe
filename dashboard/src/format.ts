@@ -39,6 +39,32 @@ export function fit(s: string, max: number): string {
   return out + "…"
 }
 
+/** Break text into lines at most `max` columns wide, at spaces; a word longer than a line (a path) breaks anywhere. */
+export function wrap(s: string, max: number): string[] {
+  if (max <= 0) return []
+  const lines: string[] = []
+  let line = ""
+  for (let word of s.split(/\s+/).filter(Boolean)) {
+    if (line && textWidth(line) + 1 + textWidth(word) <= max) {
+      line += " " + word
+      continue
+    }
+    if (line) lines.push(line)
+    while (textWidth(word) > max) {
+      let head = ""
+      for (const ch of word) {
+        if (textWidth(head + ch) > max) break
+        head += ch
+      }
+      lines.push(head)
+      word = word.slice(head.length)
+    }
+    line = word
+  }
+  if (line) lines.push(line)
+  return lines
+}
+
 export function tokens(n: number | undefined | null): string {
   if (typeof n !== "number" || !Number.isFinite(n)) return "--"
   if (n >= 1e9) return (n / 1e9).toFixed(1) + "B"
