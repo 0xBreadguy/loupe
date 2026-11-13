@@ -101,8 +101,10 @@ test("n with nobody waiting says so", () => {
   const a = app(snap)
   frame(a)
   const before = a.st.selected
+  assert.equal(nextWaiting(a.st, snap.agents, NOW), null)
   key(a, "n")
   assert.equal(a.st.selected, before)
+  assert.equal(a.st.picked, null, "and picks nothing")
   assert.match(a.st.notice!.text, /Nobody is waiting on you/)
 })
 
