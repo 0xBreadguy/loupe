@@ -26,7 +26,11 @@ export interface ViewState {
   bootAt: number
   lastFrame: number
   tween: Map<string, number>
-  firstSeen: Map<string, number>
+  firstSeen: Map<string, number> // tool item -> when a snapshot first brought it; 0: there from the start
+  seeded: boolean // the first snapshot has been observed, so later items are new arrivals
+  shimmer: Map<string, number> // agent -> when its newest tool call arrived, for a one-shot name shimmer
+  calm: boolean // no decorative motion: still spinners, no tweens, wipe, shimmer or CRT, idle frame rate
+  frozenAt: number | null // help is open: the moment the dashboard underneath stopped
   t3Title: string | null // title of the T3 Code window, null when unknown or closed
   t3Linked: string | null // the thread that title names, as last matched
   t3Link: boolean // Hyprland is reachable, so the link can work
@@ -38,8 +42,8 @@ export interface ViewState {
 export function initialState(interval = 2): ViewState {
   return { selected: null, collapsed: new Set(), activeOnly: false, paused: false, help: false, fx: false,
     detailScroll: 0, listScroll: 0, windowIndex: 1, error: null, interval, bootAt: Date.now(), lastFrame: 0,
-    tween: new Map(), firstSeen: new Map(), t3Title: null, t3Linked: null, t3Link: false, follow: true,
-    notice: null, demo: false }
+    tween: new Map(), firstSeen: new Map(), seeded: false, shimmer: new Map(), calm: false, frozenAt: null,
+    t3Title: null, t3Linked: null, t3Link: false, follow: true, notice: null, demo: false }
 }
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -50,8 +54,8 @@ export interface Frame {
   list: Rect
   detail: Rect
   detailMax: number // maximum detail scroll
-  animating: boolean
-  fast: boolean // spinners / shimmer need a high frame rate
+  beat: boolean // spinners or a fading flash on screen: frames at the spinner beat
+  smooth: boolean // a tween, name shimmer or boot wipe in flight: a higher frame rate, briefly
   linked: Set<string> // the thread open in T3 Code and everything under it
   paces: Map<string, Pace> // running agents: busy in a tool, working, or quiet
 }
@@ -95,17 +99,23 @@ export const GLYPH: Record<string, string> = {
 }
 const TOOL = (cat: string) => cat !== "you" && cat !== "think" && cat !== "reply"
 const SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+export const BEAT_MS = 100 // one spinner frame
+const STILL = "◉" // a running agent in calm mode: still, and unlike the quiet ◌
 const QUEUED = "◔" // queued or starting: not working yet, so it does not move
 const RETRY = "↩" // the source is retrying; a usage window starts over
-const spinner = (now: number, offset = 0) => SPIN[Math.floor(now / 80 + offset) % SPIN.length]
+/** One shared beat: every spinner shows the same frame (the bar widget uses the same formula). */
+export const spinner = (now: number) => SPIN[Math.floor(now / BEAT_MS) % SPIN.length]
+const spin = (now: number, calm: boolean) => (calm ? STILL : spinner(now))
 const blink = (now: number, period = 1000) => now % period < period * 0.55
+/** Running and getting on with it: the only agents whose marks may move. Quiet, queued and waiting ones stay still. */
+const working = (a: Agent, pc: Pace | undefined) => (a.status === "running" || a.status === "active") && !needsYou(a) && !pc?.quiet
 
-export function statusOf(a: Agent, now: number, p: Palette, pc?: Pace): { glyph: string; color: Color; label: string } {
+export function statusOf(a: Agent, now: number, p: Palette, pc?: Pace, calm = false): { glyph: string; color: Color; label: string } {
   if (needsYou(a)) return { glyph: blink(now) ? "◆" : "◇", color: p.hot, label: "NEEDS YOU" }
   // A quiet agent's spinner stops: motion means work is happening.
   if (pc?.quiet) return { glyph: "◌", color: pc.stalled ? p.warn : p.text2, label: "RUNNING" }
   switch (a.status) {
-    case "running": case "active": return { glyph: spinner(now, a.id.length), color: pc?.stalled ? p.warn : p.bright, label: "RUNNING" }
+    case "running": case "active": return { glyph: spin(now, calm), color: pc?.stalled ? p.warn : p.bright, label: "RUNNING" }
     case "starting": case "preparing": case "queued": case "pending":
       return { glyph: QUEUED, color: p.text2, label: a.status.toUpperCase() }
     case "completed": return { glyph: "✓", color: p.dim, label: "DONE" }
@@ -122,27 +132,26 @@ function zoneColor(p: Palette, t: number): Color {
   return ramp(p, 0.2 + t * 0.85)
 }
 
-function contextBar(c: Canvas, x: number, y: number, w: number, frac: number, live: boolean, now: number, p: Palette, track = p.track) {
-  const pos = ((now % 1800) / 1800) * (w * frac + 8) - 4
-  hbar(c, x, y, w, frac, {
-    track,
-    color: (i, cells) => {
-      const base = zoneColor(p, (i + 0.5) / cells)
-      if (!live) return base
-      const k = Math.max(0, 1 - Math.abs(i - pos) / 3)
-      return mix(base, p.bright, k * 0.55)
-    },
-  })
+// The bar moves only when its value does (the tween); the fill itself is still.
+function contextBar(c: Canvas, x: number, y: number, w: number, frac: number, p: Palette, track = p.track) {
+  hbar(c, x, y, w, frac, { track, color: (i, cells) => zoneColor(p, (i + 0.5) / cells) })
 }
 
-function shimmer(c: Canvas, x: number, y: number, s: string, base: Color, p: Palette, now: number, on: boolean, attr = 0, bg?: Color): number {
-  if (!on) return c.text(x, y, s, base, { attr, bg })
+export const SHIMMER_MS = 450
+export const FLASH_MS = 1600
+
+/**
+ * A name with a one-shot highlight that sweeps across it once, easing out,
+ * starting at `at` (when a new tool call arrived). Plain text otherwise.
+ */
+function shimmer(c: Canvas, x: number, y: number, s: string, base: Color, p: Palette, now: number, at: number | undefined, attr = 0, bg?: Color): number {
+  const t = at === undefined ? 1 : (now - at) / SHIMMER_MS
+  if (t < 0 || t >= 1) return c.text(x, y, s, base, { attr, bg })
   const chars = [...clean(s)]
-  const span = chars.length + 14
-  const pos = ((now % 2600) / 2600) * span - 7
+  const pos = -4 + (1 - (1 - t) ** 3) * (chars.length + 8) // enters and leaves off the ends, so it never pops
   let col = 0
   chars.forEach((ch, i) => {
-    const k = Math.max(0, 1 - Math.abs(i - pos) / 4.5)
+    const k = Math.max(0, 1 - Math.abs(i - pos) / 4)
     col += c.text(x + col, y, ch, mix(base, p.bright, k), { attr, bg })
   })
   return col
@@ -157,30 +166,40 @@ function section(c: Canvas, x: number, y: number, w: number, label: string, p: P
 
 // ── Lanes: activity per time slice, tinted while a run was in progress ─────
 
+/**
+ * Time slices on the wall clock, for every chart with a time axis: each slice
+ * is whole seconds long and starts at a multiple of its length, so a column
+ * changes only when data arrives or a new slice begins, never just because a
+ * frame was drawn a moment later. `col` maps a time to its column; the newest
+ * slice, the one holding `now`, is the last column.
+ */
+export function slices(cols: number, windowMs: number, now: number): { size: number; col: (t: number) => number } {
+  const size = Math.max(1000, Math.round(windowMs / Math.max(1, cols) / 1000) * 1000)
+  const last = Math.floor(now / size)
+  return { size, col: (t) => cols - 1 - (last - Math.floor(t / size)) }
+}
+
 interface LaneData { counts: number[]; fails: boolean[]; you: boolean[]; busy: boolean[] }
 
 function laneData(a: Agent, w: number, windowMs: number, now: number): LaneData {
-  const start = now - windowMs
-  const bucket = windowMs / w
+  const { col } = slices(w, windowMs, now)
   const d: LaneData = { counts: Array(w).fill(0), fails: Array(w).fill(false), you: Array(w).fill(false), busy: Array(w).fill(false) }
   for (const e of a.events) {
-    if (e.t < start || e.t > now + 5000) continue
-    const i = Math.min(w - 1, Math.floor((e.t - start) / bucket))
+    const i = Math.min(w - 1, col(e.t)) // a clock a few seconds ahead still lands in the newest slice
+    if (i < 0 || e.t > now + 5000) continue
     if (e.cat === "you") d.you[i] = true
     else d.counts[i]++
     if (e.failed) d.fails[i] = true
   }
   for (const [s, e] of a.spans) {
-    const end = e ?? now
-    if (end < start) continue
-    const i0 = Math.max(0, Math.floor((s - start) / bucket))
-    const i1 = Math.min(w - 1, Math.floor((end - start) / bucket))
+    const i0 = Math.max(0, col(s))
+    const i1 = Math.min(w - 1, col(e ?? now))
     for (let i = i0; i <= i1; i++) d.busy[i] = true
   }
   return d
 }
 
-function drawLane(c: Canvas, x: number, y: number, d: LaneData, max: number, live: boolean, now: number, p: Palette, rowBg: Color, tint: Color | null) {
+function drawLane(c: Canvas, x: number, y: number, d: LaneData, max: number, p: Palette, rowBg: Color, tint: Color | null) {
   const w = d.counts.length
   const tick = Math.max(1, Math.round(w / 6))
   // A provider-tinted band while a run is in progress; activity blends toward the provider hue.
@@ -188,24 +207,27 @@ function drawLane(c: Canvas, x: number, y: number, d: LaneData, max: number, liv
   for (let i = 0; i < w; i++) {
     const bg = d.busy[i] ? busy : rowBg
     const k = Math.min(1, d.counts[i] / max)
-    if (d.fails[i]) c.set(x + i, y, level(Math.max(1, d.counts[i]), max), p.hot, bg)
+    // A failure has its own shape, so it reads without the hot color too.
+    if (d.fails[i]) c.set(x + i, y, "×", p.hot, bg, BOLD)
     else if (d.you[i]) c.set(x + i, y, "┃", p.accent, bg)
     else if (d.counts[i]) c.set(x + i, y, level(d.counts[i], max), tint === null ? ramp(p, 0.35 + 0.65 * k) : mix(tint, p.bright, 0.15 + 0.35 * k), bg)
     else c.set(x + i, y, (w - 1 - i) % tick === 0 ? "·" : " ", p.faint, bg)
   }
-  if (live) c.set(x + w - 1, y, blink(now, 700) ? "▌" : " ", p.bright, busy)
 }
 
 // ── Main draw ───────────────────────────────────────────────────────────────
 
 export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[], p: Palette, now: number): Frame {
+  // Help open: the dashboard underneath stops where it was, and nothing on it moves.
+  if (st.help) now = st.frozenAt ??= now
+  else st.frozenAt = null
   c.clear(p.bg, p.fg)
   const W = c.w
   const H = c.h
   const dt = st.lastFrame ? Math.min(0.25, Math.max(0, (now - st.lastFrame) / 1000)) : 0
   st.lastFrame = now
   const frame: Frame = { rows: [], hits: [], list: { x: 0, y: 0, w: 0, h: 0 }, detail: { x: 0, y: 0, w: 0, h: 0 },
-    detailMax: 0, animating: false, fast: false, linked: new Set<string>(),
+    detailMax: 0, beat: false, smooth: false, linked: new Set<string>(),
     paces: new Map<string, Pace>() }
   if (W < 48 || H < 14) {
     c.text(1, 0, "T3 AGENTS", p.bright, { attr: BOLD })
@@ -222,24 +244,29 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
     st.selected = ids[0] ?? null
     st.detailScroll = 0
   }
-  // Tween every bar toward its reported value (first frame sweeps up from zero).
+  // Tween every bar toward its reported value (first frame sweeps up from zero); calm mode jumps there.
   for (const a of agents) {
     const target = ratio(a) ?? 0
     const cur = st.tween.get(a.id) ?? 0
-    const next = cur + (target - cur) * (1 - Math.exp(-dt * 7))
+    const next = st.calm ? target : cur + (target - cur) * (1 - Math.exp(-dt * 7))
     if (Math.abs(target - next) < 0.0015) st.tween.set(a.id, target)
     else {
       st.tween.set(a.id, next)
-      frame.animating = true
+      frame.smooth = true
     }
-  }
-  if (st.firstSeen.size > 1500) {
-    for (const [k, t] of st.firstSeen) if (t < now - 600_000) st.firstSeen.delete(k)
   }
   const live = agents.filter((a) => isLive(a) && !needsYou(a))
   const waiting = agents.filter(needsYou)
-  if (live.length) frame.fast = true
-  if (waiting.length) frame.animating = true
+  // Spinners turn only for agents at work; a name shimmer plays once per new tool call.
+  if (!st.calm) {
+    for (const a of agents) {
+      if (!working(a, frame.paces.get(a.id))) continue
+      frame.beat = true
+      const at = st.shimmer.get(a.id)
+      if (at !== undefined && now >= at && now - at < SHIMMER_MS) frame.smooth = true
+    }
+  }
+  if (waiting.length && !st.calm) frame.beat = true // the "needs you" blink
 
   header(c, st, snap, p, now, W)
   let y = 1
@@ -273,15 +300,50 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
   }
   footer(c, st, snap, p, now, W, H)
   if (st.help) help(c, p, W, H)
-  // Boot: a scan line wipes the dashboard in from the top.
+  // Boot: a scan line wipes the dashboard in from the top (not in calm mode).
   const boot = (now - st.bootAt) / 650
-  if (boot < 1) {
+  if (boot < 1 && !st.calm) {
     const edge = Math.floor((1 - (1 - boot) ** 3) * H)
     c.tint(0, edge + 1, W, H, () => [p.bg, p.bg])
     for (let x = 0; x < W; x++) c.set(x, Math.min(H - 1, edge), "▔", mix(p.accent, p.bright, 0.5), c.bgAt(x, edge))
-    frame.animating = true
+    frame.smooth = true
   }
+  if (st.help) frame.beat = frame.smooth = false // frozen underneath
   return frame
+}
+
+/** Identity of a tool item across snapshots: its start stays put while it runs and when it completes. */
+export const itemKey = (i: Item): string =>
+  [i.thread_id, i.run_id, i.node_id, i.type, i.tool, i.started_at ?? i.updated_at, i.command, i.file].join("\u0000")
+
+const feedItem = (i: Item) => i.type !== "reasoning" && i.type !== "assistant_message"
+
+/**
+ * Note what a new snapshot brought, for every agent at once: tool items it did
+ * not have before flash in the activity feed, and an agent with a new tool
+ * call plays its name shimmer once. Only snapshots make anything new, so
+ * changing the selection or following T3 to another thread never flashes. The
+ * first snapshot only records what is already there.
+ */
+export function observe(st: ViewState, snap: Snapshot, now: number) {
+  const seen = new Map<string, number>()
+  for (const a of snap.agents) {
+    let call = false
+    for (const i of a.items) {
+      if (!feedItem(i)) continue
+      const key = itemKey(i)
+      const before = st.firstSeen.get(key) ?? seen.get(key)
+      if (before !== undefined) seen.set(key, before)
+      else {
+        seen.set(key, st.seeded ? now : 0)
+        if (st.seeded && TOOL(category(i.type, i.tool))) call = true
+      }
+    }
+    if (call) st.shimmer.set(a.id, now)
+  }
+  st.firstSeen = seen // only what the snapshot still holds
+  st.seeded = true
+  for (const [id, at] of st.shimmer) if (now - at >= SHIMMER_MS) st.shimmer.delete(id)
 }
 
 /** Pace for every running agent; a parent with running subagents is waiting on them. */
@@ -403,15 +465,15 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agen
   const tiles: Tile[] = [
     { label: "ACTIVE", big: String(live.length), color: live.length ? p.bright : p.dim, sub: (x, yy, w) => {
       if (!live.length) return void c.text(x, yy, "nothing running", p.dim)
-      // One mark per agent: a spinner while it works, a still ◌ once it goes quiet.
+      // One mark per agent, as in its row: a spinner while it works (all on one beat),
+      // a still ◌ once it goes quiet, a still ◔ while it is queued.
       const quiet = live.filter((a) => paces.get(a.id)?.quiet).length
       const room = quiet ? w - 9 : w
       let col = 0
       for (const a of live) {
         if (col + 2 > room) break
-        const pc = paces.get(a.id)
-        if (pc?.quiet) c.set(x + col, yy, "◌", pc.stalled ? p.warn : p.text2)
-        else c.set(x + col, yy, spinner(now, col), pc?.stalled ? p.warn : ramp(p, 0.6 + 0.4 * Math.sin(now / 300 + col)))
+        const s = statusOf(a, now, p, paces.get(a.id), st.calm)
+        c.set(x + col, yy, s.glyph, s.color)
         col += 2
       }
       const long = live.some((a) => paces.get(a.id)?.quiet && paces.get(a.id)?.stalled)
@@ -422,9 +484,10 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agen
         waiting.length ? p.hot : p.dim, { max: w }) },
     { label: "TOOLS / MIN", big: rate >= 10 ? String(Math.round(rate)) : rate.toFixed(1), color: rate ? p.fg : p.dim, sub: (x, yy, w) => {
       const counts = Array(w).fill(0)
+      const { col } = slices(w, windowMs, now)
       for (const e of all) {
-        if (e.t < now - windowMs || !TOOL(e.cat)) continue
-        counts[Math.min(w - 1, Math.floor(((e.t - (now - windowMs)) / windowMs) * w))]++
+        const i = Math.min(w - 1, col(e.t))
+        if (i >= 0 && TOOL(e.cat)) counts[i]++
       }
       const max = Math.max(1, ...counts)
       counts.forEach((n, i) => c.set(x + i, yy, n ? level(n, max) : "▁", n ? ramp(p, 0.3 + 0.7 * (n / max)) : p.track))
@@ -557,7 +620,7 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
     frame.hits.push({ y, x0: X, x1: X + W, id: a.id, area: "list" })
     if (per === 2) frame.hits.push({ y: y + 1, x0: X, x1: X + W, id: a.id, area: "list" })
     const pc = frame.paces.get(a.id)
-    const s = statusOf(a, now, p, pc)
+    const s = statusOf(a, now, p, pc, st.calm)
     const attention = needsYou(a)
     const edge = selected || attention ? "▌" : linked ? "▎" : " "
     const edgeColor = attention ? p.hot : selected ? p.accent : p.fg
@@ -579,7 +642,8 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
     const fold = row.hasChildren && st.collapsed.has(a.id) ? " ▸" : ""
     const liveRow = isLive(a) && !attention
     // Motion means work: quiet or queued agents keep their text, but nothing on their rows moves.
-    const moving = liveRow && (a.status === "running" || a.status === "active") && !pc?.quiet
+    const moving = working(a, pc)
+    const flare = moving && !st.calm ? st.shimmer.get(a.id) : undefined // a new tool call just arrived
     const nameColor = attention ? p.fg : liveRow ? p.fg : BAD.has(a.status) ? p.text2 : p.text2
     const ageText = liveRow || attention ? duration(since(a.started, now)) : a.ended ? duration(since(a.ended, now)) + " ago" : ""
     const frac = st.tween.get(a.id) ?? 0
@@ -592,7 +656,7 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
       const metaW = textWidth(meta)
       const nameMax = Math.max(6, right - metaW - 2 - (x + 2))
       const name = fit(a.title, nameMax) + fold
-      const used = shimmer(c, x + 2, y, name, nameColor, p, now, moving, liveRow || attention ? BOLD : 0, rowBg)
+      const used = shimmer(c, x + 2, y, name, nameColor, p, now, flare, liveRow || attention ? BOLD : 0, rowBg)
       const actionX = x + 2 + used + 2
       const actionW = right - metaW - 2 - actionX
       const act = liveRow || attention ? doing(a, pc, p) : null
@@ -605,16 +669,16 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
       if (row.hasChildren && !st.collapsed.has(a.id) && x < bx) c.set(x, y + 1, "│", p.rule, rowBg)
       if (r === null) c.text(bx, y + 1, fit(a.remote ? "remote · stats on other machine" : "context not reported", bw + 5), p.faint, { bg: rowBg })
       else {
-        contextBar(c, bx, y + 1, bw, frac, moving, now, p, selected ? mix(p.track, p.sel, 0.4) : p.track)
+        contextBar(c, bx, y + 1, bw, frac, p, selected ? mix(p.track, p.sel, 0.4) : p.track)
         c.text(bx + bw + 1, y + 1, pctText, pctColor, { bg: rowBg, attr: BOLD })
       }
     } else {
       const name = fit(a.title, Math.max(4, X + 4 + nameW - (x + 2))) + fold
-      shimmer(c, x + 2, y, name, nameColor, p, now, moving, liveRow || attention ? BOLD : 0, rowBg)
+      shimmer(c, x + 2, y, name, nameColor, p, now, flare, liveRow || attention ? BOLD : 0, rowBg)
       const bx = X + 4 + nameW + 2
       if (r === null) c.text(bx, y, fit("--", barW), p.faint, { bg: rowBg })
       else {
-        contextBar(c, bx, y, barW, frac, moving, now, p, selected ? mix(p.track, p.sel, 0.4) : p.track)
+        contextBar(c, bx, y, barW, frac, p, selected ? mix(p.track, p.sel, 0.4) : p.track)
         c.text(bx + barW + 1, y, pctText, pctColor, { bg: rowBg, attr: BOLD })
       }
       const age = ageText.replace(" ago", "")
@@ -622,7 +686,7 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
       c.set(X + W - 3 - textWidth(age), y, "●", p.provider[familyOf(a)], rowBg)
     }
     const fam = familyOf(a)
-    if (laneW >= 8) drawLane(c, laneX, y + per - 1, laneData(a, laneW, windowMs, now), laneMax, moving, now, p, rowBg,
+    if (laneW >= 8) drawLane(c, laneX, y + per - 1, laneData(a, laneW, windowMs, now), laneMax, p, rowBg,
       fam === "other" ? null : p.provider[fam])
   })
   if (first > 0) c.textRight(X + W - 1, bodyY, `▲ ${first} more`, p.dim)
@@ -661,38 +725,41 @@ function extras(c: Canvas, r: Rect, st: ViewState, agents: Agent[], usage: Provi
 function pulse(c: Canvas, X: number, Y: number, W: number, h: number, st: ViewState, agents: Agent[], p: Palette, now: number): number {
   const windowMs = WINDOWS[st.windowIndex] * 60_000
   const plot = new Braille(W, h)
-  const start = now - windowMs
   const slots = plot.w
+  const { size, col: slot } = slices(slots, windowMs, now)
   const counts = new Array(slots).fill(0)
   const byFam = new Array(W).fill(0).map(() => ({ claude: 0, openai: 0, grok: 0, other: 0 } as Record<Family, number>))
   const fails = new Array(W).fill(false)
   for (const a of agents) {
     const fam = familyOf(a)
     for (const e of a.events) {
-      if (e.t < start || e.t > now || !TOOL(e.cat)) continue
-      const i = Math.min(slots - 1, Math.floor(((e.t - start) / windowMs) * slots))
+      const i = Math.min(slots - 1, slot(e.t))
+      if (i < 0 || e.t > now + 5000 || !TOOL(e.cat)) continue
       counts[i]++
       byFam[i >> 1][fam]++
       if (e.failed) fails[i >> 1] = true
     }
   }
   const max = Math.max(1, ...counts)
-  counts.forEach((n, i) => n && plot.column(i, Math.max(0.08, n / max)))
-  const perMin = max / (windowMs / slots / 60_000)
+  const height = (n: number) => Math.max(0.08, n / max)
+  counts.forEach((n, i) => n && plot.column(i, height(n)))
+  const perMin = max / (size / 60_000)
   section(c, X, Y, W, "PULSE", p, `tool calls, all agents · peak ${perMin >= 10 ? Math.round(perMin) : perMin.toFixed(1)}/min`)
-  const tops = new Array(W).fill(h)
-  for (let col = 0; col < W; col++) {
-    const peak = Math.max(counts[col * 2] ?? 0, counts[col * 2 + 1] ?? 0)
-    if (peak) tops[col] = Math.min(h - 1, h - Math.ceil(Math.max(0.08, peak / max) * h))
-  }
   plot.draw(c, X, Y + 1, (col, row) => {
-    if (fails[col] && row === tops[col]) return p.hot
     const f = byFam[col]
     const fam = (Object.keys(f) as Family[]).reduce((a, b) => (f[b] > f[a] ? b : a), "other")
     const lift = 0.1 + 0.3 * (1 - row / h)
     return fam === "other" ? ramp(p, 0.4 + 0.6 * (1 - row / h)) : mix(p.provider[fam], p.bright, lift)
   })
-  for (let x = X; x < X + W; x++) if (c.bgAt(x, Y + h) === p.bg) c.set(x, Y + h, "▔", p.track)
+  // A slice with a failed call carries a × just above its column: a shape, not only the hot color.
+  for (let col = 0; col < W; col++) {
+    if (!fails[col]) continue
+    const peak = Math.max(counts[col * 2] ?? 0, counts[col * 2 + 1] ?? 0)
+    const top = Math.floor((plot.h - Math.round(height(peak) * plot.h)) / 4) // text row of the column's top dot
+    c.set(X + col, Y + 1 + Math.max(0, top - 1), "×", p.hot, undefined, BOLD)
+  }
+  // A floor under empty slices only: the bottom row holds the shortest columns.
+  for (let col = 0; col < W; col++) if (!counts[col * 2] && !counts[col * 2 + 1]) c.set(X + col, Y + h, "▁", p.track)
   const label = (m: number) => (m >= 60 ? `-${+(m / 60).toFixed(1)}h` : `-${Math.round(m)}m`)
   c.text(X, Y + h + 1, label(WINDOWS[st.windowIndex]), p.faint)
   c.textRight(X + W, Y + h + 1, "now", p.dim)
@@ -714,7 +781,7 @@ type Block = (x: number, y: number, w: number, room: number) => number
 function detail(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: number, frame: Frame): number {
   return c.clipped(r.x, r.y, r.w, r.h, st.detailScroll, () => {
     const W = r.w
-    const top = r.y + titleBlock(c, r.x, r.y, W, a, p, now, frame.paces.get(a.id))
+    const top = r.y + titleBlock(c, r.x, r.y, W, a, p, now, frame.paces.get(a.id), st.calm)
     const b = blocks(c, r, a, st, p, now, frame)
     if (W >= 100) {
       // Wide: measurements on the left, what the agent is doing on the right.
@@ -732,9 +799,9 @@ function detail(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
   })
 }
 
-function titleBlock(c: Canvas, X: number, Y: number, W: number, a: Agent, p: Palette, now: number, pc?: Pace): number {
+function titleBlock(c: Canvas, X: number, Y: number, W: number, a: Agent, p: Palette, now: number, pc?: Pace, calm = false): number {
   let y = Y
-  const s = statusOf(a, now, p, pc)
+  const s = statusOf(a, now, p, pc, calm)
   const attention = needsYou(a)
   c.text(X, y++, fit(a.title, W), p.bright, { attr: BOLD })
   const opts = a.options.filter((o) => o && o.id && o.value !== undefined).map((o) => `${o.id} ${o.value}`)
@@ -758,8 +825,8 @@ function titleBlock(c: Canvas, X: number, Y: number, W: number, a: Agent, p: Pal
 }
 
 function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: number, frame: Frame): Record<string, Block> {
-  // Motion means work: no moving highlight on a quiet or queued agent's bar.
-  const liveRow = (a.status === "running" || a.status === "active") && !needsYou(a) && !frame.paces.get(a.id)?.quiet
+  // Motion means work: only a working agent's running call spins in the activity feed.
+  const moving = working(a, frame.paces.get(a.id))
   const call = a.turn.tokenUsage ?? null
   return {
     context(X, Y, W) {
@@ -785,7 +852,7 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
       }
       if (fh > 2) c.text(tx, y + 2, fit(`${tokens((a.context.maxTokens ?? 0) - (a.context.usedTokens ?? 0))} free`, X + W - tx), p.dim)
       y += fh
-      contextBar(c, X, y++, W, st.tween.get(a.id) ?? rr, liveRow, now, p)
+      contextBar(c, X, y++, W, st.tween.get(a.id) ?? rr, p)
       for (const [t, label, tone] of [[0.5, "50", p.faint], [0.75, "75", p.warn], [0.9, "90", p.hot]] as const) {
         c.text(X + Math.round(t * W) - 1, y, "╵" + label, tone)
       }
@@ -837,8 +904,8 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
       hbar(c, X + 14, Y, Math.max(4, W - 14 - lw), frac, {
         track: p.track, color: () => (frac < 0.12 ? p.warn : mix(p.accent, p.bright, frac * 0.6)),
       })
+      // Drains with the clock, an eighth of a cell at a time: the idle frame rate is enough.
       c.textRight(X + W, Y, label, left > 0 ? p.text2 : p.faint)
-      if (left > 0) frame.animating = true
       return 2
     },
     plan(X, Y, W) {
@@ -848,7 +915,8 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
       section(c, X, y++, W, "PLAN", p, `${done}/${a.plan.length} done`)
       const each = W / a.plan.length
       a.plan.forEach((q, i) => {
-        const tone = q.status === "completed" ? p.accent : q.status === "in_progress" ? (blink(now, 900) ? p.bright : p.accent) : p.track
+        // The step in progress is the bright one: a steady marker, not a blink.
+        const tone = q.status === "completed" ? p.accent : q.status === "in_progress" ? p.bright : p.track
         const end = Math.round((i + 1) * each) - (each >= 3 ? 1 : 0)
         for (let k = Math.round(i * each); k < Math.max(end, Math.round(i * each) + 1); k++) c.set(X + k, y, "▀", tone)
       })
@@ -859,7 +927,6 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
         c.text(X + 2, y++, fit(q.text, W - 2), tone)
       }
       if (a.plan.length > 8) c.text(X + 2, y++, `+${a.plan.length - 8} more`, p.faint)
-      if (a.plan.some((q) => q.status === "in_progress")) frame.animating = true
       return y + 1 - Y
     },
     tools(X, Y, W) {
@@ -879,8 +946,9 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
       return y + 1 - Y
     },
     activity(X, Y, W, room) {
-      // Newest first; brightness fades with age and new entries flash in.
-      const feed = a.items.filter((i) => i.type !== "reasoning" && i.type !== "assistant_message")
+      // Newest first; brightness fades with age. Items a snapshot just brought flash in
+      // (see observe()); calm mode holds the flash steady instead of fading it.
+      const feed = a.items.filter(feedItem)
       let y = Y
       section(c, X, y++, W, "ACTIVITY", p, "latest run")
       if (!feed.length) {
@@ -889,11 +957,10 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
       }
       const limit = Math.max(6, Math.min(16, room - 2))
       for (const item of feed.slice(0, limit)) {
-        const key = item.thread_id + item.updated_at + item.type + item.label + item.command
-        if (!st.firstSeen.has(key)) st.firstSeen.set(key, now - st.bootAt < 2500 ? 0 : now)
-        const seen = st.firstSeen.get(key)!
-        const flash = seen ? Math.max(0, 1 - (now - seen) / 1600) : 0
-        if (flash > 0) frame.animating = true
+        const seen = st.firstSeen.get(itemKey(item)) ?? 0
+        const fresh = Math.max(0, now - seen)
+        const flash = seen && fresh < FLASH_MS ? (st.calm ? 1 : 1 - fresh / FLASH_MS) : 0
+        if (flash > 0 && !st.calm) frame.beat = true
         const running = LIVE.has(item.status)
         const failed = item.status === "failed"
         const age = since(running ? item.started_at ?? item.updated_at : item.updated_at, now) ?? 0
@@ -901,7 +968,9 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
         const fade = running ? p.bright : age < 15 ? p.fg : age < 90 ? p.text2 : age < 600 ? p.dim : p.faint
         const bg = flash > 0 ? mix(p.bg, p.accent, 0.35 * flash) : undefined
         if (bg !== undefined) c.fill(X, y, W, 1, bg)
-        c.text(X, y, running ? spinner(now) : failed ? "✗" : GLYPH[cat] ?? "·", failed ? p.hot : running ? p.bright : mix(fade, p.accent, 0.3), { bg })
+        // A running call spins only while its agent works (not while it waits on you).
+        const mark = running ? (moving ? spin(now, st.calm) : GLYPH[cat] ?? "·") : failed ? "✗" : GLYPH[cat] ?? "·"
+        c.text(X, y, mark, failed ? p.hot : running ? p.bright : mix(fade, p.accent, 0.3), { bg })
         c.text(X + 2, y, duration(age).replace(/ \d+s$/, "").padStart(6), running ? p.text2 : p.faint, { bg })
         c.text(X + 9, y++, fit(itemLabel(item), W - 9), failed ? mix(p.hot, fade, 0.3) : fade, { bg })
       }
@@ -998,7 +1067,7 @@ function help(c: Canvas, p: Palette, W: number, H: number) {
   const keys: [string, string][] = [
     ["↑↓ j k", "select agent"], ["⏎ o", "open the thread in T3 Code"], ["␣ ← →", "fold / expand"], ["a", "active agents only"], ["t", "lane 15m · 30m · 1h · 3h"],
     ["J K PgDn", "scroll details"], ["f", "follow the thread open in T3"], ["p", "pause updates"], ["x", "CRT effects"],
-    ["r", "refresh now"],
+    ["r", "refresh now"], ["m", "calm mode: nothing moves"],
     ["mouse", "click selects, wheel scrolls"], ["q Esc", "quit (Esc closes help)"],
   ]
   const legend: [string, string][] = [
@@ -1006,11 +1075,11 @@ function help(c: Canvas, p: Palette, W: number, H: number) {
     ["█████▌", "context used; warm past 75%, hot past 90%"],
     ["▂▄█", "lane: tool and model activity per time slice"],
     ["tint", "lane: a run was in progress"],
-    ["┃  ▌", "lane: a prompt you sent · live edge"],
+    ["┃  ×", "lane: a prompt you sent · a failed call"],
     ["│", "limit meter: time elapsed; fill beyond it is ahead of pace"],
     ["▎ band", "the thread open in T3 Code and its subagents"],
     ["◌", "running, but nothing new for 2m; warm after 8m"],
-    ["◔", "queued or starting, not running yet"],
+    ["◔  ◉", "queued, not started yet · running, in calm mode"],
     ["❯ · 6m", "a tool call's run time; warm past 5m"],
   ]
   const two = W >= 84

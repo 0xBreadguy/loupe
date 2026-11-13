@@ -10,7 +10,21 @@ import { keyName } from "./keys.ts"
 import { Source, type Snapshot } from "./source.ts"
 import { ThemeWatcher } from "./theme.ts"
 import { UsageReader } from "./usage.ts"
-import { WINDOWS, draw, initialState, type Frame, type ViewState } from "./view.ts"
+import { WINDOWS, draw, initialState, observe, type Frame, type ViewState } from "./view.ts"
+
+/**
+ * Frame rates. Idle keeps the clock ticking; the beat matches the spinners'
+ * 100 ms frames; smooth is only for the moments a tween, a name shimmer or the
+ * boot wipe is in flight.
+ */
+export const FPS = { idle: 2, beat: 10, smooth: 30 } as const
+
+/** Spend frames only on what is moving. Calm mode and the help overlay stay at the idle rate. */
+export function frameRate(frame: Frame | null, st: ViewState): number {
+  if (!frame || st.calm || st.help) return FPS.idle
+  if (frame.smooth) return FPS.smooth
+  return frame.beat || st.fx ? FPS.beat : FPS.idle
+}
 
 const colors = new Map<number, RGBA>()
 function rgba(c: number): RGBA {
@@ -79,6 +93,7 @@ class Surface extends Renderable {
 export interface AppOptions {
   usage?: Pick<UsageReader, "poll"> // limits and token counts; default: Omarchy's usage records
   demo?: boolean // made-up data: no link to the T3 Code window, and opening a thread only says what it would do
+  calm?: boolean // start in calm mode: no spinners, tweens, shimmer, boot wipe or CRT effects, at the idle frame rate
 }
 
 export class App {
@@ -102,6 +117,7 @@ export class App {
     this.usage = options.usage ?? new UsageReader()
     this.demo = options.demo ?? false
     this.st = initialState(interval)
+    this.st.calm = options.calm ?? false
     this.t3 = this.demo ? null : new T3Window((title) => {
       this.st.t3Title = title
       this.renderer?.requestRender()
@@ -115,6 +131,7 @@ export class App {
     try {
       this.snap = this.source.snapshot()
       this.st.error = null
+      observe(this.st, this.snap, Date.now()) // what this snapshot brought is what flashes
     } catch (err) {
       this.st.error = err instanceof Error ? err.message : String(err)
     }
@@ -122,7 +139,7 @@ export class App {
   }
 
   async run() {
-    const renderer = await createCliRenderer({ exitOnCtrlC: true, targetFps: 15, maxFps: 30, useMouse: true, autoFocus: false })
+    const renderer = await createCliRenderer({ exitOnCtrlC: true, targetFps: FPS.idle, maxFps: FPS.smooth, useMouse: true, autoFocus: false })
     this.renderer = renderer
     renderer.root.add(new Surface(renderer, this))
     renderer.keyInput.on("keypress", (k: KeyEvent) => this.key(k))
@@ -147,8 +164,7 @@ export class App {
     this.canvas.resize(w, h)
     this.frame = draw(this.canvas, this.st, this.snap, this.usage.poll(now), this.theme.palette, now)
     flush(this.canvas, buffer, x, y)
-    // Spend frames only when something on screen is moving.
-    const fps = this.frame.fast || this.st.fx ? 15 : this.frame.animating ? 12 : 2
+    const fps = frameRate(this.frame, this.st)
     if (this.renderer && this.renderer.targetFps !== fps) this.renderer.targetFps = fps
   }
 
@@ -202,7 +218,10 @@ export class App {
     else if (seq === "t") st.windowIndex = (st.windowIndex + 1) % WINDOWS.length
     else if (seq === "p") st.paused = !st.paused
     else if (seq === "r" && !st.paused) this.refresh()
-    else if (seq === "x") this.toggleFx()
+    else if (seq === "x") {
+      if (st.calm) this.note("Calm mode keeps CRT effects off · m leaves calm mode")
+      else this.setFx(!st.fx)
+    } else if (seq === "m") this.setCalm(!st.calm)
     else return
     this.renderer?.requestRender()
   }
@@ -228,11 +247,22 @@ export class App {
     )
   }
 
-  private toggleFx() {
-    if (!this.renderer) return
-    this.st.fx = !this.st.fx
-    if (this.st.fx) this.renderer.addPostProcessFn(this.fx)
-    else this.renderer.removePostProcessFn(this.fx)
+  private setFx(on: boolean) {
+    if (on === this.st.fx) return
+    this.st.fx = on
+    if (on) this.renderer?.addPostProcessFn(this.fx)
+    else this.renderer?.removePostProcessFn(this.fx)
+  }
+
+  /** Calm mode: spinners hold a still glyph, values jump instead of tweening, no wipe, shimmer or CRT. */
+  setCalm(on: boolean) {
+    this.st.calm = on
+    if (on) this.setFx(false)
+    this.note(on ? "Calm mode: nothing moves but the data · m to leave" : "Calm mode off")
+  }
+
+  private note(text: string) {
+    this.st.notice = { text, at: Date.now(), error: false }
   }
 
   click(e: MouseEvent) {

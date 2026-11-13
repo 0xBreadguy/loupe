@@ -197,7 +197,7 @@ test("the whole dashboard draws at every size without overflow", () => {
       if (w >= 48 && h >= 14 && !help) {
         assert.match(text, /AGENTS/)
         assert.ok(frame.rows.length === 4)
-        assert.equal(frame.fast, true)
+        assert.equal(frame.beat, true, "a working agent keeps the spinner beat")
       }
       if (w >= 85 && h >= 40 && !help) {
         assert.match(text, /NEEDS YOU/)
