@@ -199,9 +199,10 @@ isn't there, `--once` says which path it tried and what to check, and
   after T3 writes and every 30 seconds (so the failed-call count ages out), and
   prints only when the status changes. If that process can't start or stops,
   the widget tries again every 15 seconds.
-- **The window:** `--window` opens the dashboard with the app id `t3-agents`,
-  outside Omarchy's and T3's namespaces, so you can match it in your own window
-  rules.
+- **The window:** `--window` opens the dashboard with the app id
+  `TUI.t3-agents`. Omarchy treats `TUI.*` windows as terminal apps (Super+C
+  copies instead of sending Ctrl+C, terminal opacity) and still tiles them; you
+  can match the id in your own window rules.
 
 Some limits worth knowing. Only agents in your local T3 database show up;
 delegates on linked machines show the status recorded here. Context figures are

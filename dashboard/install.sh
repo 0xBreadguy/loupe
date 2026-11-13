@@ -8,9 +8,10 @@ app_dir="$data_dir/t3-agents"
 desktop_file="$data_dir/applications/t3-agents.desktop"
 marker='Managed by t3-agents (github.com/0xBreadguy/t3-agents)'
 old_marker='Managed by omarchy-config/tools/t3-agents' # earlier installs; replaced on upgrade
-# The dashboard window's app id: in neither Omarchy's nor T3's namespace, and
-# outside Omarchy's terminal and floating window rules, so the window tiles.
-app_id=t3-agents
+# The dashboard window's app id. TUI.* is the convention Omarchy's window rules
+# treat as a terminal app (Super+C copies, terminal opacity) without making it
+# float (only TUI.float floats), and it is neither Omarchy's nor T3's name.
+app_id=TUI.t3-agents
 
 # OpenTUI's native core runs under Node.js through its FFI support (26.4+).
 node_bin=$(type -P node || true)
