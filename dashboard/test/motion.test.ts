@@ -133,7 +133,7 @@ test("quiet, queued and waiting agents hold still; failures have their own shape
   assert.match(row("Check rate-limit headers"), /◔ Check rate-limit headers/, "queued: a still ◔")
   assert.match(row("Write migration tests"), /◌ Write migration tests/)
   const s = spinner(EPOCH + 100)
-  assert.ok(lines.slice(2, 8).join("\n").includes(`${s} ${s} ${s} ${s} ${s} ◔ ◌ ◌ 2 quiet`), "the ACTIVE tile matches the rows")
+  assert.ok(lines.slice(2, 8).join("\n").includes(`${s} ${s} ${s} ${s} ${s} ◔ ◌ ◌ 1 stalled`), "the ACTIVE tile matches the rows")
   const lane = lines[frame.hits.find((x) => x.id === byTitle(snap, "Write migration tests").id && x.area === "list")!.y + 1]
   assert.match(lane, /×/, "a failed call is a ×")
 })

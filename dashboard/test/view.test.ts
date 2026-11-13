@@ -5,7 +5,7 @@ import { BIG_ROWS, Braille, Canvas, bigGlyph, bigWidth, drawBig, fit, fontWidth,
 import { buildAgents, type Agent } from "../src/source.ts"
 import { chroma, contrast, derivePalette, family, parseColorsToml } from "../src/theme.ts"
 import { parseProvider, windowLength } from "../src/usage.ts"
-import { draw, initialState, shortModel, tokens } from "../src/view.ts"
+import { doing, draw, fitDoing, initialState, shortModel, tokens } from "../src/view.ts"
 
 const SOLITUDE = `mode = "dark"
 accent = "#798186"
@@ -244,7 +244,7 @@ test("the thread open in T3 Code is selected when it changes and marked with its
   assert.equal(f.linked.size, 0)
 })
 
-test("quiet agents stop spinning and say how long; slow tool calls show their time", () => {
+test("quiet agents stop spinning and say how long; stalled and slow ones say so in shape, not only color", () => {
   const start = Date.parse("2026-11-12T12:00:00Z")
   const agents = fixture(start)
   const later = start + 10 * 60_000 // nothing new for ten minutes
@@ -259,11 +259,11 @@ test("quiet agents stop spinning and say how long; slow tool calls show their ti
   assert.ok(frame.paces.get("a")?.tool, "the parent has a tool call in flight")
   const lines = c.toText().split("\n")
   const row = (id: string) => lines[frame.hits.find((h) => h.id === id && h.area === "list")!.y]
-  assert.match(row("s"), /◌ .*quiet 1\dm/)
-  assert.match(c.toText(), /\d quiet/, "the ACTIVE tile counts quiet agents")
+  assert.match(row("s"), /◌ stalled 1\dm/, "past the stall threshold it says stalled")
+  assert.match(c.toText(), /\d stalled/, "the ACTIVE tile counts stalled agents")
   st.selected = "a"
   draw(c, st, { agents, at: later, path: "" }, [], palette, later)
-  assert.match(c.toText(), /now  ± .* · 1\dm \d\ds/, "the tool call's running time")
+  assert.match(c.toText(), /now  ± .* · △ 1\dm \d\ds/, "the slow tool call's running time, with its shape")
   assert.match(c.toText(), /one call running over 5m/)
 })
 
@@ -334,4 +334,22 @@ test("the header names the product in plain text and says when calm mode is on",
   draw(c, st, { agents: fixture(now), at: now, path: "" }, [], palette, now)
   assert.match(c.toText(), /T3 Agents · help/)
   assert.match(c.toText(), /Unofficial; not affiliated with T3 Code or Omarchy\./)
+})
+
+test("a cut-short action keeps its running time whole and shortens the label", () => {
+  const p = derivePalette(parseColorsToml(SOLITUDE))
+  const now = Date.parse("2026-11-12T12:00:00Z")
+  const a = fixture(now).find((x) => x.id === "a")!
+  a.now = { ...a.now!, type: "command_execution", command: "npm run test:e2e -- --project=chromium --retries=0", started_at: new Date(now - 7 * 60_000).toISOString() }
+  const pc = { tool: a.now, toolMs: 7 * 60_000, delegating: false, quietMs: 0, quiet: false, stalled: true }
+  const d = doing(a, pc, p)!
+  assert.equal(fitDoing(d, 200), "❯ npm run test:e2e -- --project=chromium --retries=0 · △ 7m 00s")
+  assert.equal(fitDoing(d, 30), "❯ npm run test:e2e… · △ 7m 00s")
+  assert.equal(textWidth(fitDoing(d, 30)), 30)
+  assert.equal(d.color, p.warn)
+  // Quiet: the stall and its length stay; what it did last gives way.
+  const quiet = doing(a, { tool: null, toolMs: 0, delegating: false, quietMs: 9 * 60_000, quiet: true, stalled: true }, p)!
+  assert.match(fitDoing(quiet, 60), /^◌ stalled 9m 00s · last /)
+  assert.equal(fitDoing(quiet, 18), "◌ stalled 9m 00s")
+  assert.equal(doing(a, { tool: null, toolMs: 0, delegating: false, quietMs: 3 * 60_000, quiet: true, stalled: false }, p)!.lead, "◌ quiet 3m 00s")
 })

@@ -376,17 +376,34 @@ function paces(agents: Agent[], now: number): Map<string, Pace> {
   return out
 }
 
-/** What a running agent is doing, for one line: the tool in flight with its time, or how long it has been quiet. */
-function doing(a: Agent, pc: Pace | undefined, p: Palette): { text: string; color: Color } | null {
+/**
+ * What a running agent is doing, for one line: the tool in flight with its
+ * time, or how long it has been quiet. In three parts so that when the line
+ * is cut short, the label gives way and the time stays whole (see fitDoing).
+ */
+export interface Doing { lead: string; label: string; tail: string; color: Color }
+
+export const SLOW = "△" // a tool call past SLOW_TOOL_MS: a shape, not only the warm color
+
+export function doing(a: Agent, pc: Pace | undefined, p: Palette): Doing | null {
   if (pc?.quiet) {
     const last = a.items.find((i) => i.type !== "reasoning" && i.type !== "assistant_message")
-    const after = last ? ` · last ${GLYPH[category(last.type, last.tool)] ?? "·"} ${itemLabel(last)}` : ""
-    return { text: `◌ quiet ${duration(pc.quietMs / 1000)}${after}`, color: pc.stalled ? p.warn : p.text2 }
+    return { lead: `◌ ${pc.stalled ? "stalled" : "quiet"} ${duration(pc.quietMs / 1000)}`,
+      label: last ? ` · last ${GLYPH[category(last.type, last.tool)] ?? "·"} ${itemLabel(last)}` : "", tail: "", color: pc.stalled ? p.warn : p.text2 }
   }
   if (!a.now) return null
   const cat = category(a.now.type, a.now.tool)
-  const time = pc?.tool && pc.toolMs >= 30_000 ? ` · ${duration(pc.toolMs / 1000)}` : ""
-  return { text: `${GLYPH[cat] ?? "·"} ${itemLabel(a.now)}${time}`, color: pc?.stalled ? p.warn : p.dim }
+  const time = pc?.tool && pc.toolMs >= 30_000 ? ` · ${pc.stalled ? SLOW + " " : ""}${duration(pc.toolMs / 1000)}` : ""
+  return { lead: `${GLYPH[cat] ?? "·"} `, label: itemLabel(a.now), tail: time, color: pc?.stalled ? p.warn : p.dim }
+}
+
+/** A Doing in `w` columns: the label is shortened first, so the running time and the stall stay whole. */
+export function fitDoing(d: Doing, w: number): string {
+  const whole = d.lead + d.label + d.tail
+  if (textWidth(whole) <= w) return whole
+  const room = w - textWidth(d.lead) - textWidth(d.tail)
+  if (room >= 4) return d.lead + fit(d.label, room) + d.tail
+  return fit(d.lead + d.tail, w)
 }
 
 // ── T3 Code link ────────────────────────────────────────────────────────────
@@ -482,18 +499,28 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agen
   const tiles: Tile[] = [
     blind ? unread("ACTIVE") : !running.length ? zero("ACTIVE", "0", note("nothing running")) : { label: "ACTIVE", value: String(running.length), color: p.bright, sub: (x, yy, w) => {
       // One mark per agent, as in its row: a spinner while it works (all on one beat),
-      // a still ◌ once it goes quiet, a still ◔ while it is queued.
-      const quiet = running.filter((a) => paces.get(a.id)?.quiet).length
-      const room = quiet ? w - 9 : w
+      // a still ◌ once it goes quiet, a still ◔ while it is queued. Then, in words,
+      // what needs a look, most pressing first: what is warm says so, not only by color.
+      const count = (test: (pc: Pace) => boolean) => running.filter((a) => { const pc = paces.get(a.id); return pc && test(pc) }).length
+      const parts = [
+        { text: `${count((pc) => pc.quiet && pc.stalled)} stalled`, color: p.warn, n: count((pc) => pc.quiet && pc.stalled) },
+        { text: `${SLOW} ${count((pc) => !pc.quiet && pc.stalled)} slow`, color: p.warn, n: count((pc) => !pc.quiet && pc.stalled) },
+        { text: `${count((pc) => pc.quiet && !pc.stalled)} quiet`, color: p.text2, n: count((pc) => pc.quiet && !pc.stalled) },
+      ].filter((q) => q.n > 0)
+      // The most pressing word always shows; the rest only while every mark still fits.
+      const width = (n: number) => parts.slice(0, n).reduce((sum, q) => sum + textWidth(q.text) + 1, 0)
+      let shown = parts.length ? 1 : 0
+      while (shown < parts.length && running.length * 2 + width(shown + 1) <= w) shown++
+      parts.length = shown
+      const words = width(shown)
       let col = 0
       for (const a of running) {
-        if (col + 2 > room) break
+        if (col + 2 > w - words) break
         const s = statusOf(a, now, p, paces.get(a.id), st.calm)
         c.set(x + col, yy, s.glyph, s.color)
         col += 2
       }
-      const long = running.some((a) => paces.get(a.id)?.quiet && paces.get(a.id)?.stalled)
-      if (quiet) c.text(x + col, yy, `${quiet} quiet`, long ? p.warn : p.text2, { max: w - col })
+      for (const q of parts) col += c.text(x + col, yy, q.text, q.color) + 1
     } },
     blind ? unread("NEEDS YOU") : !waiting.length ? zero("NEEDS YOU", "0", note("nothing pending")) : { label: "NEEDS YOU", value: String(waiting.length), color: p.hot, alert: true,
       sub: (x, yy, w) => void c.text(x, yy, "◆ " + fit(waiting[0].title, w - 2), p.hot, { max: w }) },
@@ -686,7 +713,7 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
       const actionX = x + 2 + used + 2
       const actionW = right - metaW - 2 - actionX
       const act = liveRow || attention ? doing(a, pc, p) : null
-      if (act && actionW > 8) c.text(actionX, y, fit(act.text, actionW), ink(act.color), { bg: rowBg })
+      if (act && actionW > 8) c.text(actionX, y, fitDoing(act, actionW), ink(act.color), { bg: rowBg })
       c.textRight(right, y, meta, ink(p.dim), { bg: rowBg })
       c.set(right - metaW, y, "●", p.provider[familyOf(a)], rowBg)
       const shift = Math.max(0, row.depth - 2) * 2
@@ -874,7 +901,7 @@ function titleBlock(c: Canvas, X: number, Y: number, W: number, a: Agent, p: Pal
   if (act) {
     const why = pc?.quiet ? (pc.stalled ? "  no activity for a while: check it in T3 (⏎)" : "") :
       pc?.stalled ? `  one call running over ${SLOW_TOOL_MS / 60_000}m` : ""
-    c.text(X, y++, fit(`  now  ${act.text}`, W), act.color === p.dim ? p.text2 : act.color)
+    c.text(X, y++, "  now  " + fitDoing(act, W - 7), act.color === p.dim ? p.text2 : act.color)
     if (why) c.text(X, y++, fit(why, W), p.dim)
   }
   if (a.remote) c.text(X, y++, fit(`  remote on ${a.remote.label ?? "another environment"}; context and activity live there`, W), p.accent)
@@ -1136,9 +1163,9 @@ function help(c: Canvas, p: Palette, W: number, H: number) {
     ["┃  ×", "lane: a prompt you sent · a failed call"],
     ["│", "limit meter: time elapsed; fill beyond it is ahead of pace"],
     ["▎ band", "the thread open in T3 Code and its subagents"],
-    ["◌", "running, but nothing new for 2m; warm after 8m"],
+    ["◌", "running, but nothing new for 2m; \"stalled\" after 8m"],
     ["◔  ◉", "queued, not started yet · running, in calm mode"],
-    ["❯ · 6m", "a tool call's run time; warm past 5m"],
+    ["❯ · △ 6m", "a tool call's run time; △ slow past 5m"],
   ]
   const two = W >= 84
   const bw = Math.min(W - 2, two ? 80 : 64)
