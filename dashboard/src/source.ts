@@ -1,5 +1,6 @@
 // Read-only adapter over T3 Code's local orchestration v2 projection tables.
-// Never writes, never reads auth tables, tool output, reasoning text, or secrets.
+// Never writes. Reads only the fields it shows: never auth tables, secrets,
+// prompts, message bodies, tool output or reasoning text.
 import { DatabaseSync } from "node:sqlite"
 
 export const PREFIX = "orchestration_v2_projection_"
@@ -7,6 +8,32 @@ export const LIVE = new Set(["running", "starting", "preparing", "queued", "wait
 export const BAD = new Set(["failed", "error", "interrupted"])
 const TABLES = ["threads", "runs", "subagents", "nodes", "provider_threads", "provider_turns", "turn_items", "runtime_requests"]
 export const MAX_WINDOW_MS = 3 * 3600_000
+// The payload fields the dashboard uses. T3's payloads also hold prompts,
+// results, goals and other message text; selecting fields in SQL keeps that
+// text out of this process entirely. An object field lists its own fields.
+type Fields = Record<string, true | string[]>
+const FIELDS: Record<string, Fields> = {
+  threads: { id: true, projectId: true, title: true, activeProviderThreadId: true, worktreePath: true, branch: true,
+    updatedAt: true, lineage: ["relationshipToParent", "parentThreadId"], modelSelection: ["model", "options"] },
+  runs: { id: true, threadId: true, status: true, providerThreadId: true, startedAt: true, requestedAt: true,
+    completedAt: true, modelSelection: ["model", "options"] },
+  subagents: { id: true, threadId: true, parentNodeId: true, runId: true, providerThreadId: true, childThreadId: true,
+    status: true, title: true, model: true, startedAt: true, completedAt: true, updatedAt: true, remoteChild: ["label"] },
+  provider_threads: { id: true, contextUsage: true },
+  provider_turns: { providerThreadId: true, model: true, tokenUsage: true, turnTokenUsage: true },
+}
+
+/** SQL that builds a JSON object holding only the listed fields of payload_json. */
+export function projection(fields: Fields): string {
+  const parts = Object.entries(fields).map(([key, sub]) => {
+    if (!/^\w+$/.test(key) || (sub !== true && !sub.every((k) => /^\w+$/.test(k)))) throw new Error("bad field " + key)
+    if (sub === true) return `'${key}', json_extract(payload_json, '$.${key}')`
+    const inner = sub.map((k) => `'${k}', json_extract(payload_json, '$.${key}.${k}')`).join(", ")
+    return `'${key}', CASE WHEN json_type(payload_json, '$.${key}') = 'object' THEN json_object(${inner}) END`
+  })
+  return `json_object(${parts.join(", ")})`
+}
+
 const TOOLISH = ["command_execution", "dynamic_tool", "file_change", "web_search", "subagent", "handoff",
   "notification", "user_input_request", "secret_request", "link_request"]
 
@@ -135,7 +162,8 @@ export class Source {
     const missing = TABLES.map((t) => PREFIX + t).filter((t) => !existing.has(t))
     if (missing.length) throw new Error("Unsupported T3 schema; missing " + missing.sort().join(", "))
     const payloads = (table: string, clause = "", args: (string | number)[] = []): Json[] =>
-      all(`SELECT payload_json FROM ${PREFIX}${table} ${clause}`, ...args).map((r) => JSON.parse(r.payload_json))
+      all(`SELECT ${projection(FIELDS[table])} AS payload FROM ${PREFIX}${table} ${clause}`, ...args)
+        .map((r) => JSON.parse(r.payload))
 
     const threads = payloads("threads", "WHERE deleted_at IS NULL AND archived_at IS NULL")
     const ids: string[] = threads.map((t) => t.id)
@@ -151,7 +179,7 @@ export class Source {
     // One turn per provider conversation, not one per app thread: native
     // subagents may share an app thread while having their own token counters.
     const turns = new Map<string, Json>()
-    for (const r of all(`SELECT payload_json FROM (
+    for (const r of all(`SELECT ${projection(FIELDS.provider_turns)} AS payload_json FROM (
         SELECT payload_json, ROW_NUMBER() OVER (
           PARTITION BY provider_thread_id ORDER BY ordinal DESC, rowid DESC) AS rank
         FROM ${PREFIX}provider_turns ${where}) WHERE rank=1`, ...ids)) {

@@ -1,8 +1,8 @@
 // Agent attribution and read-only source behavior (ported from the v1 suite).
 import assert from "node:assert/strict"
-import { mkdtempSync, readFileSync, existsSync } from "node:fs"
+import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { test } from "node:test"
 import { clean } from "../src/canvas.ts"
@@ -90,4 +90,44 @@ test("an unsupported database is left unchanged", () => {
   const before = readFileSync(db)
   assert.throws(() => new Source(db).snapshot(), /Unsupported T3 schema/)
   assert.deepEqual(readFileSync(db), before)
+})
+
+test("prompts, results and other message text never leave the database", () => {
+  // Plant marker text in every payload field that can hold message content.
+  const dir = mkdtempSync(join(tmpdir(), "t3a-"))
+  const db = join(dir, "statev2.sqlite")
+  const conn = new DatabaseSync(db)
+  const P = "orchestration_v2_projection_"
+  conn.exec(`CREATE TABLE ${P}threads (thread_id TEXT, payload_json TEXT, deleted_at TEXT, archived_at TEXT);
+    CREATE TABLE ${P}runs (thread_id TEXT, ordinal INTEGER, payload_json TEXT, requested_at TEXT, completed_at TEXT);
+    CREATE TABLE ${P}subagents (thread_id TEXT, payload_json TEXT);
+    CREATE TABLE ${P}nodes (thread_id TEXT, node_id TEXT, parent_node_id TEXT, run_id TEXT);
+    CREATE TABLE ${P}provider_threads (thread_id TEXT, payload_json TEXT);
+    CREATE TABLE ${P}provider_turns (thread_id TEXT, provider_thread_id TEXT, ordinal INTEGER, payload_json TEXT, started_at TEXT, completed_at TEXT);
+    CREATE TABLE ${P}turn_items (thread_id TEXT, run_id TEXT, node_id TEXT, provider_thread_id TEXT, type TEXT, status TEXT, updated_at TEXT, ordinal INTEGER, payload_json TEXT);
+    CREATE TABLE ${P}runtime_requests (thread_id TEXT, node_id TEXT, kind TEXT, status TEXT, resolved_at TEXT);
+    CREATE TABLE projection_projects (project_id TEXT, title TEXT, workspace_root TEXT);`)
+  const put = (sql: string, ...v: string[]) => conn.prepare(sql).run(...v)
+  const secret = (field: string) => `SECRET-${field}`
+  put(`INSERT INTO ${P}threads VALUES ('t', ?, NULL, NULL)`, JSON.stringify({ id: "t", projectId: "p", title: "Thread",
+    activeProviderThreadId: "pt", delegatedFrom: { prompt: secret("delegatedFrom") }, forkedFrom: secret("forkedFrom") }))
+  put(`INSERT INTO ${P}runs VALUES ('t', 1, ?, NULL, NULL)`, JSON.stringify({ id: "r", threadId: "t", status: "running",
+    providerThreadId: "pt", delegatedCompletion: { result: secret("delegatedCompletion") } }))
+  put(`INSERT INTO ${P}subagents VALUES ('t', ?)`, JSON.stringify({ id: "s", threadId: "t", runId: "r", status: "running",
+    title: "Sub", prompt: secret("prompt"), result: secret("result"), progress: secret("progress"),
+    remoteChild: { label: "other machine", title: secret("remoteTitle") } }))
+  put(`INSERT INTO ${P}provider_threads VALUES ('t', ?)`, JSON.stringify({ id: "pt", goal: secret("goal"),
+    nativeMetadata: { note: secret("nativeMetadata") }, contextUsage: { usedTokens: 1, maxTokens: 10 } }))
+  put(`INSERT INTO ${P}provider_turns VALUES ('t', 'pt', 1, ?, NULL, NULL)`, JSON.stringify({ providerThreadId: "pt",
+    model: "m", nativeTurnRef: secret("nativeTurnRef"), tokenUsage: { usedTokens: 2, maxTokens: 10 } }))
+  conn.close()
+  try {
+    const snap = new Source(db).snapshot()
+    assert.equal(snap.agents.length, 2)
+    assert.equal(snap.agents.find((a) => a.id === "s")?.remote?.label, "other machine")
+    assert.equal(snap.agents.find((a) => a.id === "t")?.context.usedTokens, 2)
+    assert.doesNotMatch(JSON.stringify(snap), /SECRET/)
+  } finally {
+    rmSync(dirname(db), { recursive: true, force: true })
+  }
 })

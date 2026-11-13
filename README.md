@@ -139,8 +139,9 @@ prints a new line whenever it changes).
 
 - **T3 data:** every two seconds it opens T3's `userdata/statev2.sqlite`
   read-only (`readOnly`, `query_only`) in a short read transaction. It never
-  creates, migrates or writes the database. It doesn't read authentication
-  tables, secrets, tool output, reasoning text or message bodies. Thread titles,
+  creates, migrates or writes the database. Its queries select only the fields
+  it shows, so authentication tables, secrets, prompts, subagent results,
+  message bodies, tool output and reasoning text never reach it. Thread titles,
   tool names, file names and command excerpts are shown locally, with terminal
   control characters stripped.
 - **Following T3:** under Hyprland it listens on Hyprland's event socket for
