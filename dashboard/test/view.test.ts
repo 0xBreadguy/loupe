@@ -263,7 +263,7 @@ test("quiet agents stop spinning and say how long; slow tool calls show their ti
   assert.match(c.toText(), /\d quiet/, "the ACTIVE tile counts quiet agents")
   st.selected = "a"
   draw(c, st, { agents, at: later, path: "" }, [], palette, later)
-  assert.match(c.toText(), /now  ✎ .* · 1\dm \d\ds/, "the tool call's running time")
+  assert.match(c.toText(), /now  ± .* · 1\dm \d\ds/, "the tool call's running time")
   assert.match(c.toText(), /one call running over 5m/)
 })
 

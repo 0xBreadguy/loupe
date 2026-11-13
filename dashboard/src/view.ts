@@ -86,13 +86,17 @@ export function itemLabel(i: Item): string {
   return tidy(i.label).replace(home, "~") || i.type.replace(/_/g, " ")
 }
 
+// Every glyph the dashboard draws exists in JetBrainsMono Nerd Font, Omarchy's
+// default terminal font (test/glyphs.test.ts keeps it so): no fallback-font
+// symbols of another weight or width. Tool categories:
 export const GLYPH: Record<string, string> = {
-  shell: "❯", read: "◎", edit: "✎", web: "⌕", agent: "⑂", ask: "◆", think: "∴",
+  shell: "❯", read: "◎", edit: "±", web: "⊕", agent: "⇉", ask: "◆", think: "∴",
   reply: "≡", you: "»", note: "•", tool: "◈", other: "·",
 }
 const TOOL = (cat: string) => cat !== "you" && cat !== "think" && cat !== "reply"
 const SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-const QUEUE = "◴◷◶◵"
+const QUEUED = "◔" // queued or starting: not working yet, so it does not move
+const RETRY = "↩" // the source is retrying; a usage window starts over
 const spinner = (now: number, offset = 0) => SPIN[Math.floor(now / 80 + offset) % SPIN.length]
 const blink = (now: number, period = 1000) => now % period < period * 0.55
 
@@ -103,7 +107,7 @@ export function statusOf(a: Agent, now: number, p: Palette, pc?: Pace): { glyph:
   switch (a.status) {
     case "running": case "active": return { glyph: spinner(now, a.id.length), color: pc?.stalled ? p.warn : p.bright, label: "RUNNING" }
     case "starting": case "preparing": case "queued": case "pending":
-      return { glyph: QUEUE[Math.floor(now / 250) % 4], color: p.text2, label: a.status.toUpperCase() }
+      return { glyph: QUEUED, color: p.text2, label: a.status.toUpperCase() }
     case "completed": return { glyph: "✓", color: p.dim, label: "DONE" }
     case "interrupted": return { glyph: "⊘", color: p.warn, label: "INTERRUPTED" }
     case "failed": case "error": return { glyph: "✗", color: p.hot, label: "FAILED" }
@@ -358,7 +362,7 @@ function header(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
   x += c.text(x, 0, " AGENTS ", p.bright, { attr: BOLD })
   x += 1
   if (st.paused) x += c.text(x, 0, "‖ PAUSED", p.warn, { attr: BOLD })
-  else if (st.error) x += c.text(x, 0, blink(now) ? "↻ RETRYING" : "  RETRYING", p.hot, { attr: BOLD })
+  else if (st.error) x += c.text(x, 0, blink(now) ? `${RETRY} RETRYING` : "  RETRYING", p.hot, { attr: BOLD })
   else {
     // The dot breathes on each refresh: bright right after a snapshot, fading out.
     const age = Math.min(1, (now - snap.at) / (st.interval * 1000))
@@ -490,7 +494,7 @@ function limitRow(c: Canvas, X: number, y: number, W: number, u: Provider, l: Pr
   x += lw
   const hot = l.percent >= 0.9
   const ahead = l.elapsed !== null && l.percent > l.elapsed + 0.08 && l.percent >= 0.15
-  const reset = l.resetsAt ? "↻ " + duration(Math.max(0, (l.resetsAt - now) / 1000)).replace(/ \d+s$/, "") : ""
+  const reset = l.resetsAt ? `${RETRY} ` + duration(Math.max(0, (l.resetsAt - now) / 1000)).replace(/ \d+s$/, "") : ""
   const pace = narrow ? "" : hot ? "near limit" : ahead ? "▲ ahead of pace" : u.stale ? "stale" : "on pace"
   const bw = Math.max(6, Math.min(72, X + W - x - 5 - (reset ? 9 : 0) - (pace ? 16 : 0)))
   hbar(c, x, y, bw, l.percent, {
@@ -735,7 +739,7 @@ function titleBlock(c: Canvas, X: number, Y: number, W: number, a: Agent, p: Pal
   c.text(X, y++, fit(a.title, W), p.bright, { attr: BOLD })
   const opts = a.options.filter((o) => o && o.id && o.value !== undefined).map((o) => `${o.id} ${o.value}`)
   c.set(X, y, "●", p.provider[familyOf(a)])
-  c.text(X + 2, y++, fit([a.model, a.project, a.kind, ...opts, a.branch ? "⎇ " + a.branch : ""].filter(Boolean).join(" · "), W - 2), p.dim)
+  c.text(X + 2, y++, fit([a.model, a.project, a.kind, ...opts, a.branch ? "⌥ " + a.branch : ""].filter(Boolean).join(" · "), W - 2), p.dim)
   let x = X
   x += c.text(x, y, s.glyph + " " + s.label, s.color, { attr: BOLD })
   const elapsed = duration(since(a.started, a.ended ? ms(a.ended) ?? now : now))
@@ -936,7 +940,7 @@ function growth(c: Canvas, X: number, y: number, W: number, h: number, a: Agent,
     if (pts[i].provider === pts[i - 1].provider) continue
     const cx = X + axis + Math.floor(px(i) / 2)
     for (let yy = y; yy < y + h; yy++) if (c.bgAt(cx, yy) === p.bg) c.set(cx, yy, "┊", p.faint)
-    const tag = fit("⇢ " + shortModel(pts[i].model || "handoff"), 16)
+    const tag = fit("→ " + shortModel(pts[i].model || "handoff"), 16)
     c.text(cx + 1 + textWidth(tag) <= X + W ? cx + 1 : cx - textWidth(tag), y, tag, p.dim)
   }
   c.textRight(X + axis - 1, y, "100", p.faint)
@@ -1006,6 +1010,7 @@ function help(c: Canvas, p: Palette, W: number, H: number) {
     ["│", "limit meter: time elapsed; fill beyond it is ahead of pace"],
     ["▎ band", "the thread open in T3 Code and its subagents"],
     ["◌", "running, but nothing new for 2m; warm after 8m"],
+    ["◔", "queued or starting, not running yet"],
     ["❯ · 6m", "a tool call's run time; warm past 5m"],
   ]
   const two = W >= 84
