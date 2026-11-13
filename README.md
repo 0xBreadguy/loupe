@@ -49,19 +49,29 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
 
 **The dashboard**
 
-- **Big numbers up top:** active agents, agents waiting on you (the tile
-  blinks), tool calls per minute, peak context, tokens today, failed calls.
+- **Big numbers up top:** active agents, agents waiting on you, tool calls per
+  minute, peak context, tokens today, failed calls. Only numbers worth a look
+  are big: zeros stay small and dim, and a missing value is a small `—` with the
+  reason. If T3 can't be read, the tiles say so instead of showing zeros.
+- **Needs you, one key away:** the tile shows what's being asked and how long
+  it has waited. `n` (or a click on the tile) jumps to the next agent waiting
+  on you, and `Enter` opens it in T3. Its `◆` blinks until you've seen it.
 - **Limits:** a meter per subscription window from Omarchy's usage records,
   with a tick for how much of the window has passed, so you can tell when
-  you're burning ahead of pace.
+  you're burning ahead of pace. In short windows it folds into one line with
+  each provider's fullest window.
 - **Every agent and subagent as a tree:** status, a context meter that warms
   past 75% and goes hot past 90%, what it's doing right now, model, age, and an
   activity lane on a shared time axis, where a failed call shows as `×`. A new
   tool call sweeps once across the agent's name.
 - **Stall detection:** a running agent with no tool call in flight and nothing
-  new for 2 minutes stops spinning and says `◌ quiet 4m · last ❯ npm test`; it
-  turns warm after 8. A tool call shows its running time, and turns warm past 5
-  minutes. An agent waiting on its own subagents is delegating, not stuck.
+  new for 2 minutes stops spinning and says `◌ quiet 4m · last ❯ npm test`;
+  after 8 it says `◌ stalled` and turns warm. A tool call shows its running
+  time, and past 5 minutes gets a `△` and turns warm. An agent waiting on its
+  own subagents is delegating, not stuck.
+- **Nothing hidden without a cue:** a list or panel with more than fits says
+  `▼ N more`, and the list's cue sums up what's out of view (`◆1 · 1 stalled ·
+  1 ✗`), turning hot when someone waiting on you is scrolled away.
 - **Linked to T3, both ways:** open a thread in T3 and the dashboard selects it
   and marks it and its subagents. Press `Enter` on any agent and T3 jumps to
   that thread.
@@ -139,6 +149,7 @@ away, it falls back to the one on `PATH`; rerun the installer after switching.
 | `g` `G` / `Home` `End` | first / last agent |
 | `Enter` / `o` | open the selected agent's thread in T3 Code |
 | `Space` / `←` `→` | fold or unfold subagents (`←` on a leaf jumps to its parent) |
+| `n` | jump to the next agent waiting on you (or click the NEEDS YOU tile) |
 | `a` | only agents that are running or waiting, plus their parents |
 | `f` | follow the thread open in T3 (on by default) |
 | `t` | lane window: 15 min, 30 min, 1 h, 3 h |
@@ -146,7 +157,7 @@ away, it falls back to the one on `PATH`; rerun the installer after switching.
 | `p` / `r` | pause updates / refresh now |
 | `m` | calm mode: nothing animates (on by default when Omarchy's animations are off) |
 | `x` | CRT effects, purely for fun (off in calm mode) |
-| `?` / `h` | help and legend |
+| `?` / `h` | help and legend (scroll it with `↑` `↓` / `j` `k` or the wheel) |
 | `Esc` | close the help, or quit |
 | `q` | quit |
 
@@ -157,8 +168,11 @@ Home, End and Page Up/Down act like the main keys.
 | --- | --- |
 | `⠹` | running (`◉` in calm mode) |
 | `◔` | queued or starting |
-| `◆` | needs you (blinks) |
-| `◌` | running, but nothing new for 2 minutes (warm after 8) |
+| `◆` | needs you; blinks until you've seen it (selected it, or opened it in T3), also on a folded parent |
+| `◌` | running, but nothing new for 2 minutes; `◌ stalled` and warm after 8 |
+| `△` | a tool call running over 5 minutes |
+| `—` | no value, with the reason beside it |
+| `▼` `▲` N more | more out of view, below or above |
 | `✓` `✗` `⊘` | done, failed, interrupted |
 | `●` | provider. On grayscale themes: plum Claude, teal GPT / Codex, blue Grok, gray other. Colorful themes use their own colors |
 | `▎` and a band | the thread open in T3 and its subagents |
@@ -180,8 +194,8 @@ Options:
 By default it reads `~/.t3/userdata/statev2.sqlite`. If your T3 data lives
 somewhere else, set `T3CODE_HOME` to that folder (it reads
 `$T3CODE_HOME/userdata/statev2.sqlite`) or pass `--db`. When the database
-isn't there, `--once` says which path it tried and what to check, and
-`--status` puts a short version in its `error` field for the bar.
+isn't there, the dashboard and `--once` say which path they tried and what to
+check, and `--status` puts a short version in its `error` field for the bar.
 
 ## How it works, and what it touches
 
@@ -256,7 +270,7 @@ rm -r "${XDG_DATA_HOME:-$HOME/.local/share}/t3-agents"
 cd dashboard
 npm ci
 npm test        # which agent did what, read-only source, CLI errors, stall detection, T3 link,
-                # palette, digits, motion, glyph coverage, layout, render
+                # needs-you, contrast, palette, digits, motion, glyph coverage, layout, render
 npm run check   # TypeScript
 cd .. && node --test test/   # bar widget
 ```
