@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { parseArgs } from "node:util"
 // Only the interactive dashboard loads OpenTUI; --once and --status stay light.
 import { clean, duration, fit, shortModel } from "./format.ts"
-import { Source, tree } from "./source.ts"
+import { Source, SourceError, isRunning, needsYou, tree, type Agent } from "./source.ts"
 import { line, watch } from "./status.ts"
 
 const USAGE = `Usage: t3-agents [--window] [--once | --status [--watch]] [--db PATH | --demo] [--interval SECONDS]
@@ -24,22 +24,48 @@ function bar(frac: number, w: number): string {
   return ("█".repeat(Math.floor(units / 8)) + ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"][units % 8]).padEnd(w, "░")
 }
 
+const DONE: Record<string, string> = { completed: "✓", failed: "✗", error: "✗", interrupted: "⊘" }
+const mark = (a: Agent) => (needsYou(a) ? "◆" : isRunning(a) ? "●" : DONE[a.status] ?? "·")
+
 function once(source: Source, demo = false) {
   const snap = source.snapshot()
-  const live = snap.agents.filter((a) => a.status === "running").length
-  const waiting = snap.agents.filter((a) => a.requests.length || a.status === "waiting").length
+  const live = snap.agents.filter(isRunning).length
+  const waiting = snap.agents.filter(needsYou).length
   console.log(`T3 AGENTS · ${demo ? "demo data" : "read-only"} · ${new Date().toTimeString().slice(0, 8)} · ${live} running · ${waiting} waiting · ${snap.agents.length} agents`)
-  const glyph: Record<string, string> = { running: "●", completed: "✓", failed: "✗", error: "✗", interrupted: "⊘", waiting: "◆" }
   for (const row of tree(snap.agents, new Set())) {
     const a = row.agent
     const prefix = row.guides.map((g) => (g ? "│ " : "  ")).join("") + (row.depth ? (row.last ? "└─" : "├─") : "")
     const { usedTokens: used, maxTokens: max } = a.context
     const ctx = typeof used === "number" && typeof max === "number" && max > 0
       ? `${bar(used / max, 16)} ${String(Math.round((used / max) * 100)).padStart(3)}%` : "context n/a"
-    const name = fit(clean(prefix + (glyph[a.status] ?? "·") + " " + a.title), 44).padEnd(44)
+    const name = fit(clean(prefix + mark(a) + " " + a.title), 44).padEnd(44)
     const age = a.ended ? duration((Date.now() - Date.parse(a.ended)) / 1000) + " ago" : duration(a.started ? (Date.now() - Date.parse(a.started)) / 1000 : null)
     console.log(`${name}  ${fit(shortModel(a.model), 16).padEnd(16)}  ${a.status.padEnd(11)}  ${ctx}  ${age}`)
   }
+}
+
+/** What to try when T3's database can't be read, for someone at a terminal. */
+function advice(err: unknown, origin: "--db" | "T3CODE_HOME" | "default"): string {
+  if (!(err instanceof SourceError)) return `t3-agents: ${err instanceof Error ? err.message : err}\n`
+  const where = {
+    "--db": "Check the path given to --db.",
+    T3CODE_HOME: `T3CODE_HOME is set to ${process.env.T3CODE_HOME}: check that it is T3's data folder, or unset it to use ~/.t3.`,
+    default: "If T3 keeps its data somewhere else, set T3CODE_HOME to that folder or pass --db PATH.",
+  }[origin]
+  const lines = err.kind === "missing" ? [
+    `no T3 database at ${err.path}`,
+    "Is T3 Code installed, and has it been opened at least once?",
+    where,
+  ] : err.kind === "unreadable" ? [
+    `can't read the T3 database at ${err.path}: ${err.detail}`,
+    "Check that it is T3 Code's statev2.sqlite and that your user can read it.",
+    where,
+  ] : [
+    `unsupported T3 schema in ${err.path}; ${err.detail}`,
+    "T3 Code may have changed its database in an update: check for a newer T3 Agents.",
+  ]
+  lines.push("To try the dashboard without T3 data: t3-agents --demo")
+  return `t3-agents: ${lines[0]}\n` + lines.slice(1).map((l) => `  ${l}\n`).join("")
 }
 
 async function main() {
@@ -64,7 +90,8 @@ async function main() {
     // Without the dashboard nothing else handles these; exiting this way runs the cleanup.
     for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(sig, () => process.exit(128 + constants.signals[sig]))
   }
-  const db = demo?.path ?? args.db ?? join(process.env.T3CODE_HOME ?? join(homedir(), ".t3"), "userdata/statev2.sqlite")
+  // An empty T3CODE_HOME counts as unset, as a relative path here would be a surprise.
+  const db = demo?.path ?? args.db ?? join(process.env.T3CODE_HOME || join(homedir(), ".t3"), "userdata/statev2.sqlite")
   const interval = Math.max(0.5, Number(args.interval) || 2)
   const source = new Source(db)
   if (args.status) {
@@ -75,7 +102,7 @@ async function main() {
     try {
       return once(source, demo !== null)
     } catch (err) {
-      process.stderr.write(`T3 source error: ${err instanceof Error ? err.message : err}\n`)
+      process.stderr.write(advice(err, args.db ? "--db" : process.env.T3CODE_HOME ? "T3CODE_HOME" : "default"))
       process.exit(1)
     }
   }

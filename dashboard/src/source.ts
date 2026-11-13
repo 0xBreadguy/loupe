@@ -1,6 +1,8 @@
 // Read-only adapter over T3 Code's local orchestration v2 projection tables.
 // Never writes. Reads only the fields it shows: never auth tables, secrets,
 // prompts, message bodies, tool output or reasoning text.
+import { accessSync, constants, existsSync, statSync } from "node:fs"
+import { homedir } from "node:os"
 import { DatabaseSync } from "node:sqlite"
 
 export const PREFIX = "orchestration_v2_projection_"
@@ -134,6 +136,46 @@ export function category(type: string, tool?: string | null): string {
   }
 }
 
+export type SourceProblem = "missing" | "unreadable" | "schema"
+
+/** A path with the home folder shortened to ~, as people type it. */
+export function tilde(path: string): string {
+  const home = homedir()
+  return home && path.startsWith(home + "/") ? "~" + path.slice(home.length) : path
+}
+
+/**
+ * T3's database could not be read. The message names the path and stays short
+ * enough for the bar's tooltip; `--once` builds fuller advice from the fields.
+ */
+export class SourceError extends Error {
+  readonly kind: SourceProblem
+  readonly path: string
+  readonly detail: string
+  constructor(kind: SourceProblem, path: string, detail = "") {
+    super(kind === "missing" ? `No T3 database at ${tilde(path)}. Is T3 Code installed and opened once?`
+      : kind === "unreadable" ? `Can't read the T3 database at ${tilde(path)}: ${detail}`
+      : `Unsupported T3 schema; ${detail}`)
+    this.name = "SourceError"
+    this.kind = kind
+    this.path = path
+    this.detail = detail
+  }
+}
+
+function cannotOpen(path: string, err: unknown): SourceError {
+  if (!existsSync(path)) return new SourceError("missing", path)
+  // SQLite says "unable to open database file" for most causes; name the usual ones.
+  let detail = err instanceof Error ? err.message : String(err)
+  try {
+    if (statSync(path).isDirectory()) detail = "it is a folder, not a file"
+    else accessSync(path, constants.R_OK)
+  } catch {
+    detail = "permission denied"
+  }
+  return new SourceError("unreadable", path, detail)
+}
+
 export class Source {
   readonly path: string
   constructor(path: string) {
@@ -141,8 +183,13 @@ export class Source {
   }
 
   snapshot(now = Date.now()): Snapshot {
-    // readOnly: never creates a missing database, never writes or migrates.
-    const db = new DatabaseSync(this.path, { readOnly: true, timeout: 250 })
+    let db: DatabaseSync
+    try {
+      // readOnly: never creates a missing database, never writes or migrates.
+      db = new DatabaseSync(this.path, { readOnly: true, timeout: 250 })
+    } catch (err) {
+      throw cannotOpen(this.path, err)
+    }
     try {
       db.exec("PRAGMA query_only=ON")
       db.exec("BEGIN")
@@ -151,6 +198,10 @@ export class Source {
       } finally {
         db.exec("ROLLBACK")
       }
+    } catch (err) {
+      // SQLITE_NOTADB: SQLite only finds out at the first read.
+      if ((err as { errcode?: unknown }).errcode === 26) throw new SourceError("unreadable", this.path, "not a SQLite database")
+      throw err
     } finally {
       db.close()
     }
@@ -160,7 +211,7 @@ export class Source {
     const all = (sql: string, ...args: (string | number)[]): Row[] => db.prepare(sql).all(...args) as Row[]
     const existing = new Set(all("SELECT name FROM sqlite_master WHERE type='table'").map((r) => r.name))
     const missing = TABLES.map((t) => PREFIX + t).filter((t) => !existing.has(t))
-    if (missing.length) throw new Error("Unsupported T3 schema; missing " + missing.sort().join(", "))
+    if (missing.length) throw new SourceError("schema", this.path, "missing " + missing.sort().join(", "))
     const payloads = (table: string, clause = "", args: (string | number)[] = []): Json[] =>
       all(`SELECT ${projection(FIELDS[table])} AS payload FROM ${PREFIX}${table} ${clause}`, ...args)
         .map((r) => JSON.parse(r.payload))
@@ -399,6 +450,8 @@ export interface TreeRow {
 
 export const needsYou = (a: Agent) => a.requests.length > 0 || a.status === "waiting"
 export const isLive = (a: Agent) => LIVE.has(a.status)
+/** Running, as the dashboard's ACTIVE tile, `--once` and the bar all count it: live and not waiting on you. */
+export const isRunning = (a: Agent) => isLive(a) && !needsYou(a)
 
 // ── Stall detection ─────────────────────────────────────────────────────────
 // Judgment values. A model can think for a minute or two between items, and

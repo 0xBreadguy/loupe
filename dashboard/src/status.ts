@@ -3,7 +3,7 @@
 // time the status changes, checking the database only when T3 has written to it.
 import { statSync } from "node:fs"
 import { clean, shortModel } from "./format.ts"
-import { isLive, needsYou, ms, category, type Snapshot, type Source } from "./source.ts"
+import { isRunning, needsYou, ms, category, type Snapshot, type Source } from "./source.ts"
 import { family } from "./theme.ts"
 
 export interface StatusAgent {
@@ -28,7 +28,7 @@ const FAILED_WINDOW_MS = 10 * 60_000
 
 export function status(snap: Snapshot, now = Date.now()): Status {
   const waiting = snap.agents.filter(needsYou)
-  const live = snap.agents.filter((a) => isLive(a) && !needsYou(a))
+  const live = snap.agents.filter(isRunning)
   const newest = (a: { started: string | null }, b: { started: string | null }) => (ms(b.started) ?? 0) - (ms(a.started) ?? 0)
   const failed = snap.agents.reduce((n, a) => n + a.events.filter((e) => e.failed && e.t >= now - FAILED_WINDOW_MS).length, 0)
   const agents = [...waiting.sort(newest), ...live.sort(newest)].slice(0, 8).map((a) => {

@@ -1,12 +1,12 @@
-// Agent attribution and read-only source behavior (ported from the v1 suite).
+// Agent attribution and read-only source behavior.
 import assert from "node:assert/strict"
-import { mkdtempSync, readFileSync, existsSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { mkdirSync, mkdtempSync, readFileSync, existsSync, rmSync, writeFileSync } from "node:fs"
+import { homedir, tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 import { test } from "node:test"
 import { clean } from "../src/canvas.ts"
-import { Source, buildAgents, category, tree, type Agent } from "../src/source.ts"
+import { Source, SourceError, buildAgents, category, isRunning, tilde, tree, type Agent } from "../src/source.ts"
 
 function snapshot(childThread = false): Agent[] {
   const threads: any[] = [{ id: "root", projectId: "p", title: "Root", activeProviderThreadId: "pr" }]
@@ -76,10 +76,44 @@ test("tool categories", () => {
   assert.equal(category("user_message"), "you")
 })
 
-test("a missing database is not created", () => {
+test("running means live and not waiting on you", () => {
+  const [root, sub] = snapshot()
+  assert.equal(isRunning(root), true)
+  assert.equal(isRunning(sub), false, "a live agent with an open request needs you instead")
+  root.status = "queued"
+  assert.equal(isRunning(root), true, "queued counts, as on the dashboard's ACTIVE tile")
+  root.status = "completed"
+  assert.equal(isRunning(root), false)
+})
+
+test("a missing database is not created, and the error says where it looked", () => {
   const db = join(mkdtempSync(join(tmpdir(), "t3a-")), "missing.sqlite")
-  assert.throws(() => new Source(db).snapshot())
+  assert.throws(() => new Source(db).snapshot(), (err: unknown) => err instanceof SourceError && err.kind === "missing" &&
+    err.path === db && err.message.includes(db) && /T3 Code installed/.test(err.message))
   assert.equal(existsSync(db), false)
+})
+
+test("an unreadable database is named with the reason", () => {
+  const dir = mkdtempSync(join(tmpdir(), "t3a-"))
+  try {
+    const folder = join(dir, "folder.sqlite")
+    mkdirSync(folder)
+    assert.throws(() => new Source(folder).snapshot(), (err: unknown) => err instanceof SourceError &&
+      err.kind === "unreadable" && /folder/.test(err.detail) && err.message.includes(folder))
+    const junk = join(dir, "junk.sqlite")
+    writeFileSync(junk, "not a database ".repeat(40))
+    assert.throws(() => new Source(junk).snapshot(), (err: unknown) => err instanceof SourceError &&
+      err.kind === "unreadable" && /not a SQLite database/.test(err.message))
+    assert.equal(readFileSync(junk, "utf8"), "not a database ".repeat(40))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("paths in messages shorten the home folder", () => {
+  assert.equal(tilde(join(homedir(), ".t3/userdata/statev2.sqlite")), "~/.t3/userdata/statev2.sqlite")
+  assert.equal(tilde("/elsewhere/statev2.sqlite"), "/elsewhere/statev2.sqlite")
+  assert.equal(tilde(homedir() + "x/y"), homedir() + "x/y", "only whole folder names")
 })
 
 test("an unsupported database is left unchanged", () => {
