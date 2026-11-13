@@ -231,7 +231,7 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
     detailMax: 0, beat: false, smooth: false, linked: new Set<string>(),
     paces: new Map<string, Pace>() }
   if (W < 48 || H < 14) {
-    c.text(1, 0, "T3 AGENTS", p.bright, { attr: BOLD })
+    c.text(1, 0, "T3 Agents", p.bright, { attr: BOLD })
     c.text(1, 2, "Enlarge the terminal to at least 48 × 14.", p.dim)
     c.text(1, 3, "q quit", p.accent)
     return frame
@@ -421,17 +421,17 @@ function link(st: ViewState, agents: Agent[]): Set<string> {
 
 function header(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: number, W: number) {
   c.fill(0, 0, W, 1, p.panel)
-  let x = c.text(0, 0, " T3 ", p.bg, { bg: p.accent, attr: BOLD })
-  x += c.text(x, 0, " AGENTS ", p.bright, { attr: BOLD })
-  x += 1
+  // The product name as plain text: a badge would read as T3's own branding.
+  let x = 1 + c.text(1, 0, "T3 Agents", p.bright, { attr: BOLD }) + 2
   if (st.paused) x += c.text(x, 0, "‖ PAUSED", p.warn, { attr: BOLD })
   else if (st.error) x += c.text(x, 0, blink(now) ? `${RETRY} RETRYING` : "  RETRYING", p.hot, { attr: BOLD })
   else {
-    // The dot breathes on each refresh: bright right after a snapshot, fading out.
-    const age = Math.min(1, (now - snap.at) / (st.interval * 1000))
+    // The dot breathes on each refresh: bright right after a snapshot, fading out. Calm mode holds it.
+    const age = st.calm ? 1 : Math.min(1, (now - snap.at) / (st.interval * 1000))
     x += c.text(x, 0, "●", mix(p.bright, p.accent, age))
     x += c.text(x + 1, 0, `LIVE ${st.interval}s`, p.text2) + 1
   }
+  if (st.calm) x += 2 + c.text(x + 2, 0, "calm", p.text2)
   if (st.demo) x += 1 + c.text(x + 1, 0, " DEMO ", p.bg, { bg: p.text2, attr: BOLD })
   const linked = st.t3Linked ? snap.agents.find((a) => a.id === st.t3Linked) : null
   const room = W - x - 34
@@ -1095,7 +1095,7 @@ function help(c: Canvas, p: Palette, W: number, H: number) {
   const two = W >= 84
   const bw = Math.min(W - 2, two ? 80 : 64)
   const keyRows = two ? Math.ceil(keys.length / 2) : keys.length
-  const bh = Math.min(H - 2, keyRows + legend.length + 9)
+  const bh = Math.min(H - 2, keyRows + legend.length + 10)
   const bx = Math.floor((W - bw) / 2)
   const by = Math.floor((H - bh) / 2)
   c.fill(bx, by, bw, bh, p.panel)
@@ -1111,7 +1111,7 @@ function help(c: Canvas, p: Palette, W: number, H: number) {
   c.set(bx + bw - 1, by, "╮", p.accent)
   c.set(bx, by + bh - 1, "╰", p.accent)
   c.set(bx + bw - 1, by + bh - 1, "╯", p.accent)
-  c.text(bx + 2, by, " T3 AGENTS · HELP ", p.bright, { attr: BOLD })
+  c.text(bx + 2, by, " T3 Agents · help ", p.bright, { attr: BOLD })
   c.clipped(bx + 1, by + 1, bw - 2, bh - 2, 0, () => {
     let y = by + 2
     const x0 = bx + 3
@@ -1138,5 +1138,6 @@ function help(c: Canvas, p: Palette, W: number, H: number) {
     }
     y++
     c.text(x0, y + 1, fit("Read-only: local T3 SQLite and Omarchy usage records. No network.", bw - 6), p.dim)
+    c.text(x0, y + 2, fit("Unofficial; not affiliated with T3 Code or Omarchy.", bw - 6), p.dim)
   })
 }
