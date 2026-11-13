@@ -27,7 +27,9 @@ opening anything.
 It's a terminal app, built on [OpenTUI](https://github.com/anomalyco/opentui).
 Shape and motion carry the state: spinners while agents work, a still `◌` when
 one goes quiet, one hot color for "needs you", and a subtle hue per model
-provider. It follows your Omarchy theme live.
+provider. Nothing moves unless an agent is working, and calm mode (`m`, or
+`--calm`) stills even that; it starts on by itself when Omarchy's animations
+are off. It follows your Omarchy theme live.
 
 ## Try it
 
@@ -54,7 +56,8 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
   you're burning ahead of pace.
 - **Every agent and subagent as a tree:** status, a context meter that warms
   past 75% and goes hot past 90%, what it's doing right now, model, age, and an
-  activity lane on a shared time axis.
+  activity lane on a shared time axis, where a failed call shows as `×`. A new
+  tool call sweeps once across the agent's name.
 - **Stall detection:** a running agent with no tool call in flight and nothing
   new for 2 minutes stops spinning and says `◌ quiet 4m · last ❯ npm test`; it
   turns warm after 8. A tool call shows its running time, and turns warm past 5
@@ -141,7 +144,8 @@ away, it falls back to the one on `PATH`; rerun the installer after switching.
 | `t` | lane window: 15 min, 30 min, 1 h, 3 h |
 | `J` `K` / `PgDn` `PgUp`, wheel over details | scroll the details |
 | `p` / `r` | pause updates / refresh now |
-| `x` | CRT effects, purely for fun |
+| `m` | calm mode: nothing animates (on by default when Omarchy's animations are off) |
+| `x` | CRT effects, purely for fun (off in calm mode) |
 | `?` / `h` | help and legend |
 | `Esc` | close the help, or quit |
 | `q` | quit |
@@ -151,12 +155,14 @@ Home, End and Page Up/Down act like the main keys.
 
 | Mark | Meaning |
 | --- | --- |
-| `⠹` | running |
+| `⠹` | running (`◉` in calm mode) |
+| `◔` | queued or starting |
 | `◆` | needs you (blinks) |
 | `◌` | running, but nothing new for 2 minutes (warm after 8) |
 | `✓` `✗` `⊘` | done, failed, interrupted |
 | `●` | provider. On grayscale themes: plum Claude, teal GPT / Codex, blue Grok, gray other. Colorful themes use their own colors |
 | `▎` and a band | the thread open in T3 and its subagents |
+| `×` in a lane | a failed tool call |
 
 Options:
 
@@ -168,6 +174,7 @@ Options:
 | `--db PATH` | read T3's database from `PATH` |
 | `--demo` | made-up agents and usage instead of yours |
 | `--interval SECONDS` | how often the dashboard rereads T3, 0.5 or more (default 2) |
+| `--calm` | start in calm mode; on by default when Omarchy's animations are off |
 | `--help` | list the options |
 
 By default it reads `~/.t3/userdata/statev2.sqlite`. If your T3 data lives
@@ -248,7 +255,8 @@ rm -r "${XDG_DATA_HOME:-$HOME/.local/share}/t3-agents"
 ```sh
 cd dashboard
 npm ci
-npm test        # which agent did what, read-only source, CLI errors, stall detection, T3 link, palette, digits, layout, render
+npm test        # which agent did what, read-only source, CLI errors, stall detection, T3 link,
+                # palette, digits, motion, glyph coverage, layout, render
 npm run check   # TypeScript
 cd .. && node --test test/   # bar widget
 ```
