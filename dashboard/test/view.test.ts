@@ -284,6 +284,25 @@ test("monochrome themes get the validated provider hues; chromatic themes keep t
   assert.deepEqual([tokyo.provider.claude, tokyo.provider.openai, tokyo.provider.grok], [0xbb9af7, 0x9ece6a, 0x7aa2f7])
 })
 
+test("nothing moves on a quiet agent's rows", () => {
+  const start = Date.parse("2026-11-12T12:00:00Z")
+  const agents = fixture(start)
+  const later = start + 10 * 60_000 // the subagent "s" has been quiet since it started
+  const palette = derivePalette(parseColorsToml(SOLITUDE))
+  const st = initialState(2)
+  st.bootAt = 0
+  st.selected = "a"
+  const frames = [later, later + 300].map((t) => {
+    const c = new Canvas(140, 45)
+    const frame = draw(c, st, { agents, at: t, path: "" }, [], palette, t)
+    const y = frame.hits.find((h) => h.id === "s" && h.area === "list")!.y
+    const cells = (row: number) => Array.from({ length: c.w }, (_, x) => `${c.ch[row * c.w + x]}:${c.fg[row * c.w + x]}`).join(" ")
+    return { quiet: frame.paces.get("s")!.quiet, rows: cells(y) + "\n" + cells(y + 1) }
+  })
+  assert.equal(frames[0].quiet, true)
+  assert.equal(frames[0].rows, frames[1].rows)
+})
+
 test("made-up data says so in the header", () => {
   const now = Date.parse("2026-11-12T12:00:00Z")
   const st = initialState(2)

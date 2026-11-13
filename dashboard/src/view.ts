@@ -574,6 +574,8 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
     c.set(x, y, s.glyph, s.color, rowBg, BOLD)
     const fold = row.hasChildren && st.collapsed.has(a.id) ? " ▸" : ""
     const liveRow = isLive(a) && !attention
+    // Motion means work: a quiet agent keeps its text but nothing on its row moves.
+    const moving = liveRow && !pc?.quiet
     const nameColor = attention ? p.fg : liveRow ? p.fg : BAD.has(a.status) ? p.text2 : p.text2
     const ageText = liveRow || attention ? duration(since(a.started, now)) : a.ended ? duration(since(a.ended, now)) + " ago" : ""
     const frac = st.tween.get(a.id) ?? 0
@@ -586,7 +588,7 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
       const metaW = textWidth(meta)
       const nameMax = Math.max(6, right - metaW - 2 - (x + 2))
       const name = fit(a.title, nameMax) + fold
-      const used = shimmer(c, x + 2, y, name, nameColor, p, now, liveRow, liveRow || attention ? BOLD : 0, rowBg)
+      const used = shimmer(c, x + 2, y, name, nameColor, p, now, moving, liveRow || attention ? BOLD : 0, rowBg)
       const actionX = x + 2 + used + 2
       const actionW = right - metaW - 2 - actionX
       const act = liveRow || attention ? doing(a, pc, p) : null
@@ -599,16 +601,16 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
       if (row.hasChildren && !st.collapsed.has(a.id) && x < bx) c.set(x, y + 1, "│", p.rule, rowBg)
       if (r === null) c.text(bx, y + 1, fit(a.remote ? "remote · stats on other machine" : "context not reported", bw + 5), p.faint, { bg: rowBg })
       else {
-        contextBar(c, bx, y + 1, bw, frac, liveRow, now, p, selected ? mix(p.track, p.sel, 0.4) : p.track)
+        contextBar(c, bx, y + 1, bw, frac, moving, now, p, selected ? mix(p.track, p.sel, 0.4) : p.track)
         c.text(bx + bw + 1, y + 1, pctText, pctColor, { bg: rowBg, attr: BOLD })
       }
     } else {
       const name = fit(a.title, Math.max(4, X + 4 + nameW - (x + 2))) + fold
-      shimmer(c, x + 2, y, name, nameColor, p, now, liveRow, liveRow || attention ? BOLD : 0, rowBg)
+      shimmer(c, x + 2, y, name, nameColor, p, now, moving, liveRow || attention ? BOLD : 0, rowBg)
       const bx = X + 4 + nameW + 2
       if (r === null) c.text(bx, y, fit("--", barW), p.faint, { bg: rowBg })
       else {
-        contextBar(c, bx, y, barW, frac, liveRow, now, p, selected ? mix(p.track, p.sel, 0.4) : p.track)
+        contextBar(c, bx, y, barW, frac, moving, now, p, selected ? mix(p.track, p.sel, 0.4) : p.track)
         c.text(bx + barW + 1, y, pctText, pctColor, { bg: rowBg, attr: BOLD })
       }
       const age = ageText.replace(" ago", "")
@@ -616,7 +618,7 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
       c.set(X + W - 3 - textWidth(age), y, "●", p.provider[familyOf(a)], rowBg)
     }
     const fam = familyOf(a)
-    if (laneW >= 8) drawLane(c, laneX, y + per - 1, laneData(a, laneW, windowMs, now), laneMax, liveRow, now, p, rowBg,
+    if (laneW >= 8) drawLane(c, laneX, y + per - 1, laneData(a, laneW, windowMs, now), laneMax, moving, now, p, rowBg,
       fam === "other" ? null : p.provider[fam])
   })
   if (first > 0) c.textRight(X + W - 1, bodyY, `▲ ${first} more`, p.dim)
@@ -752,7 +754,8 @@ function titleBlock(c: Canvas, X: number, Y: number, W: number, a: Agent, p: Pal
 }
 
 function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: number, frame: Frame): Record<string, Block> {
-  const liveRow = isLive(a) && !needsYou(a)
+  // Motion means work: no moving highlight on a quiet agent's bar.
+  const liveRow = isLive(a) && !needsYou(a) && !frame.paces.get(a.id)?.quiet
   const call = a.turn.tokenUsage ?? null
   return {
     context(X, Y, W) {
