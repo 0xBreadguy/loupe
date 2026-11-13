@@ -574,8 +574,8 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
     c.set(x, y, s.glyph, s.color, rowBg, BOLD)
     const fold = row.hasChildren && st.collapsed.has(a.id) ? " ▸" : ""
     const liveRow = isLive(a) && !attention
-    // Motion means work: a quiet agent keeps its text but nothing on its row moves.
-    const moving = liveRow && !pc?.quiet
+    // Motion means work: quiet or queued agents keep their text, but nothing on their rows moves.
+    const moving = liveRow && (a.status === "running" || a.status === "active") && !pc?.quiet
     const nameColor = attention ? p.fg : liveRow ? p.fg : BAD.has(a.status) ? p.text2 : p.text2
     const ageText = liveRow || attention ? duration(since(a.started, now)) : a.ended ? duration(since(a.ended, now)) + " ago" : ""
     const frac = st.tween.get(a.id) ?? 0
@@ -754,8 +754,8 @@ function titleBlock(c: Canvas, X: number, Y: number, W: number, a: Agent, p: Pal
 }
 
 function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: number, frame: Frame): Record<string, Block> {
-  // Motion means work: no moving highlight on a quiet agent's bar.
-  const liveRow = isLive(a) && !needsYou(a) && !frame.paces.get(a.id)?.quiet
+  // Motion means work: no moving highlight on a quiet or queued agent's bar.
+  const liveRow = (a.status === "running" || a.status === "active") && !needsYou(a) && !frame.paces.get(a.id)?.quiet
   const call = a.turn.tokenUsage ?? null
   return {
     context(X, Y, W) {
