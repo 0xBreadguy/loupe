@@ -18,15 +18,16 @@ subagent is up to right now, and which one has gone quiet. It comes with an
 [Omarchy](https://omarchy.org) bar widget, so you see the short version without
 opening anything.
 
+> Unofficial. T3 Agents isn't made by or affiliated with the T3 Code team or
+> Omarchy, and it isn't part of either. It reads T3's local database, which can
+> change in any T3 update.
+
 ![The T3 Agents dashboard, running on made-up demo data](docs/dashboard.png)
 
 It's a terminal app, built on [OpenTUI](https://github.com/anomalyco/opentui).
 Shape and motion carry the state: spinners while agents work, a still `◌` when
 one goes quiet, one hot color for "needs you", and a subtle hue per model
 provider. It follows your Omarchy theme live.
-
-> Unofficial. T3 Agents isn't made by or affiliated with the T3 Code team. It
-> reads T3's local database, which can change in any T3 update.
 
 ## Try it
 
@@ -39,6 +40,8 @@ git clone https://github.com/0xBreadguy/t3-agents
 cd t3-agents/dashboard && npm ci
 node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
 ```
+
+`--help` lists every option.
 
 ## What you get
 
@@ -67,6 +70,10 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
 
 - A dim `⠿` when nothing's running, a spinner and a count while agents work,
   and a `◆` with a count in the bar's alert color when one needs you.
+- A `⚠` at full strength when it can't see T3: no dashboard installed yet, no
+  T3 database, or a watcher that stopped. Hover says which, in plain words. It
+  keeps retrying on its own, and it's never hidden, so a broken monitor never
+  passes for a quiet one.
 - Hover for the list with models and context, click to open the dashboard,
   middle-click to restart its watcher.
 
@@ -74,8 +81,8 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
 
 ## Install
 
-You need Node.js 26.4 or later (Omarchy's `mise` Node qualifies) and T3 Code's
-desktop app on the same machine.
+You need Node.js 26.4 or later with npm (Omarchy's `mise` Node qualifies) and
+T3 Code's desktop app on the same machine.
 
 **On Omarchy, with the bar widget:**
 
@@ -87,12 +94,18 @@ omarchy plugin add https://github.com/0xBreadguy/t3-agents --enable
 The first line installs the bar widget from this repository. The second
 installs the dashboard from that same copy: the program goes to
 `~/.local/share/t3-agents/` with its pinned dependencies (`npm ci`, so it needs
-the network once), plus a `t3-agents` command in `~/.local/bin` and a
-**T3 Agents** entry in the app launcher. It adds no autostart, no keybindings
-and no window rules, and it won't overwrite a launcher it didn't create.
+the network on the first install and again whenever the lockfile changes), plus
+a `t3-agents` command in `~/.local/bin` and a **T3 Agents** entry in the app
+launcher. It adds no autostart, no keybindings and no window rules, and it
+won't overwrite a launcher it didn't create.
+
+Until the second step runs, the widget shows `⚠` and says the dashboard isn't
+installed. It checks again every 15 seconds, so once the installer finishes
+it picks the dashboard up by itself, with no shell restart.
 
 Hide the widget while nothing runs with
-`omarchy bar set 0xbreadguy.t3-agents hideWhenIdle true --json`.
+`omarchy bar set 0xbreadguy.t3-agents hideWhenIdle true --json`. The `⚠` stays
+visible either way.
 
 **Dashboard only, any Linux terminal:**
 
@@ -102,13 +115,25 @@ git clone https://github.com/0xBreadguy/t3-agents
 ```
 
 Then run `t3-agents` in any truecolor terminal, or `t3-agents --window` for a
-dedicated [foot](https://codeberg.org/dnkl/foot) window.
+dedicated window: [foot](https://codeberg.org/dnkl/foot) when it's installed,
+otherwise your default terminal through `xdg-terminal-exec`, otherwise
+`$TERMINAL -e`. Under Hyprland, `--window` focuses the dashboard instead when
+it's already open with its app id, which foot always sets and
+`xdg-terminal-exec` sets when your terminal supports it.
+
+The installer checks for Node.js and npm before it copies anything, and it
+tells you if `~/.local/bin` isn't on your `PATH`. The `t3-agents` command it
+writes runs the Node.js the installer checked, so the app launcher and the bar
+widget work even when their `PATH` lacks your version manager's Node (mise,
+nvm), and a project pinned to an older Node can't break it. If that Node goes
+away, it falls back to the one on `PATH`; rerun the installer after switching.
 
 ## Use
 
 | Key | Action |
 | --- | --- |
 | `↑` `↓` / `j` `k`, click, wheel | select an agent |
+| `g` `G` / `Home` `End` | first / last agent |
 | `Enter` / `o` | open the selected agent's thread in T3 Code |
 | `Space` / `←` `→` | fold or unfold subagents (`←` on a leaf jumps to its parent) |
 | `a` | only agents that are running or waiting, plus their parents |
@@ -117,7 +142,9 @@ dedicated [foot](https://codeberg.org/dnkl/foot) window.
 | `J` `K` / `PgDn` `PgUp`, wheel over details | scroll the details |
 | `p` / `r` | pause updates / refresh now |
 | `x` | CRT effects, purely for fun |
-| `?` / `q` | help and legend / quit |
+| `?` / `h` | help and legend |
+| `Esc` | close the help, or quit |
+| `q` | quit |
 
 The numpad works too: its Enter opens threads, and with Num Lock off its arrows,
 Home, End and Page Up/Down act like the main keys.
@@ -128,12 +155,26 @@ Home, End and Page Up/Down act like the main keys.
 | `◆` | needs you (blinks) |
 | `◌` | running, but nothing new for 2 minutes (warm after 8) |
 | `✓` `✗` `⊘` | done, failed, interrupted |
-| `●` | provider: plum Claude, teal GPT / Codex, blue Grok, gray other |
+| `●` | provider. On grayscale themes: plum Claude, teal GPT / Codex, blue Grok, gray other. Colorful themes use their own colors |
 | `▎` and a band | the thread open in T3 and its subagents |
 
-Other modes: `t3-agents --once` prints a plain-text snapshot, and
-`t3-agents --status` prints the one-line JSON the bar widget reads (`--watch`
-prints a new line whenever it changes).
+Options:
+
+| Option | What it does |
+| --- | --- |
+| `--once` | print a plain-text snapshot and exit |
+| `--status` | print the one-line JSON the bar widget reads; `--watch` prints a new line whenever it changes |
+| `--window` | open the dashboard in its own terminal window, or focus it (the installed command only) |
+| `--db PATH` | read T3's database from `PATH` |
+| `--demo` | made-up agents and usage instead of yours |
+| `--interval SECONDS` | how often the dashboard rereads T3, 0.5 or more (default 2) |
+| `--help` | list the options |
+
+By default it reads `~/.t3/userdata/statev2.sqlite`. If your T3 data lives
+somewhere else, set `T3CODE_HOME` to that folder (it reads
+`$T3CODE_HOME/userdata/statev2.sqlite`) or pass `--db`. When the database
+isn't there, `--once` says which path it tried and what to check, and
+`--status` puts a short version in its `error` field for the bar.
 
 ## How it works, and what it touches
 
@@ -155,7 +196,12 @@ prints a new line whenever it changes).
   `~/.local/state/omarchy/agents/usage/`, if they exist.
 - **Network:** none. The bar widget runs one `t3-agents --status --watch`
   process that checks the database's modification time every two seconds, reads
-  only after T3 writes, and prints only when the status changes.
+  after T3 writes and every 30 seconds (so the failed-call count ages out), and
+  prints only when the status changes. If that process can't start or stops,
+  the widget tries again every 15 seconds.
+- **The window:** `--window` opens the dashboard with the app id `t3-agents`,
+  outside Omarchy's and T3's namespaces, so you can match it in your own window
+  rules.
 
 Some limits worth knowing. Only agents in your local T3 database show up;
 delegates on linked machines show the status recorded here. Context figures are
@@ -171,7 +217,8 @@ read `◌` as "take a look", not "broken".
   adapter to internal storage: a T3 update can change the tables or the window
   title format. Built against T3 Code Nightly, November 2026.
 - Optional: Omarchy for the bar widget, its usage records and the live theme;
-  Hyprland to follow the open T3 thread; foot for `--window`.
+  Hyprland to follow the open T3 thread and to focus an open dashboard; foot,
+  `xdg-terminal-exec` or `$TERMINAL` for `--window`.
 - Tested on one Omarchy laptop (Hyprland 0.56, Node 26.13). Other setups are
   untested so far, and reports are welcome.
 
@@ -191,8 +238,8 @@ To remove everything:
 
 ```sh
 omarchy plugin remove 0xbreadguy.t3-agents
-rm ~/.local/bin/t3-agents ~/.local/share/applications/t3-agents.desktop
-rm -r ~/.local/share/t3-agents
+rm ~/.local/bin/t3-agents "${XDG_DATA_HOME:-$HOME/.local/share}/applications/t3-agents.desktop"
+rm -r "${XDG_DATA_HOME:-$HOME/.local/share}/t3-agents"
 ```
 
 ## Develop
@@ -200,7 +247,7 @@ rm -r ~/.local/share/t3-agents
 ```sh
 cd dashboard
 npm ci
-npm test        # attribution, read-only source, stall detection, T3 link, palette, digits, layout, render
+npm test        # which agent did what, read-only source, CLI errors, stall detection, T3 link, palette, digits, layout, render
 npm run check   # TypeScript
 cd .. && node --test test/   # bar widget
 ```
