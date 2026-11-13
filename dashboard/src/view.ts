@@ -17,6 +17,7 @@ export interface ViewState {
   activeOnly: boolean
   paused: boolean
   help: boolean
+  helpScroll: number
   fx: boolean
   detailScroll: number
   listScroll: number
@@ -41,7 +42,7 @@ export interface ViewState {
 }
 
 export function initialState(interval = 2): ViewState {
-  return { selected: null, collapsed: new Set(), activeOnly: false, paused: false, help: false, fx: false,
+  return { selected: null, collapsed: new Set(), activeOnly: false, paused: false, help: false, helpScroll: 0, fx: false,
     detailScroll: 0, listScroll: 0, windowIndex: 1, error: null, cause: null, interval, bootAt: Date.now(), lastFrame: 0,
     tween: new Map(), firstSeen: new Map(), seeded: false, shimmer: new Map(), calm: false, frozenAt: null,
     t3Title: null, t3Linked: null, t3Link: false, follow: true, notice: null, demo: false }
@@ -63,6 +64,7 @@ export interface Frame {
   list: Rect
   detail: Rect
   detailMax: number // maximum detail scroll
+  helpMax: number // maximum help scroll: the overlay is taller than the window
   beat: boolean // spinners or a fading flash on screen: frames at the spinner beat
   smooth: boolean // a tween, name shimmer or boot wipe in flight: a higher frame rate, briefly
   linked: Set<string> // the thread open in T3 Code and everything under it
@@ -237,7 +239,7 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
   const dt = st.lastFrame ? Math.min(0.25, Math.max(0, (now - st.lastFrame) / 1000)) : 0
   st.lastFrame = now
   const frame: Frame = { rows: [], hits: [], list: { x: 0, y: 0, w: 0, h: 0 }, detail: { x: 0, y: 0, w: 0, h: 0 },
-    detailMax: 0, beat: false, smooth: false, linked: new Set<string>(),
+    detailMax: 0, helpMax: 0, beat: false, smooth: false, linked: new Set<string>(),
     paces: new Map<string, Pace>() }
   if (W < 48 || H < 14) {
     c.text(1, 0, "T3 Agents", p.bright, { attr: BOLD })
@@ -284,7 +286,8 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
   let y = 1
   y += kpis(c, y, W, H >= KPI_BIG_MIN_H, st, agents, running, waiting, usage, p, now, frame.paces, blind)
   const limited = usage.filter((u) => u.limits.length)
-  if (limited.length) y += limits(c, y, W, limited, p, now)
+  // Short windows (beside T3) keep LIMITS to one line, so the agents get the rows.
+  if (limited.length) y += H < LIMITS_FULL_MIN_H ? limitsLine(c, y, W, limited, p) : limits(c, y, W, limited, p, now)
   const mainTop = y
   const mainH = H - 1 - mainTop
   const wide = W >= 140
@@ -294,8 +297,11 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
     frame.detail = { x: lw + 2, y: mainTop, w: W - lw - 3, h: mainH }
     for (let yy = mainTop; yy < H - 1; yy++) c.set(lw, yy, "│", p.rule)
   } else {
-    const need = frame.rows.length * 2 + 2
-    const lh = !snap.at ? mainH : Math.max(5, Math.min(need, Math.floor(mainH * 0.46)))
+    // The agent list comes first: as many agents as fit, two rows each when all of
+    // them fit that way, leaving the details at least a few rows (they scroll).
+    const room = Math.max(5, mainH - Math.max(7, Math.floor(mainH * 0.3)))
+    const cards = frame.rows.length * 2 + 2
+    const lh = !snap.at ? mainH : Math.max(5, cards <= room ? cards : Math.min(room, frame.rows.length + 2))
     frame.list = { x: 0, y: mainTop, w: W, h: lh }
     frame.detail = { x: 1, y: mainTop + lh, w: W - 2, h: mainH - lh }
   }
@@ -307,9 +313,14 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
     const height = detail(c, frame.detail, sel, st, p, now, frame)
     frame.detailMax = Math.max(0, height - frame.detail.h)
     if (st.detailScroll > frame.detailMax) st.detailScroll = frame.detailMax
+    // The details scroll (J K, wheel): say so when there is more above or below.
+    const { x: dx, y: dy, w: dw, h: dh } = frame.detail
+    const below = frame.detailMax - st.detailScroll
+    if (below > 0) c.textRight(dx + dw, dy + dh - 1, ` ▼ ${below} more`, p.text2, { bg: p.bg })
+    if (st.detailScroll > 0) c.textRight(dx + dw, dy, ` ▲ ${st.detailScroll} more`, p.text2, { bg: p.bg })
   }
   footer(c, st, snap, p, now, W, H)
-  if (st.help) help(c, p, W, H)
+  if (st.help) frame.helpMax = help(c, st, p, W, H)
   // Boot: a scan line wipes the dashboard in from the top (not in calm mode).
   const boot = (now - st.bootAt) / 650
   if (boot < 1 && !st.calm) {
@@ -587,6 +598,38 @@ function limits(c: Canvas, y: number, W: number, providers: Provider[], p: Palet
   return perCol + 1
 }
 
+// Below this height LIMITS shrinks to one line.
+export const LIMITS_FULL_MIN_H = 36
+
+/** LIMITS in one line: each provider's fullest window, fullest first, as many as fit. */
+function limitsLine(c: Canvas, y: number, W: number, providers: Provider[], p: Palette): number {
+  let x = 1 + c.text(1, y, "LIMITS", p.text2, { attr: BOLD }) + 2
+  const worst = providers.map((u) => ({ u, l: u.limits.reduce((a, b) => (b.percent > a.percent ? b : a)) }))
+    .sort((a, b) => b.l.percent - a.l.percent)
+  for (const [i, { u, l }] of worst.entries()) {
+    const name = `${u.name.split(" ")[0]} ${(l.title ? l.title + " " : "") + l.label.replace(/\s*\(.*\)/, "")}`
+    const hot = l.percent >= 0.9
+    const ahead = l.elapsed !== null && l.percent > l.elapsed + 0.08 && l.percent >= 0.15
+    const pct = `${Math.round(l.percent * 100)}%`
+    const width = 2 + textWidth(name) + 1 + 8 + 1 + pct.length + (ahead ? 2 : 0)
+    const more = worst.length - i - 1 ? `+${worst.length - i - 1}` : ""
+    if (x + width + (more ? more.length + 3 : 0) > W - 1) {
+      if (x + textWidth(`+${worst.length - i}`) <= W - 1) c.text(x, y, `+${worst.length - i}`, p.dim)
+      break
+    }
+    c.set(x, y, "●", p.provider[usageFamily(u.id)])
+    x += 2 + c.text(x + 2, y, name, p.text2) + 1
+    hbar(c, x, y, 8, l.percent, {
+      track: p.rule, line: true, color: (k, cells) => (hot ? p.hot : ramp(p, 0.3 + 0.7 * (k / cells))),
+      marker: l.elapsed !== null ? { at: l.elapsed, color: p.bright } : undefined,
+    })
+    x += 9 + c.text(x + 9, y, pct, hot ? p.hot : p.fg, { attr: BOLD })
+    if (ahead) x += 1 + c.text(x + 1, y, "▲", p.hot)
+    x += 3
+  }
+  return 1
+}
+
 function limitRow(c: Canvas, X: number, y: number, W: number, u: Provider, l: Provider["limits"][number], named: boolean, p: Palette, now: number) {
   const narrow = W < 96
   if (named) c.set(X, y, "●", p.provider[usageFamily(u.id)])
@@ -623,16 +666,23 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
   if (!snap.at) return unread(c, frame.list, st, snap, p)
   section(c, X + 1, Y, W - 2, "AGENTS", p, `${rows.length} shown · ${liveN} live`)
   const bodyY = Y + 1
-  const bodyH = H - 1
-  const card = rows.length * 2 <= bodyH - 1 || W < 70
+  const bodyH = H - 1 // the time axis, then the agents
+  // Two rows per agent when all fit that way, otherwise one; when even that
+  // hides some, the last row says how many and what they hold.
+  const card = rows.length * 2 <= bodyH - 1
   const per = card ? 2 : 1
-  const visible = Math.max(1, Math.floor((bodyH - 1) / per))
+  const visible = rows.length * per <= bodyH - 1 ? rows.length : Math.max(1, Math.floor((bodyH - 2) / per))
   // Scroll only when the selection leaves the visible window.
   const index = Math.max(0, rows.findIndex((r) => r.agent.id === st.selected))
   if (index < st.listScroll) st.listScroll = index
   if (index >= st.listScroll + visible) st.listScroll = index - visible + 1
   st.listScroll = Math.max(0, Math.min(st.listScroll, rows.length - visible))
   const first = st.listScroll
+  // Folded parents hide their subagents; one waiting on you still shows, as a ◆ on the fold.
+  const children = new Map<string, Agent[]>()
+  for (const a of snap.agents) if (a.parent) children.set(a.parent, [...(children.get(a.parent) ?? []), a])
+  const waitingUnder = (id: string, seen = new Set<string>()): boolean =>
+    (children.get(id) ?? []).some((k) => !seen.has(k.id) && (seen.add(k.id), needsYou(k) || waitingUnder(k.id, seen)))
   // Hot and warm text, lifted just enough to read on the selected row's background.
   const hotUp = reach(p.hot, p.dark ? 0xffffff : 0, TEXT_CONTRAST, [p.sel])
   const warnUp = reach(p.warn, p.dark ? 0xffffff : 0, TEXT_CONTRAST, [p.sel])
@@ -640,7 +690,8 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
   const barW = card ? Math.max(10, Math.min(30, Math.floor(W * 0.26))) : Math.max(8, Math.min(18, Math.floor(W * 0.13)))
   const nameW = card ? 0 : Math.max(14, Math.min(40, Math.floor(W * 0.32)))
   const laneX = card ? X + 6 + barW + 6 : X + 4 + nameW + 2 + barW + 6
-  const laneW = Math.max(0, X + W - laneX - (card ? 1 : 8))
+  // One-row lanes stop short of the provider dot and the age (up to 7 columns) at the right edge.
+  const laneW = Math.max(0, X + W - laneX - (card ? 1 : 11))
   const laneMax = Math.max(3, ...rows.map((r) => Math.max(0, ...laneData(r.agent, Math.max(1, laneW), windowMs, now).counts)))
   // Time axis aligned with the lanes.
   const axisY = bodyY
@@ -692,6 +743,7 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
     }
     c.set(x, y, s.glyph, s.color, rowBg, BOLD)
     const fold = row.hasChildren && st.collapsed.has(a.id) ? " ▸" : ""
+    const folded = fold && waitingUnder(a.id) ? 2 : 0 // a ◆ after the fold mark: someone in there needs you
     const liveRow = isLive(a) && !attention
     // Motion means work: quiet or queued agents keep their text, but nothing on their rows moves.
     const moving = working(a, pc)
@@ -708,8 +760,9 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
       const meta = `● ${shortModel(a.model)}  ${ageText}`
       const metaW = textWidth(meta)
       const nameMax = Math.max(6, right - metaW - 2 - (x + 2))
-      const name = fit(a.title, nameMax) + fold
-      const used = shimmer(c, x + 2, y, name, nameColor, p, now, flare, nameAttr, rowBg)
+      const name = fit(a.title, nameMax - folded) + fold
+      const used = shimmer(c, x + 2, y, name, nameColor, p, now, flare, nameAttr, rowBg) + folded
+      if (folded) c.set(x + 1 + used, y, "◆", p.hot, rowBg, BOLD)
       const actionX = x + 2 + used + 2
       const actionW = right - metaW - 2 - actionX
       const act = liveRow || attention ? doing(a, pc, p) : null
@@ -726,8 +779,9 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
         c.text(bx + bw + 1, y + 1, pctText, pctColor, { bg: rowBg, attr: BOLD })
       }
     } else {
-      const name = fit(a.title, Math.max(4, X + 4 + nameW - (x + 2))) + fold
-      shimmer(c, x + 2, y, name, nameColor, p, now, flare, nameAttr, rowBg)
+      const name = fit(a.title, Math.max(4, X + 4 + nameW - (x + 2) - folded)) + fold
+      const used = shimmer(c, x + 2, y, name, nameColor, p, now, flare, nameAttr, rowBg)
+      if (folded) c.set(x + 3 + used, y, "◆", p.hot, rowBg, BOLD)
       const bx = X + 4 + nameW + 2
       if (r === null) c.text(bx, y, fit("--", barW), ink(p.dim), { bg: rowBg })
       else {
@@ -742,10 +796,34 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
     if (laneW >= 8) drawLane(c, laneX, y + per - 1, laneData(a, laneW, windowMs, now), laneMax, p, rowBg,
       fam === "other" ? null : p.provider[fam])
   })
-  if (first > 0) c.textRight(X + W - 1, bodyY, `▲ ${first} more`, p.dim, { bg: p.bg })
-  const below = rows.length - first - visible
-  if (below > 0) c.textRight(X + W - 1, Y + H - 1, `▼ ${below} more`, p.dim, { bg: p.bg })
-  return bodyY + 1 + Math.min(visible, rows.length - first) * per
+  const shown = Math.min(visible, rows.length - first)
+  const hidden = [...rows.slice(0, first), ...rows.slice(first + shown)].map((r) => r.agent)
+  if (hidden.length) overflow(c, X + 2, bodyY + 1 + shown * per, W - 3, first, rows.length - first - shown, hidden, frame, p)
+  return bodyY + 1 + shown * per + (hidden.length ? 1 : 0)
+}
+
+/**
+ * The list's overflow row: how many agents are scrolled out of view and what
+ * they hold, e.g. "▼ 11 more · ◆1 · 1 stalled · 1 ✗". It turns hot while one
+ * of them is waiting on you.
+ */
+function overflow(c: Canvas, x: number, y: number, w: number, above: number, below: number, hidden: Agent[], frame: Frame, p: Palette) {
+  const count = (test: (a: Agent, pc: Pace | undefined) => boolean) => hidden.filter((a) => test(a, frame.paces.get(a.id))).length
+  const waiting = count(needsYou)
+  const stalled = count((_, pc) => !!pc?.quiet && pc.stalled)
+  const slow = count((_, pc) => !!pc && !pc.quiet && pc.stalled)
+  const failed = count((a) => a.status === "failed" || a.status === "error")
+  const lead = above && below ? `▲ ${above} · ▼ ${below} more` : below ? `▼ ${below} more` : `▲ ${above} more`
+  const parts: [string, Color][] = [[lead, waiting ? p.hot : p.text2]]
+  if (waiting) parts.push([`◆${waiting}`, p.hot])
+  if (stalled) parts.push([`${stalled} stalled`, p.warn])
+  if (slow) parts.push([`${SLOW}${slow} slow`, p.warn])
+  if (failed) parts.push([`${failed} ✗`, p.hot])
+  let col = 0
+  parts.forEach(([text, color], i) => {
+    if (i) col += c.text(x + col, y, " · ", p.dim, { max: w - col })
+    col += c.text(x + col, y, text, color, { attr: i === 0 && waiting ? BOLD : 0, max: w - col })
+  })
 }
 
 /** No snapshot to show: one message in place of the agents, naming the database and what to try. */
@@ -1147,7 +1225,8 @@ function footer(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
   c.textRight(W - 1, y, st.demo ? "demo data · made up" : `read-only · ${duration(Math.max(0, (now - snap.at) / 1000))} ago`, p.dim)
 }
 
-function help(c: Canvas, p: Palette, W: number, H: number) {
+/** The help overlay; returns how far it can scroll when the window is too short for it. */
+function help(c: Canvas, st: ViewState, p: Palette, W: number, H: number): number {
   c.tint(0, 0, W, H, (f, b) => [mix(f, p.bg, 0.7), mix(b, p.bg, 0.5)])
   const keys: [string, string][] = [
     ["↑↓ j k", "select agent"], ["⏎ o", "open the thread in T3 Code"], ["␣ ← →", "fold / expand"], ["a", "active agents only"], ["t", "lane 15m · 30m · 1h · 3h"],
@@ -1170,7 +1249,10 @@ function help(c: Canvas, p: Palette, W: number, H: number) {
   const two = W >= 84
   const bw = Math.min(W - 2, two ? 80 : 64)
   const keyRows = two ? Math.ceil(keys.length / 2) : keys.length
-  const bh = Math.min(H - 2, keyRows + legend.length + 10)
+  const full = keyRows + legend.length + 10
+  const bh = Math.min(H - 2, full)
+  const max = full - bh
+  st.helpScroll = Math.max(0, Math.min(st.helpScroll, max))
   const bx = Math.floor((W - bw) / 2)
   const by = Math.floor((H - bh) / 2)
   c.fill(bx, by, bw, bh, p.panel)
@@ -1187,7 +1269,10 @@ function help(c: Canvas, p: Palette, W: number, H: number) {
   c.set(bx, by + bh - 1, "╰", p.accent)
   c.set(bx + bw - 1, by + bh - 1, "╯", p.accent)
   c.text(bx + 2, by, " T3 Agents · help ", p.bright, { attr: BOLD })
-  c.clipped(bx + 1, by + 1, bw - 2, bh - 2, 0, () => {
+  // Too short for all of it: the help scrolls (↓ ↑), and its border says what is out of view.
+  if (st.helpScroll < max) c.textRight(bx + bw - 2, by + bh - 1, ` ▼ ${max - st.helpScroll} more · ↓ `, p.bright, { bg: p.panel })
+  if (st.helpScroll > 0) c.textRight(bx + bw - 2, by, ` ▲ ${st.helpScroll} more · ↑ `, p.bright, { bg: p.panel })
+  c.clipped(bx + 1, by + 1, bw - 2, bh - 2, st.helpScroll, () => {
     let y = by + 2
     const x0 = bx + 3
     const half = Math.floor((bw - 6) / 2)
@@ -1215,4 +1300,5 @@ function help(c: Canvas, p: Palette, W: number, H: number) {
     c.text(x0, y + 1, fit("Read-only: local T3 SQLite and Omarchy usage records. No network.", bw - 6), p.dim)
     c.text(x0, y + 2, fit("Unofficial; not affiliated with T3 Code or Omarchy.", bw - 6), p.dim)
   })
+  return max
 }

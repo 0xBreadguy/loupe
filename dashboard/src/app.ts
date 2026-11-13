@@ -185,6 +185,10 @@ export class App {
     }
   }
 
+  private scrollHelp(delta: number) {
+    this.st.helpScroll = Math.max(0, Math.min(this.frame?.helpMax ?? 0, this.st.helpScroll + delta))
+  }
+
   private scrollDetail(delta: number) {
     this.st.detailScroll = Math.max(0, Math.min(this.frame?.detailMax ?? 0, this.st.detailScroll + delta))
   }
@@ -194,10 +198,16 @@ export class App {
     const seq = k.sequence
     const name = keyName(k.name) // numpad keys act like their main-keyboard twins
     const row = this.frame?.rows.find((r) => r.agent.id === st.selected)
+    // While the help is open, moving keys scroll it (it scrolls when the window is short).
+    const helpStep = !st.help ? 0 : name === "down" || seq === "j" ? 1 : name === "up" || seq === "k" ? -1
+      : name === "pagedown" || seq === "J" || name === "space" ? 5 : name === "pageup" || seq === "K" ? -5 : 0
     if (name === "escape" || seq === "q") {
       if (st.help && name === "escape") st.help = false
       else return this.quit()
-    } else if (seq === "?" || seq === "h") st.help = !st.help
+    } else if (seq === "?" || seq === "h") {
+      st.help = !st.help
+      st.helpScroll = 0
+    } else if (helpStep) this.scrollHelp(helpStep)
     else if (name === "down" || seq === "j") this.select(1)
     else if (name === "up" || seq === "k") this.select(-1)
     else if (name === "home" || seq === "g") this.select(-1e6)
@@ -283,7 +293,8 @@ export class App {
   wheel(e: MouseEvent) {
     const d = this.frame?.detail
     const down = e.scroll?.direction === "down"
-    if (d && e.x >= d.x && e.x < d.x + d.w && e.y >= d.y && e.y < d.y + d.h) this.scrollDetail(down ? 3 : -3)
+    if (this.st.help) this.scrollHelp(down ? 3 : -3)
+    else if (d && e.x >= d.x && e.x < d.x + d.w && e.y >= d.y && e.y < d.y + d.h) this.scrollDetail(down ? 3 : -3)
     else this.select(down ? 1 : -1)
     this.renderer?.requestRender()
   }
