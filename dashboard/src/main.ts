@@ -5,9 +5,10 @@ import { parseArgs } from "node:util"
 // Only the interactive dashboard loads OpenTUI; --once and --status stay light.
 import { clean, duration, fit, shortModel } from "./format.ts"
 import { Source, SourceError, isRunning, needsYou, tree, type Agent } from "./source.ts"
+import { animationsOff } from "./calm.ts"
 import { line, watch } from "./status.ts"
 
-const USAGE = `Usage: t3-agents [--window] [--once | --status [--watch]] [--db PATH | --demo] [--interval SECONDS]
+const USAGE = `Usage: t3-agents [--window] [--once | --status [--watch]] [--db PATH | --demo] [--interval SECONDS] [--calm]
 
   --window          open in a dedicated terminal window, or focus it (launcher only)
   --once            print a plain-text snapshot and exit
@@ -17,6 +18,8 @@ const USAGE = `Usage: t3-agents [--window] [--once | --status [--watch]] [--db P
   --demo            show made-up agents and usage instead of yours, to try it out or take
                     screenshots; reads no T3 or Omarchy data except the theme
   --interval SECS   data refresh period, minimum 0.5 (default 2)
+  --calm            start in calm mode: nothing animates (on by default when Omarchy's
+                    animations are off; m toggles it)
 `
 
 function bar(frac: number, w: number): string {
@@ -75,7 +78,7 @@ async function main() {
       db: { type: "string" }, interval: { type: "string", default: "2" },
       once: { type: "boolean", default: false }, help: { type: "boolean", short: "h", default: false },
       status: { type: "boolean", default: false }, watch: { type: "boolean", default: false },
-      demo: { type: "boolean", default: false },
+      demo: { type: "boolean", default: false }, calm: { type: "boolean", default: false },
     } }).values
     if (args.demo && args.db) throw new Error("--demo and --db cannot be used together")
   } catch (err) {
@@ -111,7 +114,8 @@ async function main() {
     process.exit(1)
   }
   const { App } = await import("./app.ts")
-  const app = new App(source, interval, kit && demo ? { usage: new kit.DemoUsage(demo.epoch), demo: true } : {})
+  const calm = args.calm || animationsOff()
+  const app = new App(source, interval, kit && demo ? { usage: new kit.DemoUsage(demo.epoch), demo: true, calm } : { calm })
   const fail = (err: unknown) => {
     app.renderer?.destroy()
     process.stderr.write(`t3-agents crashed: ${err instanceof Error ? err.stack : err}\n`)
