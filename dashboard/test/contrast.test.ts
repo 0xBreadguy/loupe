@@ -109,3 +109,39 @@ test("every letter and digit on screen reads at 4.5:1, whatever is selected or l
     }
   }
 })
+
+test("the quiet, empty and unreadable states read at 4.5:1 too", () => {
+  const now = EPOCH + 2.5 * 60_000
+  const snap = demo(now)
+  const quiet = structuredClone(snap)
+  for (const a of quiet.agents) {
+    a.status = "completed"
+    a.requests = []
+    a.items = a.items.map((i) => ({ ...i, status: "completed" }))
+    a.events = a.events.map((e) => ({ ...e, failed: false }))
+    a.now = null
+  }
+  const states: [string, Snapshot, (st: ViewState) => void, boolean][] = [
+    ["all quiet", quiet, () => {}, true],
+    ["no threads", { ...snap, agents: [] }, () => {}, false],
+    ["never read", { agents: [], at: 0, path: "" }, (st) => {
+      st.error = "No T3 database at ~/.t3/userdata/statev2.sqlite. Is T3 Code installed and opened once?"
+      st.cause = { kind: "missing", path: "/home/me/.t3/userdata/statev2.sqlite", detail: "" }
+    }, false],
+    ["snapshot kept", snap, (st) => (st.error = "database is locked"), true],
+  ]
+  for (const [name, vars] of Object.entries(THEMES)) {
+    const p = derivePalette(vars)
+    for (const [state, data, setup, withUsage] of states) {
+      for (const [w, h] of [[60, 20], [100, 30], [150, 50]]) {
+        const st = initialState(2)
+        st.bootAt = 0
+        st.calm = true
+        setup(st)
+        const c = new Canvas(w, h)
+        draw(c, st, data, withUsage ? demoUsage(now, EPOCH) : [], p, now)
+        assert.deepEqual(unreadable(c, p), [], `${name} ${w}x${h}: ${state}`)
+      }
+    }
+  }
+})
