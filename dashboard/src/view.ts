@@ -329,7 +329,9 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
   footer(c, st, snap, p, now, W, H)
   if (st.help) frame.helpMax = help(c, st, p, W, H)
   // Boot: a scan line wipes the dashboard in from the top (not in calm mode).
-  const boot = (now - st.bootAt) / 650
+  // Clamped: a clock that steps back hours would otherwise push the edge so far
+  // up that `yy++` stops changing a float and the tint below never ends.
+  const boot = Math.max(0, (now - st.bootAt) / 650)
   if (boot < 1 && !st.calm) {
     const edge = Math.floor((1 - (1 - boot) ** 3) * H)
     c.tint(0, edge + 1, W, H, () => [p.bg, p.bg])

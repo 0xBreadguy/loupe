@@ -344,3 +344,12 @@ test("the app: a calm option, m toggles it, and CRT effects stay off while calm"
   assert.equal(app.st.fx, false, "turning calm on turns the CRT effects off")
   assert.equal(new App(source, 2, { usage: { poll: () => usage }, demo: true }).st.calm, false, "off by default")
 })
+
+test("a clock that steps back a day mid-boot draws a frame instead of hanging", () => {
+  const snap = demo()
+  const st = initialState(2)
+  st.bootAt = NOW + 24 * 3_600_000 // the wall clock jumped back after start-up
+  const c = new Canvas(120, 40)
+  const frame = draw(c, st, snap, usage, palette, NOW)
+  assert.equal(frame.smooth, true, "the wipe simply starts over")
+})
