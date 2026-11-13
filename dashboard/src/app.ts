@@ -107,6 +107,7 @@ export class App {
       this.renderer?.requestRender()
     })
     this.st.t3Link = this.t3?.available ?? false
+    this.st.demo = this.demo
     this.refresh()
   }
 

@@ -283,3 +283,16 @@ test("monochrome themes get the validated provider hues; chromatic themes keep t
   const tokyo = derivePalette({ background: "#1a1b26", foreground: "#c0caf5", red: "#f7768e", green: "#9ece6a", blue: "#7aa2f7", magenta: "#bb9af7" })
   assert.deepEqual([tokyo.provider.claude, tokyo.provider.openai, tokyo.provider.grok], [0xbb9af7, 0x9ece6a, 0x7aa2f7])
 })
+
+test("made-up data says so in the header", () => {
+  const now = Date.parse("2026-11-12T12:00:00Z")
+  const st = initialState(2)
+  st.bootAt = 0
+  const c = new Canvas(120, 40)
+  const palette = derivePalette(parseColorsToml(SOLITUDE))
+  draw(c, st, { agents: fixture(now), at: now, path: "" }, [], palette, now)
+  assert.doesNotMatch(c.toText().split("\n")[0], /DEMO/)
+  st.demo = true
+  draw(c, st, { agents: fixture(now), at: now, path: "" }, [], palette, now)
+  assert.match(c.toText().split("\n")[0], /DEMO/)
+})

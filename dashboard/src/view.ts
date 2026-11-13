@@ -32,13 +32,14 @@ export interface ViewState {
   t3Link: boolean // Hyprland is reachable, so the link can work
   follow: boolean // select the thread T3 Code shows whenever it changes
   notice: { text: string; at: number; error: boolean } | null // a short footer message
+  demo: boolean // made-up data: say so in the header
 }
 
 export function initialState(interval = 2): ViewState {
   return { selected: null, collapsed: new Set(), activeOnly: false, paused: false, help: false, fx: false,
     detailScroll: 0, listScroll: 0, windowIndex: 1, error: null, interval, bootAt: Date.now(), lastFrame: 0,
     tween: new Map(), firstSeen: new Map(), t3Title: null, t3Linked: null, t3Link: false, follow: true,
-    notice: null }
+    notice: null, demo: false }
 }
 
 export interface Rect { x: number; y: number; w: number; h: number }
@@ -364,6 +365,7 @@ function header(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
     x += c.text(x, 0, "●", mix(p.bright, p.accent, age))
     x += c.text(x + 1, 0, `LIVE ${st.interval}s`, p.text2) + 1
   }
+  if (st.demo) x += 1 + c.text(x + 1, 0, " DEMO ", p.bg, { bg: p.text2, attr: BOLD })
   const linked = st.t3Linked ? snap.agents.find((a) => a.id === st.t3Linked) : null
   const room = W - x - 34
   if (linked && room >= 12) {
@@ -981,7 +983,7 @@ function footer(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
     x += c.text(x, y, k, p.accent, { attr: BOLD }) + 1
     x += c.text(x, y, label, p.dim) + 2
   }
-  c.textRight(W - 1, y, `read-only · ${duration(Math.max(0, (now - snap.at) / 1000))} ago`, p.faint)
+  c.textRight(W - 1, y, st.demo ? "demo data · made up" : `read-only · ${duration(Math.max(0, (now - snap.at) / 1000))} ago`, p.faint)
 }
 
 function help(c: Canvas, p: Palette, W: number, H: number) {

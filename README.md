@@ -70,6 +70,8 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
 - Hover for the list with models and context, click to open the dashboard,
   middle-click to restart its watcher.
 
+![The bar widget's tooltip on stock Omarchy, with demo data](docs/bar-widget.png)
+
 ## Install
 
 You need Node.js 26.4 or later (Omarchy's `mise` Node qualifies) and T3 Code's
@@ -204,7 +206,10 @@ cd .. && node --test test/   # bar widget
 
 The bar widget lives at the repository root (`manifest.json`, `Service.qml`,
 `BarWidget.qml`, `Status.js`) so `omarchy plugin add` can install it straight
-from git; check it with `omarchy plugin validate .`. The dashboard is in
+from git; check it with `omarchy plugin validate .`. Omarchy rejects symlinks in
+a plugin folder, and `npm ci` creates some under `dashboard/node_modules`, so
+validate a clean clone and never install dependencies inside an installed plugin
+(the dashboard installer puts them in `~/.local/share/t3-agents`). The dashboard is in
 `dashboard/src`: `source.ts` (SQLite adapter and stall detection), `focus.ts`
 (the T3 link), `status.ts` (bar status), `usage.ts` (Omarchy limits), `theme.ts`
 (live palette), `canvas.ts` (cell grid, meters, braille, big digits), `view.ts`
