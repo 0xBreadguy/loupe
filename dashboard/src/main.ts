@@ -1,5 +1,5 @@
 // T3 Agents: live visual dashboard for local T3 Code agents and subagents.
-import { homedir } from "node:os"
+import { constants, homedir } from "node:os"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
 // Only the interactive dashboard loads OpenTUI; --once and --status stay light.
@@ -7,13 +7,15 @@ import { clean, duration, fit, shortModel } from "./format.ts"
 import { Source, tree } from "./source.ts"
 import { line, watch } from "./status.ts"
 
-const USAGE = `Usage: t3-agents [--window] [--once | --status [--watch]] [--db PATH] [--interval SECONDS]
+const USAGE = `Usage: t3-agents [--window] [--once | --status [--watch]] [--db PATH | --demo] [--interval SECONDS]
 
   --window          open in a dedicated terminal window, or focus it (launcher only)
   --once            print a plain-text snapshot and exit
   --status          print a one-line JSON status (used by the Omarchy bar widget)
   --watch           with --status, print a new line whenever the status changes
   --db PATH         T3 statev2.sqlite (default: \${T3CODE_HOME:-~/.t3}/userdata/statev2.sqlite)
+  --demo            show made-up agents and usage instead of yours, to try it out or take
+                    screenshots; reads no T3 or Omarchy data except the theme
   --interval SECS   data refresh period, minimum 0.5 (default 2)
 `
 
@@ -22,11 +24,11 @@ function bar(frac: number, w: number): string {
   return ("█".repeat(Math.floor(units / 8)) + ["", "▏", "▎", "▍", "▌", "▋", "▊", "▉"][units % 8]).padEnd(w, "░")
 }
 
-function once(source: Source) {
+function once(source: Source, demo = false) {
   const snap = source.snapshot()
   const live = snap.agents.filter((a) => a.status === "running").length
   const waiting = snap.agents.filter((a) => a.requests.length || a.status === "waiting").length
-  console.log(`T3 AGENTS · read-only · ${new Date().toTimeString().slice(0, 8)} · ${live} running · ${waiting} waiting · ${snap.agents.length} agents`)
+  console.log(`T3 AGENTS · ${demo ? "demo data" : "read-only"} · ${new Date().toTimeString().slice(0, 8)} · ${live} running · ${waiting} waiting · ${snap.agents.length} agents`)
   const glyph: Record<string, string> = { running: "●", completed: "✓", failed: "✗", error: "✗", interrupted: "⊘", waiting: "◆" }
   for (const row of tree(snap.agents, new Set())) {
     const a = row.agent
@@ -47,13 +49,22 @@ async function main() {
       db: { type: "string" }, interval: { type: "string", default: "2" },
       once: { type: "boolean", default: false }, help: { type: "boolean", short: "h", default: false },
       status: { type: "boolean", default: false }, watch: { type: "boolean", default: false },
+      demo: { type: "boolean", default: false },
     } }).values
+    if (args.demo && args.db) throw new Error("--demo and --db cannot be used together")
   } catch (err) {
     process.stderr.write(`${err instanceof Error ? err.message : err}\n\n${USAGE}`)
     process.exit(2)
   }
   if (args.help) return void process.stdout.write(USAGE)
-  const db = args.db ?? join(process.env.T3CODE_HOME ?? join(homedir(), ".t3"), "userdata/statev2.sqlite")
+  // A demo builds its own database in a temporary directory, removed on exit.
+  const kit = args.demo ? await import("./demo.ts") : null
+  const demo = kit && new kit.Demo()
+  if (demo && !(process.stdin.isTTY && process.stdout.isTTY && !args.once && !args.status)) {
+    // Without the dashboard nothing else handles these; exiting this way runs the cleanup.
+    for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) process.once(sig, () => process.exit(128 + constants.signals[sig]))
+  }
+  const db = demo?.path ?? args.db ?? join(process.env.T3CODE_HOME ?? join(homedir(), ".t3"), "userdata/statev2.sqlite")
   const interval = Math.max(0.5, Number(args.interval) || 2)
   const source = new Source(db)
   if (args.status) {
@@ -62,7 +73,7 @@ async function main() {
   }
   if (args.once) {
     try {
-      return once(source)
+      return once(source, demo !== null)
     } catch (err) {
       process.stderr.write(`T3 source error: ${err instanceof Error ? err.message : err}\n`)
       process.exit(1)
@@ -73,7 +84,7 @@ async function main() {
     process.exit(1)
   }
   const { App } = await import("./app.ts")
-  const app = new App(source, interval)
+  const app = new App(source, interval, kit && demo ? { usage: new kit.DemoUsage(demo.epoch), demo: true } : {})
   const fail = (err: unknown) => {
     app.renderer?.destroy()
     process.stderr.write(`t3-agents crashed: ${err instanceof Error ? err.stack : err}\n`)

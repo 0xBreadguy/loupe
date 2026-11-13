@@ -75,27 +75,37 @@ class Surface extends Renderable {
   }
 }
 
+export interface AppOptions {
+  usage?: Pick<UsageReader, "poll"> // limits and token counts; default: Omarchy's usage records
+  demo?: boolean // made-up data: no link to the T3 Code window, and opening a thread only says what it would do
+}
+
 export class App {
   readonly canvas = new Canvas()
   readonly st: ViewState
   readonly theme = new ThemeWatcher()
-  readonly usage = new UsageReader()
+  readonly usage: Pick<UsageReader, "poll">
   readonly source: Source
+  readonly demo: boolean
   snap: Snapshot = { agents: [], at: 0, path: "" }
   frame: Frame | null = null
   renderer: CliRenderer | null = null
   private timer: ReturnType<typeof setInterval> | null = null
   private fx = crt()
   // Follows the T3 Code window's title, so the thread open there is highlighted here.
-  readonly t3 = new T3Window((title) => {
-    this.st.t3Title = title
-    this.renderer?.requestRender()
-  })
+  // Not in a demo: real window titles would never name made-up threads.
+  readonly t3: T3Window | null
 
-  constructor(source: Source, interval: number) {
+  constructor(source: Source, interval: number, options: AppOptions = {}) {
     this.source = source
+    this.usage = options.usage ?? new UsageReader()
+    this.demo = options.demo ?? false
     this.st = initialState(interval)
-    this.st.t3Link = this.t3.available
+    this.t3 = this.demo ? null : new T3Window((title) => {
+      this.st.t3Title = title
+      this.renderer?.requestRender()
+    })
+    this.st.t3Link = this.t3?.available ?? false
     this.refresh()
   }
 
@@ -118,10 +128,10 @@ export class App {
       if (!this.st.paused) this.refresh()
     }, this.st.interval * 1000)
     renderer.start()
-    this.t3.start()
+    this.t3?.start()
     await new Promise<void>((resolve) => renderer.once("destroy", () => resolve()))
     if (this.timer) clearInterval(this.timer)
-    this.t3.stop()
+    this.t3?.stop()
   }
 
   quit() {
@@ -203,10 +213,11 @@ export class App {
       st.notice = { text, at: Date.now(), error }
       this.renderer?.requestRender()
     }
+    const thread = this.snap.agents.find((x) => x.id === a.thread_id) ?? a
+    if (this.demo) return note(`Demo: would open ${thread.title} in T3 Code`)
     const env = environmentId(this.source.path)
     const link = env ? threadLink(env, a.thread_id) : null
     if (!link) return note("Cannot open in T3: no environment id beside the T3 database", true)
-    const thread = this.snap.agents.find((x) => x.id === a.thread_id) ?? a
     // T3 then shows the thread; following keeps this selection because it is in that thread's family.
     openLink(link).then(
       () => note(`Opening in T3 · ${thread.title}`),
