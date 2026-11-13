@@ -4,9 +4,9 @@
 import { BIG_ROWS, BOLD, Braille, Canvas, bigWidth, clean, drawBig, drawFont, fit, hbar, level, textWidth } from "./canvas.ts"
 import { duration, shortModel, tokens } from "./format.ts"
 import { t3Thread } from "./focus.ts"
-import { BAD, LIVE, SLOW_TOOL_MS, isLive, ms, needsYou, pace, tree, category, type Agent, type Item, type Pace, type Snapshot,
+import { LIVE, SLOW_TOOL_MS, isLive, ms, needsYou, pace, tree, category, type Agent, type Item, type Pace, type Snapshot,
   type TreeRow } from "./source.ts"
-import { family, mix, ramp, type Color, type Family, type Palette } from "./theme.ts"
+import { TEXT_CONTRAST, family, mix, ramp, reach, type Color, type Family, type Palette } from "./theme.ts"
 import type { Provider } from "./usage.ts"
 
 export const WINDOWS = [15, 30, 60, 180] // lane window, minutes
@@ -121,7 +121,7 @@ export function statusOf(a: Agent, now: number, p: Palette, pc?: Pace, calm = fa
     case "completed": return { glyph: "✓", color: p.dim, label: "DONE" }
     case "interrupted": return { glyph: "⊘", color: p.warn, label: "INTERRUPTED" }
     case "failed": case "error": return { glyph: "✗", color: p.hot, label: "FAILED" }
-    default: return { glyph: "·", color: p.faint, label: a.status.toUpperCase() }
+    default: return { glyph: "·", color: p.dim, label: a.status.toUpperCase() }
   }
 }
 
@@ -129,7 +129,8 @@ export function statusOf(a: Agent, now: number, p: Palette, pc?: Pace, calm = fa
 function zoneColor(p: Palette, t: number): Color {
   if (t >= 0.9) return p.hot
   if (t >= 0.75) return p.warn
-  return ramp(p, 0.2 + t * 0.85)
+  // The dimmest cell still reads at 3:1 against the track (p.floor); brighter from there.
+  return ramp(p, p.floor + (Math.max(p.floor, 0.84) - p.floor) * (t / 0.75))
 }
 
 // The bar moves only when its value does (the tween); the fill itself is still.
@@ -535,7 +536,7 @@ function limits(c: Canvas, y: number, W: number, providers: Provider[], p: Palet
   const cols = W >= 180 && rows.length > 1 ? 2 : 1
   const perCol = Math.ceil(rows.length / cols)
   const colW = Math.floor((W - 2 - (cols - 1) * 3) / cols)
-  section(c, 1, y, W - 2, "LIMITS", p, "│ marks time elapsed in each window", p.faint)
+  section(c, 1, y, W - 2, "LIMITS", p, "│ marks time elapsed in each window", p.dim)
   rows.forEach(({ u, l, first }, n) => {
     const col = Math.floor(n / perCol)
     limitRow(c, 1 + col * (colW + 3), y + 1 + (n % perCol), colW, u, l, first || n % perCol === 0, p, now)
@@ -568,7 +569,7 @@ function limitRow(c: Canvas, X: number, y: number, W: number, u: Provider, l: Pr
   x += bw + 1
   x += c.text(x, y, `${Math.round(l.percent * 100)}%`.padStart(4), hot ? p.hot : p.fg, { attr: BOLD }) + 1
   if (reset) c.text(x, y, reset, p.dim)
-  if (pace) c.text(x + 9, y, pace, hot || ahead ? p.hot : p.faint)
+  if (pace) c.text(x + 9, y, pace, hot || ahead ? p.hot : p.dim)
 }
 
 function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): number {
@@ -588,6 +589,9 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
   if (index >= st.listScroll + visible) st.listScroll = index - visible + 1
   st.listScroll = Math.max(0, Math.min(st.listScroll, rows.length - visible))
   const first = st.listScroll
+  // Hot and warm text, lifted just enough to read on the selected row's background.
+  const hotUp = reach(p.hot, p.dark ? 0xffffff : 0, TEXT_CONTRAST, [p.sel])
+  const warnUp = reach(p.warn, p.dark ? 0xffffff : 0, TEXT_CONTRAST, [p.sel])
   // Column geometry.
   const barW = card ? Math.max(10, Math.min(30, Math.floor(W * 0.26))) : Math.max(8, Math.min(18, Math.floor(W * 0.13)))
   const nameW = card ? 0 : Math.max(14, Math.min(40, Math.floor(W * 0.32)))
@@ -599,12 +603,12 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
   if (laneW >= 12) {
     const label = (m: number) => (m >= 60 ? `-${+(m / 60).toFixed(1)}h` : `-${Math.round(m)}m`)
     const mins = WINDOWS[st.windowIndex]
-    c.text(laneX, axisY, label(mins), p.faint)
+    c.text(laneX, axisY, label(mins), p.dim)
     c.textRight(laneX + laneW, axisY, "now", p.dim)
-    if (laneW >= 30) c.text(laneX + Math.floor(laneW / 2) - 2, axisY, label(mins / 2), p.faint)
+    if (laneW >= 30) c.text(laneX + Math.floor(laneW / 2) - 2, axisY, label(mins / 2), p.dim)
   }
-  c.text(X + 2, axisY, card ? "CONTEXT" : "AGENT", p.faint)
-  if (!card) c.text(X + 4 + nameW + 2, axisY, "CONTEXT", p.faint)
+  c.text(X + 2, axisY, card ? "CONTEXT" : "AGENT", p.dim)
+  if (!card) c.text(X + 4 + nameW + 2, axisY, "CONTEXT", p.dim)
   if (!rows.length) {
     c.text(X + 2, bodyY + 2, st.activeOnly ? "No active agents. Press a to show all." : "No unarchived T3 threads found.", p.dim)
     return bodyY + 4
@@ -617,13 +621,17 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
     const linked = frame.linked.has(a.id)
     const rowBg = selected ? p.sel : linked ? mix(p.bg, p.sel, 0.5) : p.bg
     if (selected || linked) c.fill(X, y, W, per, rowBg)
+    // Text on the lighter selected and linked rows steps up one role to stay readable.
+    const ink = (color: Color) => (!selected && !linked ? color : color === p.dim ? p.text2 : color === p.text2 ? p.fg
+      : color === p.hot ? hotUp : color === p.warn ? warnUp : color)
     frame.hits.push({ y, x0: X, x1: X + W, id: a.id, area: "list" })
     if (per === 2) frame.hits.push({ y: y + 1, x0: X, x1: X + W, id: a.id, area: "list" })
     const pc = frame.paces.get(a.id)
     const s = statusOf(a, now, p, pc, st.calm)
     const attention = needsYou(a)
+    // The selection's edge is a bright half block; the linked band's a thin dim rule.
     const edge = selected || attention ? "▌" : linked ? "▎" : " "
-    const edgeColor = attention ? p.hot : selected ? p.accent : p.fg
+    const edgeColor = attention ? p.hot : selected ? p.bright : p.dim
     c.set(X, y, edge, edgeColor, rowBg)
     if (per === 2) c.set(X, y + 1, edge, edgeColor, rowBg)
     // Tree guides.
@@ -644,54 +652,55 @@ function list(c: Canvas, frame: Frame, st: ViewState, p: Palette, now: number): 
     // Motion means work: quiet or queued agents keep their text, but nothing on their rows moves.
     const moving = working(a, pc)
     const flare = moving && !st.calm ? st.shimmer.get(a.id) : undefined // a new tool call just arrived
-    const nameColor = attention ? p.fg : liveRow ? p.fg : BAD.has(a.status) ? p.text2 : p.text2
+    const nameColor = ink(attention || liveRow ? p.fg : p.text2)
+    const nameAttr = liveRow || attention || selected ? BOLD : 0
     const ageText = liveRow || attention ? duration(since(a.started, now)) : a.ended ? duration(since(a.ended, now)) + " ago" : ""
     const frac = st.tween.get(a.id) ?? 0
     const r = ratio(a)
     const pctText = r === null ? "  --" : `${Math.round(r * 100)}%`.padStart(4)
-    const pctColor = r === null ? p.faint : r >= 0.9 ? p.hot : r >= 0.75 ? p.warn : p.text2
+    const pctColor = ink(r === null ? p.dim : r >= 0.9 ? p.hot : r >= 0.75 ? p.warn : p.text2)
     if (per === 2) {
       const right = X + W - 1
       const meta = `● ${shortModel(a.model)}  ${ageText}`
       const metaW = textWidth(meta)
       const nameMax = Math.max(6, right - metaW - 2 - (x + 2))
       const name = fit(a.title, nameMax) + fold
-      const used = shimmer(c, x + 2, y, name, nameColor, p, now, flare, liveRow || attention ? BOLD : 0, rowBg)
+      const used = shimmer(c, x + 2, y, name, nameColor, p, now, flare, nameAttr, rowBg)
       const actionX = x + 2 + used + 2
       const actionW = right - metaW - 2 - actionX
       const act = liveRow || attention ? doing(a, pc, p) : null
-      if (act && actionW > 8) c.text(actionX, y, fit(act.text, actionW), act.color, { bg: rowBg })
-      c.textRight(right, y, meta, p.dim, { bg: rowBg })
+      if (act && actionW > 8) c.text(actionX, y, fit(act.text, actionW), ink(act.color), { bg: rowBg })
+      c.textRight(right, y, meta, ink(p.dim), { bg: rowBg })
       c.set(right - metaW, y, "●", p.provider[familyOf(a)], rowBg)
       const shift = Math.max(0, row.depth - 2) * 2
       const bx = X + 6 + shift
       const bw = Math.max(4, barW - shift)
       if (row.hasChildren && !st.collapsed.has(a.id) && x < bx) c.set(x, y + 1, "│", p.rule, rowBg)
-      if (r === null) c.text(bx, y + 1, fit(a.remote ? "remote · stats on other machine" : "context not reported", bw + 5), p.faint, { bg: rowBg })
+      if (r === null) c.text(bx, y + 1, fit(a.remote ? "remote · stats on other machine" : "context not reported", bw + 5), ink(p.dim), { bg: rowBg })
       else {
         contextBar(c, bx, y + 1, bw, frac, p, selected ? mix(p.track, p.sel, 0.4) : p.track)
         c.text(bx + bw + 1, y + 1, pctText, pctColor, { bg: rowBg, attr: BOLD })
       }
     } else {
       const name = fit(a.title, Math.max(4, X + 4 + nameW - (x + 2))) + fold
-      shimmer(c, x + 2, y, name, nameColor, p, now, flare, liveRow || attention ? BOLD : 0, rowBg)
+      shimmer(c, x + 2, y, name, nameColor, p, now, flare, nameAttr, rowBg)
       const bx = X + 4 + nameW + 2
-      if (r === null) c.text(bx, y, fit("--", barW), p.faint, { bg: rowBg })
+      if (r === null) c.text(bx, y, fit("--", barW), ink(p.dim), { bg: rowBg })
       else {
         contextBar(c, bx, y, barW, frac, p, selected ? mix(p.track, p.sel, 0.4) : p.track)
         c.text(bx + barW + 1, y, pctText, pctColor, { bg: rowBg, attr: BOLD })
       }
       const age = ageText.replace(" ago", "")
-      c.textRight(X + W - 1, y, age, p.dim, { bg: rowBg })
+      c.textRight(X + W - 1, y, age, ink(p.dim), { bg: rowBg })
       c.set(X + W - 3 - textWidth(age), y, "●", p.provider[familyOf(a)], rowBg)
     }
     const fam = familyOf(a)
     if (laneW >= 8) drawLane(c, laneX, y + per - 1, laneData(a, laneW, windowMs, now), laneMax, p, rowBg,
       fam === "other" ? null : p.provider[fam])
   })
-  if (first > 0) c.textRight(X + W - 1, bodyY, `▲ ${first} more`, p.dim)
+  if (first > 0) c.textRight(X + W - 1, bodyY, `▲ ${first} more`, p.dim, { bg: p.bg })
   const below = rows.length - first - visible
-  if (below > 0) c.textRight(X + W - 1, Y + H - 1, `▼ ${below} more`, p.dim)
+  if (below > 0) c.textRight(X + W - 1, Y + H - 1, `▼ ${below} more`, p.dim, { bg: p.bg })
   return bodyY + 1 + Math.min(visible, rows.length - first) * per
 }
 
@@ -761,7 +770,7 @@ function pulse(c: Canvas, X: number, Y: number, W: number, h: number, st: ViewSt
   // A floor under empty slices only: the bottom row holds the shortest columns.
   for (let col = 0; col < W; col++) if (!counts[col * 2] && !counts[col * 2 + 1]) c.set(X + col, Y + h, "▁", p.track)
   const label = (m: number) => (m >= 60 ? `-${+(m / 60).toFixed(1)}h` : `-${Math.round(m)}m`)
-  c.text(X, Y + h + 1, label(WINDOWS[st.windowIndex]), p.faint)
+  c.text(X, Y + h + 1, label(WINDOWS[st.windowIndex]), p.dim)
   c.textRight(X + W, Y + h + 1, "now", p.dim)
   // Legend: only the providers on screen.
   const present = (["claude", "openai", "grok", "other"] as Family[]).filter((f) => agents.some((a) => familyOf(a) === f))
@@ -853,7 +862,7 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
       if (fh > 2) c.text(tx, y + 2, fit(`${tokens((a.context.maxTokens ?? 0) - (a.context.usedTokens ?? 0))} free`, X + W - tx), p.dim)
       y += fh
       contextBar(c, X, y++, W, st.tween.get(a.id) ?? rr, p)
-      for (const [t, label, tone] of [[0.5, "50", p.faint], [0.75, "75", p.warn], [0.9, "90", p.hot]] as const) {
+      for (const [t, label, tone] of [[0.5, "50", p.dim], [0.75, "75", p.warn], [0.9, "90", p.hot]] as const) {
         c.text(X + Math.round(t * W) - 1, y, "╵" + label, tone)
       }
       return y + 2 - Y
@@ -888,7 +897,7 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
         lx += 2 + c.text(lx + 2, y, t, p.text2) + 2
       }
       y++
-      if (usage?.hasSubagents) c.text(X, y++, fit("includes subagent usage; not added again elsewhere", W), p.faint)
+      if (usage?.hasSubagents) c.text(X, y++, fit("includes subagent usage; not added again elsewhere", W), p.dim)
       return y + 1 - Y
     },
     cache(X, Y, W) {
@@ -905,7 +914,7 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
         track: p.track, color: () => (frac < 0.12 ? p.warn : mix(p.accent, p.bright, frac * 0.6)),
       })
       // Drains with the clock, an eighth of a cell at a time: the idle frame rate is enough.
-      c.textRight(X + W, Y, label, left > 0 ? p.text2 : p.faint)
+      c.textRight(X + W, Y, label, left > 0 ? p.text2 : p.dim)
       return 2
     },
     plan(X, Y, W) {
@@ -926,7 +935,7 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
         c.text(X, y, g, tone)
         c.text(X + 2, y++, fit(q.text, W - 2), tone)
       }
-      if (a.plan.length > 8) c.text(X + 2, y++, `+${a.plan.length - 8} more`, p.faint)
+      if (a.plan.length > 8) c.text(X + 2, y++, `+${a.plan.length - 8} more`, p.dim)
       return y + 1 - Y
     },
     tools(X, Y, W) {
@@ -965,13 +974,14 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
         const failed = item.status === "failed"
         const age = since(running ? item.started_at ?? item.updated_at : item.updated_at, now) ?? 0
         const cat = category(item.type, item.tool)
-        const fade = running ? p.bright : age < 15 ? p.fg : age < 90 ? p.text2 : age < 600 ? p.dim : p.faint
+        // The fade stops at dim, the dimmest readable text.
+        const fade = running ? p.bright : age < 15 ? p.fg : age < 90 ? p.text2 : p.dim
         const bg = flash > 0 ? mix(p.bg, p.accent, 0.35 * flash) : undefined
         if (bg !== undefined) c.fill(X, y, W, 1, bg)
         // A running call spins only while its agent works (not while it waits on you).
         const mark = running ? (moving ? spin(now, st.calm) : GLYPH[cat] ?? "·") : failed ? "✗" : GLYPH[cat] ?? "·"
         c.text(X, y, mark, failed ? p.hot : running ? p.bright : mix(fade, p.accent, 0.3), { bg })
-        c.text(X + 2, y, duration(age).replace(/ \d+s$/, "").padStart(6), running ? p.text2 : p.faint, { bg })
+        c.text(X + 2, y, duration(age).replace(/ \d+s$/, "").padStart(6), running ? p.text2 : p.dim, { bg })
         c.text(X + 9, y++, fit(itemLabel(item), W - 9), failed ? mix(p.hot, fade, 0.3) : fade, { bg })
       }
       return y + 1 - Y
@@ -1012,11 +1022,11 @@ function growth(c: Canvas, X: number, y: number, W: number, h: number, a: Agent,
     const tag = fit("→ " + shortModel(pts[i].model || "handoff"), 16)
     c.text(cx + 1 + textWidth(tag) <= X + W ? cx + 1 : cx - textWidth(tag), y, tag, p.dim)
   }
-  c.textRight(X + axis - 1, y, "100", p.faint)
-  c.textRight(X + axis - 1, y + h - 1, "0", p.faint)
-  if (h >= 4) c.textRight(X + axis - 1, y + Math.floor(h / 2), "50", p.faint)
-  c.text(X + axis, y + h, "first turn", p.faint)
-  c.textRight(X + W, y + h, "latest", p.faint)
+  c.textRight(X + axis - 1, y, "100", p.dim)
+  c.textRight(X + axis - 1, y + h - 1, "0", p.dim)
+  if (h >= 4) c.textRight(X + axis - 1, y + Math.floor(h / 2), "50", p.dim)
+  c.text(X + axis, y + h, "first turn", p.dim)
+  c.textRight(X + W, y + h, "latest", p.dim)
 }
 
 function segmented(c: Canvas, x: number, y: number, w: number, parts: { n: number; color: Color }[], p: Palette) {
@@ -1059,7 +1069,7 @@ function footer(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
     x += c.text(x, y, k, p.accent, { attr: BOLD }) + 1
     x += c.text(x, y, label, p.dim) + 2
   }
-  c.textRight(W - 1, y, st.demo ? "demo data · made up" : `read-only · ${duration(Math.max(0, (now - snap.at) / 1000))} ago`, p.faint)
+  c.textRight(W - 1, y, st.demo ? "demo data · made up" : `read-only · ${duration(Math.max(0, (now - snap.at) / 1000))} ago`, p.dim)
 }
 
 function help(c: Canvas, p: Palette, W: number, H: number) {

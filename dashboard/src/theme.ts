@@ -13,10 +13,11 @@ export interface Palette {
   bg: Color
   panel: Color // raised surface for tiles
   fg: Color // primary ink
-  text2: Color // secondary ink
-  dim: Color // tertiary ink, captions
-  faint: Color // grid ticks, empty states
+  text2: Color // secondary ink; also readable on the selected row, so dim text steps up to it there
+  dim: Color // tertiary ink, captions: the dimmest text, still readable on bg and panel
+  faint: Color // non-text marks only: grid ticks, tree guides, rules. Never text.
   track: Color // meter tracks
+  floor: number // lowest ramp() position that reads at 3:1 against a context bar's track
   rule: Color // dividers
   accent: Color
   bright: Color // emphasis above fg
@@ -93,13 +94,56 @@ export function parseColorsToml(text: string): Record<string, string> {
 const mostChromatic = (colors: (Color | null)[]): Color | null =>
   colors.filter((c): c is Color => c !== null).sort((a, b) => chroma(b) - chroma(a))[0] ?? null
 
+/** Body text: WCAG AA for normal-size text, which is all a terminal has. */
+export const TEXT_CONTRAST = 4.5
+/** Non-text marks that carry meaning, such as a meter's fill against its track (WCAG 1.4.11). */
+export const MARK_CONTRAST = 3
+
+/**
+ * `from` moved toward `to` as little as possible, but far enough to reach
+ * `target` contrast against every surface. When even `to` falls short, the
+ * mix that comes closest.
+ */
+export function reach(from: Color, to: Color, target: number, surfaces: Color[]): Color {
+  const worst = (c: Color) => Math.min(...surfaces.map((s) => contrast(c, s)))
+  if (worst(from) >= target) return from
+  let best = from
+  for (let i = 1; i <= 100; i++) {
+    const c = mix(from, to, i / 100)
+    if (worst(c) >= target) return c
+    if (worst(c) > worst(best)) best = c
+  }
+  return best
+}
+
+/**
+ * The dimmest ink between `fg` (t = 0) and `bg` (t = 1) that still reaches
+ * `target` against every surface: text roles are derived from a contrast
+ * target, not a fixed fraction, so they stay readable in any theme.
+ */
+function dimmest(fg: Color, bg: Color, target: number, surfaces: Color[]): Color {
+  let lo = 0
+  let hi = 1
+  for (let i = 0; i < 16; i++) {
+    const t = (lo + hi) / 2
+    if (Math.min(...surfaces.map((s) => contrast(mix(fg, bg, t), s))) >= target) lo = t
+    else hi = t
+  }
+  return mix(fg, bg, lo)
+}
+
 export function derivePalette(vars: Record<string, string>): Palette {
   const bg = hex(vars.background) ?? 0x101315
-  const fg = hex(vars.foreground) ?? 0xcacccc
   const dark = vars.mode ? vars.mode !== "light" : luminance(bg) < 0.4
-  const ink = dark ? 0xffffff : 0x000000
+  const ink = dark ? 0xffffff : 0x000000 // the far end from the background
+  const panel = mix(bg, hex(vars.foreground) ?? 0xcacccc, 0.04)
+  const page = [bg, panel] // every surface text sits on, apart from the selection
+  // Colors that carry text reach body-text contrast on both surfaces; a theme
+  // that already does (all the bundled ones) keeps its exact colors.
+  const fg = reach(hex(vars.foreground) ?? 0xcacccc, ink, TEXT_CONTRAST, page)
   let accent = hex(vars.accent) ?? hex(vars.blue) ?? fg
   if (contrast(accent, bg) < 2.4) accent = mix(accent, fg, 0.5)
+  accent = reach(accent, fg, TEXT_CONTRAST, page) // key hints are drawn in it
   // The hot color must read as different from every gray: prefer the theme's red,
   // then any strongly chromatic theme color, then a fixed ember.
   let hot = mostChromatic([hex(vars.bright_red), hex(vars.red)])
@@ -107,32 +151,42 @@ export function derivePalette(vars: Record<string, string>): Palette {
     const any = mostChromatic(Object.values(vars).map(hex))
     hot = any !== null && chroma(any) >= 70 ? any : 0xde6145
   }
-  if (contrast(hot, bg) < 2.6) hot = mix(hot, ink, 0.3)
+  hot = reach(hot, ink, TEXT_CONTRAST, page)
   let warn = mostChromatic([hex(vars.yellow), hex(vars.bright_yellow)])
   if (warn === null || chroma(warn) < 60) warn = mix(hot, fg, 0.5)
+  warn = reach(warn, ink, TEXT_CONTRAST, page) // "◌ stalled 9m" is text
   let sel = hex(vars.selection) ?? mix(bg, fg, 0.14)
   if (contrast(sel, bg) < 1.25) sel = mix(bg, accent, 0.3)
+  // Selected and T3-linked rows step their text up one role, so text2 must
+  // also read on the selection; the linked band lies between bg and sel.
+  const text2 = dimmest(fg, bg, TEXT_CONTRAST, [...page, sel])
+  const dim = dimmest(fg, bg, TEXT_CONTRAST, page)
+  const track = mix(fg, bg, 0.86)
   // A chromatic theme supplies its own distinct hues; a monochrome one gets the validated set.
   const themed = { claude: hex(vars.magenta), openai: hex(vars.green), grok: hex(vars.blue) }
   const usable = Object.values(themed).every((c) => c !== null && chroma(c) >= 60 && contrast(c, bg) >= 2.6)
   const base = usable ? (themed as Record<Exclude<Family, "other">, Color>) : PROVIDER_FALLBACK
   const shade = (c: Color) => (dark ? c : mix(c, 0x000000, 0.12))
   const provider = { claude: shade(base.claude), openai: shade(base.openai), grok: shade(base.grok), other: mix(fg, bg, 0.52) }
-  return {
+  const p: Palette = {
     provider,
-    dark, bg, fg, accent, hot, warn, sel,
-    panel: mix(bg, fg, 0.04),
-    text2: mix(fg, bg, 0.3),
-    dim: mix(fg, bg, 0.52),
+    dark, bg, fg, accent, hot, warn, sel, panel, text2, dim, track,
     faint: mix(fg, bg, 0.74),
-    track: mix(fg, bg, 0.86),
     rule: mix(fg, bg, 0.8),
     bright: mix(fg, ink, 0.5),
     busy: mix(bg, accent, 0.16),
+    floor: 0,
   }
+  // A context bar's first cells must stand out from its track, on the selected row too.
+  const tracks = [track, mix(track, sel, 0.4)]
+  const worst = (k: number) => Math.min(...tracks.map((t) => contrast(ramp(p, k), t)))
+  let floor = 0
+  while (floor < 1 && worst(floor) < MARK_CONTRAST) floor = Math.round((floor + 0.01) * 100) / 100
+  p.floor = floor < 1 ? floor : [...Array(101).keys()].map((i) => i / 100).reduce((a, b) => (worst(b) > worst(a) ? b : a))
+  return p
 }
 
-/** Sequential ramp: magnitude reads as brightness (one hue, faint -> accent -> bright). */
+/** Sequential ramp: magnitude reads as brightness (one hue, half-accent -> accent -> bright). */
 export function ramp(p: Palette, t: number): Color {
   const k = Math.max(0, Math.min(1, t))
   return k < 0.55 ? mix(mix(p.accent, p.bg, 0.5), p.accent, k / 0.55) : mix(p.accent, p.bright, (k - 0.55) / 0.45)
