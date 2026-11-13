@@ -443,7 +443,10 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agen
   const count = Math.max(2, Math.min(tiles.length, Math.floor((W + 1) / 19)))
   const tw = Math.floor((W - (count - 1)) / count)
   const valueRows = big ? BIG_ROWS : 1
-  const h = valueRows + 2
+  // Big digits leave half a row under the label; a blank row under them keeps
+  // the spinners, sparkline and notes from touching the numbers.
+  const gap = big ? 1 : 0
+  const h = valueRows + gap + 2
   tiles.slice(0, count).forEach((t, n) => {
     const x = n * (tw + 1)
     const w = n === count - 1 ? W - x : tw
@@ -453,7 +456,7 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agen
     // A value too wide for its tile falls back to text on the big digits' baseline.
     if (big && bigWidth(t.big) <= w - 3) drawBig(c, x + 2, y + 1, t.big, t.color)
     else c.text(x + 2, y + valueRows, t.big, t.color, { attr: BOLD, max: w - 3 })
-    t.sub(x + 2, y + valueRows + 1, w - 3)
+    t.sub(x + 2, y + valueRows + gap + 1, w - 3)
   })
   return h
 }
