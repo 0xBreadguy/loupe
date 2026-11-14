@@ -82,5 +82,34 @@ export function duration(sec: number | null): string {
   return `${s}s`
 }
 
+/**
+ * A duration in at most five cells, for a list column, to about two significant
+ * figures: a one-digit lead unit keeps the next one ("6m32s", "4h05m", "1d5h"),
+ * a longer lead stands alone ("36s", "27m", "13h", "12d").
+ */
+export function span(sec: number | null): string {
+  if (sec === null || !Number.isFinite(sec)) return "--"
+  const s = Math.max(0, Math.floor(sec))
+  const two = (lead: number, unit: string, rest: string) => (lead < 10 ? `${lead}${unit}${rest}` : `${lead}${unit}`)
+  if (s < 60) return `${s}s`
+  if (s < 3600) return two(Math.floor(s / 60), "m", String(s % 60).padStart(2, "0") + "s")
+  if (s < 86400) return two(Math.floor(s / 3600), "h", String(Math.floor((s % 3600) / 60)).padStart(2, "0") + "m")
+  return two(Math.floor(s / 86400), "d", Math.floor((s % 86400) / 3600) + "h")
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+
+/** Local wall-clock time, "14:02", dated when it falls on another day than `day`: "Nov 12 14:02". */
+export function clock(t: number, day: number): string {
+  const d = new Date(t)
+  const hm = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`
+  return d.toDateString() === new Date(day).toDateString() ? hm : `${MONTHS[d.getMonth()]} ${d.getDate()} ${hm}`
+}
+
+/** When a run happened on the clock: "14:02 → 14:12", or "since 13:51" while it runs. The end is dated only if the day changed. */
+export function when(start: number, end: number | null, now: number): string {
+  return end === null ? `since ${clock(start, now)}` : `${clock(start, now)} → ${clock(end, start)}`
+}
+
 export const shortModel = (m: string): string =>
   m.replace(/^claude-/, "").replace(/-(\d+)-(\d+)$/, " $1.$2").replace(/^gpt-/, "gpt ")

@@ -2,7 +2,7 @@
 // Encoding rules: shape + brightness carry state (works in monochrome themes);
 // the theme's hot color is reserved for "needs you", failures and limits.
 import { BIG_BASE, BIG_ROWS, BOLD, Braille, Canvas, bigWidth, clean, drawBig, fit, hbar, level, textWidth, type Face } from "./canvas.ts"
-import { duration, shortModel, tokens, wrap } from "./format.ts"
+import { clock, duration, shortModel, span, tokens, when, wrap } from "./format.ts"
 import { t3Thread } from "./focus.ts"
 import { LIVE, RECENT_MAX, RECENT_MS, SCOPES, SLOW_TOOL_MS, SourceError, isLive, isRunning, lastSeen, ms, needsYou, request, waitingSince, pace, tree, category,
   type Agent, type Item, type Pace, type Scope, type Snapshot, type SourceProblem, type Stage, type TreeRow, tilde } from "./source.ts"
@@ -85,6 +85,13 @@ export { duration, shortModel, tokens } from "./format.ts"
 const since = (stamp: string | null | undefined, now: number): number | null => {
   const t = ms(stamp)
   return t === null ? null : (now - t) / 1000
+}
+
+/** How long the latest run took, for the list: up to now while `counting`, else to its end. Blank when unknown. */
+export function runLength(a: Pick<Agent, "started" | "ended">, now: number, counting: boolean): string {
+  const start = ms(a.started)
+  const end = counting ? now : ms(a.ended)
+  return start === null || end === null ? "" : span((end - start) / 1000)
 }
 
 const ratio = (a: Agent): number | null => {
@@ -233,6 +240,54 @@ function drawLane(c: Canvas, x: number, y: number, d: LaneData, max: number, p: 
     else if (d.counts[i]) c.set(x + i, y, level(d.counts[i], max), tint === null ? ramp(p, 0.35 + 0.65 * k) : mix(tint, p.bright, 0.15 + 0.35 * k), bg)
     else c.set(x + i, y, (w - 1 - i) % tick === 0 ? "·" : " ", p.faint, bg)
   }
+}
+
+// ── Axis marks: the selected run's start and end, on the clock ──────────────
+
+export interface Mark { at: number; text: string; from: number } // tick column, label, label's first column
+
+/**
+ * Places labeled ticks on a lane axis `w` columns wide. A label sits on its own
+ * side of the tick (`side`: -1 before, 1 after), or on the other side when the
+ * edge or another label is in the way; with no room either way the tick is left
+ * out. Ticks off the axis are dropped, and labels keep a column clear between them.
+ */
+export function placeMarks(ticks: { at: number; text: string; side: -1 | 1 }[], w: number): Mark[] {
+  const used: boolean[] = Array(w).fill(false)
+  const marks: Mark[] = []
+  for (const t of ticks) {
+    if (t.at < 0 || t.at >= w || used[t.at]) continue
+    const len = textWidth(t.text)
+    for (const side of [t.side, -t.side]) {
+      const from = side < 0 ? t.at - len : t.at + 1
+      const to = from + len - 1
+      if (from < 0 || to >= w) continue
+      let clear = true
+      for (let i = Math.max(0, from - 1); i <= Math.min(w - 1, to + 1) && clear; i++) clear = !used[i]
+      if (!clear) continue
+      for (let i = Math.min(from, t.at); i <= Math.max(to, t.at); i++) used[i] = true
+      marks.push({ at: t.at, text: t.text, from })
+      break
+    }
+  }
+  return marks
+}
+
+/**
+ * The selected agent's latest run on its lane axis: a tick where it started and,
+ * once it is over, where it ended, each with its clock time outside the run. A run
+ * shorter than a slice gets one tick, and one label if both times read the same.
+ */
+export function runMarks(a: Agent, w: number, windowMs: number, now: number): Mark[] {
+  const start = ms(a.started)
+  if (start === null || w < 1) return []
+  const end = isLive(a) || needsYou(a) ? null : ms(a.ended)
+  const { col } = slices(w, windowMs, now)
+  const s = { at: col(start), text: clock(start, now), side: -1 as const }
+  if (end === null) return placeMarks([s], w)
+  const e = { at: Math.min(w - 1, col(end)), text: clock(end, start), side: 1 as const }
+  if (s.at === e.at) return placeMarks([{ ...s, text: s.text === e.text ? s.text : `${s.text}–${e.text}` }], w)
+  return placeMarks(s.text === e.text ? [s] : [s, e], w)
 }
 
 // ── Main draw ───────────────────────────────────────────────────────────────
@@ -823,22 +878,37 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
   const barW = card ? Math.max(10, Math.min(30, Math.floor(W * 0.26))) : Math.max(8, Math.min(18, Math.floor(W * 0.13)))
   const nameW = card ? 0 : Math.max(14, Math.min(40, Math.floor(W * 0.32)))
   const laneX = card ? X + 6 + barW + 6 : X + 4 + nameW + 2 + barW + 6
-  // One-row lanes stop short of the provider dot and the age (up to 7 columns) at the right edge.
-  const laneW = Math.max(0, X + W - laneX - (card ? 1 : 11))
+  // One-row lanes stop short of the provider dot and the run length (up to 5 columns) at the right edge.
+  const laneW = Math.max(0, X + W - laneX - (card ? 1 : 9))
   // An earlier row's lane holds the activity of every subagent folded into it. It
   // does not set the scale, so one busy pile of old subagents never dims the rest.
   const lanes = new Map(rows.map((r) => [r.id, laneData(r.earlier
     ? { events: r.earlier.flatMap((a) => a.events), spans: r.earlier.flatMap((a) => a.spans) } : r.agent,
     Math.max(1, laneW), windowMs, now)]))
   const laneMax = Math.max(3, ...rows.filter((r) => !r.earlier).map((r) => Math.max(0, ...lanes.get(r.id)!.counts)))
-  // Time axis aligned with the lanes.
+  // Time axis aligned with the lanes. The selected run is ticked on it where it
+  // started and ended, on the clock; the window's own labels give way to those.
   const axisY = bodyY
   if (laneW >= 12) {
     const label = (m: number) => (m >= 60 ? `-${+(m / 60).toFixed(1)}h` : `-${Math.round(m)}m`)
     const mins = WINDOWS[st.windowIndex]
-    c.text(laneX, axisY, label(mins), p.dim)
-    c.textRight(laneX + laneW, axisY, "now", p.dim)
-    if (laneW >= 30) c.text(laneX + Math.floor(laneW / 2) - 2, axisY, label(mins / 2), p.dim)
+    const picked = rows.find((r) => r.id === st.selected && !r.earlier)?.agent
+    const marks = picked ? runMarks(picked, laneW, windowMs, now) : []
+    const used: boolean[] = Array(laneW).fill(false)
+    for (const m of marks) for (let i = Math.min(m.at, m.from); i <= Math.max(m.at, m.from + textWidth(m.text) - 1); i++) used[i] = true
+    // Two clear columns, so "-30m" and "19:23" never read as one label.
+    const put = (from: number, text: string) => {
+      for (let i = Math.max(0, from - 2); i <= Math.min(laneW - 1, from + textWidth(text) + 1); i++) if (used[i]) return
+      c.text(laneX + from, axisY, text, p.dim)
+    }
+    put(0, label(mins))
+    put(laneW - 3, "now")
+    if (laneW >= 30) put(Math.floor(laneW / 2) - 2, label(mins / 2))
+    // Ticks in the selection edge's color; their times a step above the window's own labels.
+    for (const m of marks) {
+      c.set(laneX + m.at, axisY, "╷", p.bright)
+      c.text(laneX + m.from, axisY, m.text, p.fg)
+    }
   }
   c.text(X + 2, axisY, card ? "CONTEXT" : "AGENT", p.dim)
   if (!card) c.text(X + 4 + nameW + 2, axisY, "CONTEXT", p.dim)
@@ -898,7 +968,11 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
     const flare = moving && !st.calm ? st.shimmer.get(a.id) : undefined // a new tool call just arrived
     const nameColor = ink(attention || liveRow ? p.fg : p.text2)
     const nameAttr = liveRow || attention || selected ? BOLD : 0
-    const ageText = liveRow || attention ? duration(since(a.started, now)) : a.ended ? duration(since(a.ended, now)) + " ago" : ""
+    // How long the run took: counting, lit like the live name, while it runs. When it ran is in the detail pane.
+    // (text2 sits too close to dim in some themes, 1.2:1 in Tokyo Night, to tell the two apart.)
+    const counting = liveRow || attention
+    const ageText = runLength(a, now, counting)
+    const ageColor = ink(counting ? p.fg : p.dim)
     const frac = st.tween.get(a.id) ?? 0
     const r = ratio(a)
     const pctText = r === null ? "  --" : `${Math.round(r * 100)}%`.padStart(4)
@@ -916,6 +990,7 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
       const act = liveRow || attention ? doing(a, pc, p) : null
       if (act && actionW > 8) c.text(actionX, y, fitDoing(act, actionW), ink(act.color), { bg: rowBg })
       c.textRight(right, y, meta, ink(p.dim), { bg: rowBg })
+      c.textRight(right, y, ageText, ageColor, { bg: rowBg })
       c.set(right - metaW, y, "●", p.provider[familyOf(a)], rowBg)
       const shift = Math.max(0, row.depth - 2) * 2
       const bx = X + 6 + shift
@@ -936,9 +1011,8 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
         contextBar(c, bx, y, barW, frac, p, selected ? mix(p.track, p.sel, 0.4) : p.track)
         c.text(bx + barW + 1, y, pctText, pctColor, { bg: rowBg, attr: BOLD })
       }
-      const age = ageText.replace(" ago", "")
-      c.textRight(X + W - 1, y, age, ink(p.dim), { bg: rowBg })
-      c.set(X + W - 3 - textWidth(age), y, "●", p.provider[familyOf(a)], rowBg)
+      c.textRight(X + W - 1, y, ageText, ageColor, { bg: rowBg })
+      c.set(X + W - 3 - textWidth(ageText), y, "●", p.provider[familyOf(a)], rowBg)
     }
     const fam = familyOf(a)
     if (laneW >= 8) drawLane(c, laneX, y + per - 1, lanes.get(row.id)!, laneMax, p, rowBg,
@@ -973,9 +1047,9 @@ const failedCount = (agents: Agent[]) => agents.filter((a) => a.status === "fail
 function earlierText(c: Canvas, x: number, y: number, w: number, list: Agent[], now: number, p: Palette,
   ink: (color: Color) => Color, bg: Color) {
   const failed = failedCount(list)
-  const span = agoSpan(list, now)
+  const ago = agoSpan(list, now)
   const parts: [string, Color][] = [[`${list.length} earlier ▸`, ink(p.text2)]]
-  if (span) parts.push([span, ink(p.dim)])
+  if (ago) parts.push([ago, ink(p.dim)])
   if (failed) parts.push([`${failed} ✗`, ink(p.hot)])
   c.set(x, y, "┄", ink(p.dim), bg)
   let col = 2
@@ -999,8 +1073,8 @@ function earlierDetail(c: Canvas, r: Rect, row: TreeRow, st: ViewState, p: Palet
     const { x: X, w: W } = r
     let y = r.y
     c.text(X, y++, fit(row.agent.title, W), p.bright, { attr: BOLD })
-    const span = agoSpan(list, now)
-    c.text(X, y++, fit(`${list.length} earlier subagent${list.length === 1 ? "" : "s"}${span ? " · last active " + span : ""}`, W), p.text2)
+    const ago = agoSpan(list, now)
+    c.text(X, y++, fit(`${list.length} earlier subagent${list.length === 1 ? "" : "s"}${ago ? " · last active " + ago : ""}`, W), p.text2)
     c.text(X, y, "⏎ → or a click", p.accent, { attr: BOLD })
     c.text(X + 15, y++, fit("lists them all", W - 15), p.text2)
     y++
@@ -1236,9 +1310,20 @@ function titleBlock(c: Canvas, X: number, Y: number, W: number, a: Agent, p: Pal
   c.text(X + 2, y++, fit([a.model, a.project, a.kind, ...opts, a.branch ? "⌥ " + a.branch : ""].filter(Boolean).join(" · "), W - 2), p.dim)
   let x = X
   x += c.text(x, y, s.glyph + " " + s.label, s.color, { attr: BOLD })
-  const elapsed = duration(since(a.started, a.ended ? ms(a.ended) ?? now : now))
-  x += c.text(x, y, fit(`  ${elapsed}${a.ended ? " · finished " + duration(since(a.ended, now)) + " ago" : ""}`, X + W - x), p.text2)
-  if (a.requests.length) c.text(x, y, fit("  · " + a.requests.join(", ").replace(/_/g, " "), X + W - x), p.hot)
+  // How long it ran, then when on the clock, as the list counts it. Short of room, "ago" goes first, then the clock.
+  const start = ms(a.started)
+  const end = ms(a.ended)
+  const counting = isLive(a) || attention
+  const stop = counting ? now : end
+  const asked = a.requests.length ? "  · " + a.requests.join(", ").replace(/_/g, " ") : ""
+  const parts: [string, Color][] = start === null ? [] : [
+    ...(stop === null ? [] : [[`  ${duration((stop - start) / 1000)}`, p.text2] as [string, Color]]),
+    [`  ${!counting && end === null ? "started " + clock(start, now) : when(start, counting ? null : end, now)}`, p.text2],
+    ...(!counting && end !== null ? [[` · ${duration((now - end) / 1000).replace(/ \d+s$/, "")} ago`, p.dim] as [string, Color]] : []),
+  ]
+  while (parts.length > 1 && textWidth(parts.map(([t]) => t).join("") + asked) > X + W - x) parts.pop()
+  for (const [text, color] of parts) x += c.text(x, y, fit(text, X + W - x), color)
+  if (asked) c.text(x, y, fit(asked, X + W - x), p.hot)
   y++
   const act = isLive(a) || attention ? doing(a, pc, p) : null
   if (act) {
@@ -1527,6 +1612,8 @@ function help(c: Canvas, st: ViewState, p: Palette, W: number, H: number): numbe
     ["▂▄█", "lane: tool and model activity per time slice"],
     ["tint", "lane: a run was in progress"],
     ["┃  ×", "lane: a prompt you sent · a failed call"],
+    ["14:02╷", "lane axis: when the selected run started and ended"],
+    ["27m", "how long the latest run took; brighter while it counts up"],
     ["│", "limit meter: time elapsed; fill beyond it is ahead of pace"],
     ["▎ band", "the thread open in T3 Code and its subagents"],
     ["┄ earlier", `subagents done over ${RECENT_MS / 3_600_000}h ago or beyond the ${RECENT_MAX} latest; ⏎ lists them`],

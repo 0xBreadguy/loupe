@@ -16,7 +16,7 @@ import { WINDOWS, draw, initialState, type ViewState } from "../src/view.ts"
 // Checked one by one against the font's Regular and Bold faces
 // (fc-list "JetBrainsMono Nerd Font:charset=<hex code point>"). The last test
 // rechecks the list wherever the font is installed.
-const SYMBOLS = "·×±»–—…‖•−←↑→↓↩⇉∴≡⊕⊘⌥⏎␣─│┃┄┊└├═║╔╗╚╝╭╮╯╰╵▀▁▂▃▄▅▆▇█▉▊▋▌▍▎▏▔▕■▲△▸▼◆◇◈◉○◌◎●◔✓✗❯"
+const SYMBOLS = "·×±»–—…‖•−←↑→↓↩⇉∴≡⊕⊘⌥⏎␣─│┃┄┊└├═║╔╗╚╝╭╮╯╰╵╷▀▁▂▃▄▅▆▇█▉▊▋▌▍▎▏▔▕■▲△▸▼◆◇◈◉○◌◎●◔✓✗❯"
 const range = (a: number, b: number) => Array.from({ length: b - a + 1 }, (_, i) => String.fromCodePoint(a + i))
 const ALLOWED = new Set([
   ...range(0x20, 0x7e), // ASCII

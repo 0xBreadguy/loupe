@@ -64,9 +64,11 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
   you're burning ahead of pace. In short windows it folds into one line with
   each provider's fullest window.
 - **Every agent and subagent as a tree:** status, a context meter that warms
-  past 75% and goes hot past 90%, what it's doing right now, model, age, and an
-  activity lane on a shared time axis, where a failed call shows as `×`. A new
-  tool call sweeps once across the agent's name.
+  past 75% and goes hot past 90%, what it's doing right now, model, how long
+  its latest run took (counting up while it runs), and an activity lane on a
+  shared time axis, where a failed call shows as `×`. Select an agent and the
+  axis ticks the clock time its run started and ended. A new tool call sweeps
+  once across the agent's name.
 - **Long threads stay short:** under each agent the list keeps the subagents
   that are running, any waiting on you, and the three latest finishes from the
   last 3 hours. The rest fold into one `┄ 27 earlier ▸ · 25m–7h ago · 2 ✗`
@@ -90,7 +92,8 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
 - **Linked to T3, both ways:** open a thread in T3 and the dashboard selects it
   and marks it and its subagents. Press `Enter` on any agent and T3 jumps to
   that thread.
-- **Details for the selected agent:** context as a big number, its growth per
+- **Details for the selected agent:** how long its latest run took and when
+  (`10m 00s  14:02 → 14:12 · 31m ago`), context as a big number, its growth per
   turn, the last call's token mix, a prompt-cache meter that drains in real
   time, the plan's progress, tool mix, and recent activity. Native subagents
   also show activity when T3 records no application run for them.
@@ -196,6 +199,7 @@ Home, End and Page Up/Down act like the main keys.
 | `△` | a tool call running over 5 minutes |
 | `—` | no value, with the reason beside it |
 | `▼` `▲` N more | more out of view, below or above |
+| `14:02╷` `╷14:12` | on the lane axis: when the selected agent's latest run started and ended |
 | `┄` N earlier | subagents folded away: finished over 3 hours ago, or before the latest 3. `→`, `Enter` or a click lists them |
 | `✓` `✗` `⊘` | done, failed, interrupted |
 | `●` | provider. On grayscale themes: plum Claude, teal GPT / Codex, blue Grok, gray other. Colorful themes use their own colors |
