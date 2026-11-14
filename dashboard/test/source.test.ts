@@ -51,8 +51,8 @@ test("an app-owned child is shown once with the correct activity", () => {
 test("the active filter keeps a completed ancestor", () => {
   const agents = snapshot()
   agents[0].status = "completed"
-  assert.deepEqual(tree(agents, new Set(), true).map((r) => r.agent.id), ["root", "sub"])
-  assert.equal(tree(agents, new Set(["root"]), true).length, 1)
+  assert.deepEqual(tree(agents, new Set(), "active").map((r) => r.agent.id), ["root", "sub"])
+  assert.equal(tree(agents, new Set(["root"]), "active").length, 1)
 })
 
 test("tree guides mark the last child", () => {

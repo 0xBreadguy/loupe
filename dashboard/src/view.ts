@@ -4,8 +4,8 @@
 import { BIG_BASE, BIG_ROWS, BOLD, Braille, Canvas, bigWidth, clean, drawBig, fit, hbar, level, textWidth, type Face } from "./canvas.ts"
 import { duration, shortModel, tokens, wrap } from "./format.ts"
 import { t3Thread } from "./focus.ts"
-import { LIVE, RECENT_MAX, RECENT_MS, SLOW_TOOL_MS, SourceError, isLive, isRunning, lastSeen, ms, needsYou, request, waitingSince, pace, tree, category,
-  type Agent, type Item, type Pace, type Snapshot, type SourceProblem, type Stage, type TreeRow, tilde } from "./source.ts"
+import { LIVE, RECENT_MAX, RECENT_MS, SCOPES, SLOW_TOOL_MS, SourceError, isLive, isRunning, lastSeen, ms, needsYou, request, waitingSince, pace, tree, category,
+  type Agent, type Item, type Pace, type Scope, type Snapshot, type SourceProblem, type Stage, type TreeRow, tilde } from "./source.ts"
 import { TEXT_CONTRAST, family, mix, ramp, reach, type Color, type Family, type Palette } from "./theme.ts"
 import type { Provider } from "./usage.ts"
 
@@ -15,7 +15,7 @@ export interface ViewState {
   selected: string | null // a row's id: an agent's, or an earlier row's
   collapsed: Set<string> // parents folded down to their own row
   expanded: Set<string> // parents listing every subagent, earlier ones too
-  activeOnly: boolean
+  scope: Scope // all threads, active ones, or what T3's sidebar lists; a steps through them
   paused: boolean
   help: boolean
   helpScroll: number
@@ -46,7 +46,7 @@ export interface ViewState {
 }
 
 export function initialState(interval = 2): ViewState {
-  return { selected: null, collapsed: new Set(), expanded: new Set(), activeOnly: false, paused: false, help: false, helpScroll: 0, fx: false,
+  return { selected: null, collapsed: new Set(), expanded: new Set(), scope: "all", paused: false, help: false, helpScroll: 0, fx: false,
     detailScroll: 0, listScroll: 0, windowIndex: 1, error: null, cause: null, interval, bootAt: Date.now(), lastFrame: 0,
     tween: new Map(), firstSeen: new Map(), seeded: false, shimmer: new Map(), calm: false, frozenAt: null,
     t3Title: null, t3Linked: null, t3Link: false, follow: true, notice: null, demo: false,
@@ -261,7 +261,7 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
   // Under each parent, older finished subagents fold into an earlier row; the
   // selection and the thread open in T3 stay listed wherever they are.
   const keep = new Set([st.selected, st.t3Linked].filter((id): id is string => !!id))
-  frame.rows = tree(agents, st.collapsed, st.activeOnly, { now, expanded: st.expanded, keep })
+  frame.rows = tree(agents, st.collapsed, st.scope, { now, expanded: st.expanded, keep, linked: st.t3Linked })
   const ids = frame.rows.map((r) => r.id)
   if (!st.selected || !ids.includes(st.selected)) {
     st.selected = ids[0] ?? null
@@ -468,7 +468,7 @@ export function nextWaiting(st: ViewState, agents: Agent[], now: number): string
   // Keep synthetic earlier rows in list order, but unfold manual folds so
   // requests inside them remain reachable. Recent folding never hides a wait.
   const keep = new Set([st.selected, st.t3Linked].filter((id): id is string => !!id))
-  const order = tree(agents, new Set(), st.activeOnly, { now, expanded: st.expanded, keep })
+  const order = tree(agents, new Set(), st.scope, { now, expanded: st.expanded, keep, linked: st.t3Linked })
   const at = order.findIndex((r) => r.id === st.selected)
   const waiting = (r: TreeRow) => !r.earlier && needsYou(r.agent)
   const next = (order.slice(at + 1).find(waiting) ?? order.find(waiting))?.agent
@@ -522,6 +522,26 @@ function link(st: ViewState, agents: Agent[]): Set<string> {
   return family
 }
 
+// ── Scope ───────────────────────────────────────────────────────────────────
+
+export const SCOPE_NAME: Record<Scope, string> = { all: "all threads", active: "active only", t3: "T3 sidebar" }
+const EMPTY: Record<Scope, string> = {
+  all: "No unarchived T3 threads found.",
+  active: "No active agents. Press a for T3's sidebar.",
+  t3: "Nothing in T3's sidebar: every thread is settled or snoozed. Press a for all.",
+}
+const SCOPE_NOTE: Record<Scope, string> = {
+  all: "All threads: every unarchived T3 thread · a for active only",
+  active: "Active only: what is running or waiting on you · a for T3's sidebar",
+  t3: "T3 sidebar: threads not settled or snoozed, and anything active · a for all",
+}
+
+/** a: the next scope, said in the footer for a few seconds. */
+export function nextScope(st: ViewState, now: number) {
+  st.scope = SCOPES[(SCOPES.indexOf(st.scope) + 1) % SCOPES.length]
+  st.notice = { text: SCOPE_NOTE[st.scope], at: now, error: false }
+}
+
 function header(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: number, W: number) {
   c.fill(0, 0, W, 1, p.panel)
   // The product name as plain text: a badge would read as T3's own branding.
@@ -546,7 +566,10 @@ function header(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
   const clock = new Date(now).toTimeString().slice(0, 8)
   const win = `lane ${WINDOWS[st.windowIndex] >= 60 ? WINDOWS[st.windowIndex] / 60 + "h" : WINDOWS[st.windowIndex] + "m"}`
   c.textRight(W - 1, 0, clock, p.fg, { attr: BOLD })
-  if (W - x > 30) c.textRight(W - 11, 0, (st.activeOnly ? "active only · " : "") + win, p.dim)
+  // The scope outlasts the lane window when room runs short: the lane axis shows the window too.
+  const scope = st.scope === "all" ? [] : [`${SCOPE_NAME[st.scope]} · ${win}`, SCOPE_NAME[st.scope]]
+  const label = [...scope, win].find((l) => W - 11 - textWidth(l) > x + 1)
+  if (label) c.textRight(W - 11, 0, label, p.dim)
 }
 
 // Below this height the tiles show their values as bold text to leave room for agents.
@@ -820,7 +843,7 @@ function list(c: Canvas, frame: Frame, st: ViewState, snap: Snapshot, p: Palette
   c.text(X + 2, axisY, card ? "CONTEXT" : "AGENT", p.dim)
   if (!card) c.text(X + 4 + nameW + 2, axisY, "CONTEXT", p.dim)
   if (!rows.length) {
-    c.text(X + 2, bodyY + 2, st.activeOnly ? "No active agents. Press a to show all." : "No unarchived T3 threads found.", p.dim)
+    c.text(X + 2, bodyY + 2, fit(EMPTY[st.scope], W - 4), p.dim)
     return bodyY + 4
   }
   rows.slice(first, first + visible).forEach((row, n) => {
@@ -1472,7 +1495,7 @@ function footer(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
   }
   // n leads while someone waits on you: it is the key that matters then.
   const waiting = snap.agents.some(needsYou) ? [["n", "needs you"] as [string, string]] : []
-  const keys: [string, string][] = [...waiting, ["↑↓", "select"], ["⏎", "open in T3"], ["␣", "fold"], ["a", "active"],
+  const keys: [string, string][] = [...waiting, ["↑↓", "select"], ["⏎", "open in T3"], ["␣", "fold"], ["a", SCOPE_NAME[st.scope]],
     ...(st.t3Link ? [["f", st.follow ? "follow T3" : "follow off"] as [string, string]] : []),
     ["t", "lane"], ["x", "fx"], ["?", "help"], ["q", "quit"]]
   // A message after an action (opening a thread) replaces the hints for a few seconds.
@@ -1493,7 +1516,7 @@ function footer(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
 function help(c: Canvas, st: ViewState, p: Palette, W: number, H: number): number {
   c.tint(0, 0, W, H, (f, b) => [mix(f, p.bg, 0.7), mix(b, p.bg, 0.5)])
   const keys: [string, string][] = [
-    ["↑↓ j k", "select agent"], ["n", "next agent waiting on you"], ["⏎ o", "open the thread in T3 Code"], ["␣ ← →", "fold · unfold · earlier"], ["a", "active agents only"], ["t", "lane 15m · 30m · 1h · 3h"],
+    ["↑↓ j k", "select agent"], ["n", "next agent waiting on you"], ["⏎ o", "open the thread in T3 Code"], ["␣ ← →", "fold · unfold · earlier"], ["a", "all · active · T3 sidebar"], ["t", "lane 15m · 30m · 1h · 3h"],
     ["J K PgDn", "scroll details"], ["f", "follow the thread open in T3"], ["p", "pause updates"], ["x", "CRT effects"],
     ["r", "refresh now"], ["m", "calm mode: nothing moves"],
     ["mouse", "click selects, wheel scrolls"], ["q Esc", "quit (Esc closes help)"],

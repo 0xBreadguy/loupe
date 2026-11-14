@@ -45,10 +45,10 @@ function longThread(): Agent[] {
 }
 
 const recent = (expanded: string[] = [], keep: string[] = []) => ({ now: NOW, expanded: new Set(expanded), keep: new Set(keep) })
-const ids = (agents: Agent[], collapsed: string[] = [], r = recent()) => tree(agents, new Set(collapsed), false, r).map((x) => x.id)
+const ids = (agents: Agent[], collapsed: string[] = [], r = recent()) => tree(agents, new Set(collapsed), "all", r).map((x) => x.id)
 
 test("a parent lists what runs, who waits and its latest finishes; the rest fold into one earlier row", () => {
-  const rows = tree(longThread(), new Set(), false, recent())
+  const rows = tree(longThread(), new Set(), "all", recent())
   assert.deepEqual(rows.map((r) => r.id), ["root", "ask", "run", "d5", "d20", "d40", EARLIER + "root"])
   const root = rows[0]
   assert.deepEqual([root.stage, root.kept, root.tucked], ["recent", 5, 4])
@@ -64,9 +64,9 @@ test("expanded lists every subagent, collapsed none, and without `recent` nothin
   const all = ids(agents, [], recent(["root"]))
   assert.equal(all.length, 10)
   assert.ok(!all.some((id) => id.startsWith(EARLIER)))
-  assert.equal(tree(agents, new Set(), false, recent(["root"]))[0].stage, "all")
+  assert.equal(tree(agents, new Set(), "all", recent(["root"]))[0].stage, "all")
   assert.deepEqual(ids(agents, ["root"]), ["root"])
-  assert.equal(tree(agents, new Set(["root"]), false, recent())[0].stage, "folded")
+  assert.equal(tree(agents, new Set(["root"]), "all", recent())[0].stage, "folded")
   assert.equal(tree(agents, new Set()).length, 10, "--once and n see every agent")
 })
 
@@ -75,17 +75,17 @@ test("a finished subagent with one of its own still running stays listed, and so
   const listed = ids(agents, [], recent([], ["d400"]))
   assert.ok(listed.includes("d300") && listed.includes("grand"), "above a running subagent")
   assert.ok(listed.includes("d400"), "the selection or the thread open in T3")
-  const earlier = tree(agents, new Set(), false, recent([], ["d400"])).find((r) => r.earlier)!
+  const earlier = tree(agents, new Set(), "all", recent([], ["d400"])).find((r) => r.earlier)!
   assert.deepEqual(earlier.earlier!.map((a) => a.id), ["d90", "d200"])
 })
 
 test("a parent with nothing recent reads as folded, and top-level threads never fold", () => {
   const old = [agent("t", null, "completed", 300), ...[200, 250, 400].map((m) => agent(`k${m}`, "t", "completed", m))]
-  const rows = tree(old, new Set(), false, recent())
+  const rows = tree(old, new Set(), "all", recent())
   assert.deepEqual(rows.map((r) => r.id), ["t"], "one row, not a lonely earlier row")
   assert.deepEqual([rows[0].stage, rows[0].kept, rows[0].tucked], ["folded", 0, 3])
   const roots = Array.from({ length: 12 }, (_, i) => agent(`r${i}`, null, "completed", 200 + i * 60))
-  assert.equal(tree(roots, new Set(), false, recent()).length, 12)
+  assert.equal(tree(roots, new Set(), "all", recent()).length, 12)
 })
 
 test("the span says how long ago, newest to oldest, in whole units", () => {

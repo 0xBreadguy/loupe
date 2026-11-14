@@ -49,6 +49,7 @@ interface Role {
   subs?: Role[]
   child?: boolean // an app thread delegated to, rather than a native subagent
   remote?: string // runs in another environment; nothing about it is local
+  shelf?: "settled" | "snoozed" // put away in T3's sidebar (snoozed: for the next four hours)
 }
 
 const PROJECTS = [
@@ -211,13 +212,13 @@ const SCENARIO: Role[] = [
   },
   {
     id: "demo-docs", project: "book", title: "Refresh the onboarding guide", model: SONNET, max: 1_000_000,
-    ctx: [0.06, 0.41], status: "completed", from: 52, to: 18, every: 50, cache: 60,
+    shelf: "settled", ctx: [0.06, 0.41], status: "completed", from: 52, to: 18, every: 50, cache: 60,
     work: ["Read guides/onboarding.md", "~ guides/onboarding.md", "? markdown link checker", "$ npx markdownlint guides",
       "Edit guides/setup.md"],
   },
   {
     id: "demo-images", project: "shop", title: "Upgrade the image pipeline", model: GPT, max: 400_000,
-    ctx: [0.08, 0.55], status: "interrupted", from: 49, to: 34, every: 42,
+    shelf: "snoozed", ctx: [0.08, 0.55], status: "interrupted", from: 49, to: 34, every: 42,
     work: ["Read src/images/resize.ts", "~ src/images/resize.ts", "$ npm run build", "$ npm ls sharp"],
   },
   {
@@ -500,6 +501,8 @@ class Scene {
       payload_json: {
         id: r.id, projectId: r.project, title: r.title, branch: r.branch ?? null, activeProviderThreadId: pt,
         modelSelection: { model: r.model, options: r.options ?? [] }, updatedAt: iso(last),
+        settledOverride: r.shelf === "settled" ? "settled" : null,
+        snoozedUntil: r.shelf === "snoozed" ? iso(this.now + 4 * 3600_000) : null,
         ...(host ? { lineage: { relationshipToParent: "subagent", parentThreadId: host.thread } } : {}),
       },
     })
