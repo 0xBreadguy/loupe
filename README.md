@@ -67,6 +67,12 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
   past 75% and goes hot past 90%, what it's doing right now, model, age, and an
   activity lane on a shared time axis, where a failed call shows as `×`. A new
   tool call sweeps once across the agent's name.
+- **Long threads stay short:** under each agent the list keeps the subagents
+  that are running, any waiting on you, and the three latest finishes from the
+  last 3 hours. The rest fold into one `┄ 27 earlier ▸ · 25m–7h ago · 2 ✗`
+  row, and its lane still shows their activity. Select it to see them listed in
+  the details; `→`, `Enter` or a click puts them all back in the list. Top-level
+  threads never fold.
 - **Stall detection:** a running agent with no tool call in flight and nothing
   new for 2 minutes stops spinning and says `◌ quiet 4m · last ❯ npm test`;
   after 8 it says `◌ stalled` and turns warm. A tool call shows its running
@@ -159,7 +165,7 @@ away, it falls back to the one on `PATH`; rerun the installer after switching.
 | `↑` `↓` / `j` `k`, click, wheel | select an agent |
 | `g` `G` / `Home` `End` | first / last agent |
 | `Enter` / `o` | open the selected agent's thread in T3 Code |
-| `Space` / `←` `→` | fold or unfold subagents (`←` on a leaf jumps to its parent) |
+| `Space` / `←` `→` | fold or unfold subagents; `→` again lists the earlier ones too, `←` steps back (on a leaf it jumps to the parent) |
 | `n` | jump to the next agent waiting on you (or click the NEEDS YOU tile) |
 | `a` | only agents that are running or waiting, plus their parents |
 | `f` | follow the thread open in T3 (on by default) |
@@ -184,6 +190,7 @@ Home, End and Page Up/Down act like the main keys.
 | `△` | a tool call running over 5 minutes |
 | `—` | no value, with the reason beside it |
 | `▼` `▲` N more | more out of view, below or above |
+| `┄` N earlier | subagents folded away: finished over 3 hours ago, or before the latest 3. `→`, `Enter` or a click lists them |
 | `✓` `✗` `⊘` | done, failed, interrupted |
 | `●` | provider. On grayscale themes: plum Claude, teal GPT / Codex, blue Grok, gray other. Colorful themes use their own colors |
 | `▎` and a band | the thread open in T3 and its subagents |
@@ -281,7 +288,8 @@ rm -r "${XDG_DATA_HOME:-$HOME/.local/share}/t3-agents"
 cd dashboard
 npm ci
 npm test        # which agent did what, read-only source, CLI errors, stall detection, T3 link,
-                # needs-you, contrast, palette, digits, motion, glyph coverage, layout, render
+                # earlier subagents, needs-you, contrast, palette, digits, motion, glyph coverage,
+                # layout, render
 npm run check   # TypeScript
 cd .. && node --test test/   # bar widget
 ```

@@ -10,7 +10,8 @@ import { keyName } from "./keys.ts"
 import { Source, type Snapshot } from "./source.ts"
 import { ThemeWatcher } from "./theme.ts"
 import { UsageReader } from "./usage.ts"
-import { NEEDS_YOU_TILE, WINDOWS, draw, initialState, nextWaiting, observe, pick, trouble, type Frame, type ViewState } from "./view.ts"
+import { NEEDS_YOU_TILE, WINDOWS, draw, initialState, nextWaiting, observe, pick, showEarlier, step, toggle, trouble,
+  type Frame, type ViewState } from "./view.ts"
 
 /**
  * Frame rates. Idle keeps the clock ticking; the beat matches the spinners'
@@ -171,7 +172,7 @@ export class App {
   }
 
   private ids(): string[] {
-    return (this.frame?.rows ?? []).map((r) => r.agent.id)
+    return (this.frame?.rows ?? []).map((r) => r.id)
   }
 
   private select(delta: number) {
@@ -199,7 +200,7 @@ export class App {
     const st = this.st
     const seq = k.sequence
     const name = keyName(k.name) // numpad keys act like their main-keyboard twins
-    const row = this.frame?.rows.find((r) => r.agent.id === st.selected)
+    const row = this.frame?.rows.find((r) => r.id === st.selected)
     // While the help is open, moving keys scroll it (it scrolls when the window is short).
     const helpStep = !st.help ? 0 : name === "down" || seq === "j" ? 1 : name === "up" || seq === "k" ? -1
       : name === "pagedown" || seq === "J" || name === "space" ? 5 : name === "pageup" || seq === "K" ? -5 : 0
@@ -216,13 +217,15 @@ export class App {
     else if (name === "end" || seq === "G") this.select(1e6)
     else if (name === "pagedown" || seq === "J") this.scrollDetail(5)
     else if (name === "pageup" || seq === "K") this.scrollDetail(-5)
-    else if (name === "space" && row?.hasChildren) {
-      if (st.collapsed.has(row.agent.id)) st.collapsed.delete(row.agent.id)
-      else st.collapsed.add(row.agent.id)
-    } else if (name === "left" && row) {
-      if (row.hasChildren && !st.collapsed.has(row.agent.id)) st.collapsed.add(row.agent.id)
-      else if (row.agent.parent) pick(st, row.agent.parent, Date.now())
-    } else if (name === "right" && row) st.collapsed.delete(row.agent.id)
+    // An earlier row stands in for its subagents: Space, → and Enter list them all.
+    else if (row?.earlier && (name === "space" || name === "right" || name === "return" || name === "enter" || seq === "o")) {
+      showEarlier(st, row, Date.now())
+    } else if (name === "space" && row) toggle(st, row)
+    else if (name === "left" && row) {
+      // One stage back (all, recent, folded); from there, or from a leaf, to the parent.
+      const parent = row.earlier ? row.agent.id : row.agent.parent
+      if (!step(st, row, -1) && parent) pick(st, parent, Date.now())
+    } else if (name === "right" && row) step(st, row, 1)
     else if (seq === "n") this.needsYou()
     else if (name === "return" || name === "enter" || seq === "o") this.openInT3()
     else if (seq === "a") st.activeOnly = !st.activeOnly
@@ -288,7 +291,10 @@ export class App {
     const hit = this.frame?.hits.find((h) => h.y === e.y && e.x >= h.x0 && e.x < h.x1)
     if (!hit) return
     // A click on a row is a deliberate pick, even of the row already selected: it acknowledges a wait.
+    // A click on an earlier row lists the subagents it holds.
+    const earlier = hit.area === "list" ? this.frame?.rows.find((r) => r.id === hit.id && r.earlier) : undefined
     if (hit.area === "tile" && hit.id === NEEDS_YOU_TILE) this.needsYou()
+    else if (earlier) showEarlier(this.st, earlier, Date.now())
     else if (hit.area !== "tile") pick(this.st, hit.id, Date.now())
     this.renderer?.requestRender()
   }
