@@ -77,7 +77,15 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
   that thread.
 - **Details for the selected agent:** context as a big number, its growth per
   turn, the last call's token mix, a prompt-cache meter that drains in real
-  time, the plan's progress, tool mix, and recent activity.
+  time, the plan's progress, tool mix, and recent activity. Native subagents
+  also show activity when T3 records no application run for them.
+- **Failures you can inspect:** recent failed calls stay at the top of the
+  details, with the command or tool, age, and exit code when reported. They
+  cover the selected lane window across runs, so a later run or successful
+  call won't bury them. Scroll the details with `J` / `K` or the wheel;
+  `Enter` opens the thread in T3 for full output. A failed call does not by
+  itself mean the agent's task failed; even a search with no matches can
+  return a nonzero exit code.
 
 **The bar widget**
 
