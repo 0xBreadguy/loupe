@@ -7,7 +7,7 @@ import { join } from "node:path"
 import { test } from "node:test"
 import { Canvas } from "../src/canvas.ts"
 import { buildDemo, demoUsage } from "../src/demo.ts"
-import { Source, type Snapshot } from "../src/source.ts"
+import { EARLIER, Source, type Snapshot } from "../src/source.ts"
 import { MARK_CONTRAST, TEXT_CONTRAST, contrast, derivePalette, mix, ramp, type Palette } from "../src/theme.ts"
 import { draw, initialState, type ViewState } from "../src/view.ts"
 import { THEMES } from "./themes.ts"
@@ -105,6 +105,28 @@ test("every letter and digit on screen reads at 4.5:1, whatever is selected or l
           draw(c, st, snap, demoUsage(now, EPOCH), p, now)
           assert.deepEqual(unreadable(c, p), [], `${name} ${w}x${h} +${minutes}m, ${pick.title} selected`)
         }
+      }
+    }
+  }
+})
+
+test("an earlier row and its details read at 4.5:1, selected and in the T3 band", () => {
+  const now = EPOCH + 2.5 * 60_000
+  const snap = demo(now)
+  const long = snap.agents.find((a) => a.title === "Harden the webhook pipeline")!
+  for (const [name, vars] of Object.entries(THEMES)) {
+    const p = derivePalette(vars)
+    for (const [w, h] of [[60, 20], [100, 30], [150, 50], [240, 70]]) {
+      for (const linked of [false, true]) {
+        const st = initialState(2)
+        st.bootAt = 0
+        st.calm = true
+        st.selected = EARLIER + long.id
+        if (linked) st.t3Title = `${long.project} / ${long.title}`
+        st.follow = false
+        const c = new Canvas(w, h)
+        draw(c, st, snap, demoUsage(now, EPOCH), p, now)
+        assert.deepEqual(unreadable(c, p), [], `${name} ${w}x${h}${linked ? " in the band" : ""}`)
       }
     }
   }

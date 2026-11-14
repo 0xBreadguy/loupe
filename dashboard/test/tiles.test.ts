@@ -135,7 +135,7 @@ test("a failing source with a snapshot kept: agents stay listed, tiles and foote
     st.cause = trouble(new Error("database is locked"), snap.path)
   })
   assert.ok(tile("NEEDS YOU").rows.some((r) => r.includes("can't read T3")))
-  assert.match(text, /Migrate billing to the v2 API/)
+  assert.match(text, /Migrate billing/) // one row each at this size, so long titles are cut short
   assert.match(lines.at(-1)!, /SOURCE ERROR · last snapshot kept · .*database is locked/)
 })
 
