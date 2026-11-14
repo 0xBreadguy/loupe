@@ -10,7 +10,7 @@ import { keyName } from "./keys.ts"
 import { Source, type Snapshot } from "./source.ts"
 import { ThemeWatcher } from "./theme.ts"
 import { UsageReader } from "./usage.ts"
-import { NEEDS_YOU_TILE, WINDOWS, draw, initialState, nextWaiting, observe, pick, showEarlier, step, toggle, trouble,
+import { NEEDS_YOU_TILE, WINDOWS, draw, initialState, nextScope, nextWaiting, observe, pick, showEarlier, step, toggle, trouble,
   type Frame, type ViewState } from "./view.ts"
 
 /**
@@ -228,7 +228,7 @@ export class App {
     } else if (name === "right" && row) step(st, row, 1)
     else if (seq === "n") this.needsYou()
     else if (name === "return" || name === "enter" || seq === "o") this.openInT3()
-    else if (seq === "a") st.activeOnly = !st.activeOnly
+    else if (seq === "a") nextScope(st, Date.now())
     else if (seq === "f") {
       st.follow = !st.follow
       if (st.follow) st.t3Linked = null // select the T3 thread again on the next frame

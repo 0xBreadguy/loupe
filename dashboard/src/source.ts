@@ -16,7 +16,8 @@ export const MAX_WINDOW_MS = 3 * 3600_000
 type Fields = Record<string, true | string[]>
 const FIELDS: Record<string, Fields> = {
   threads: { id: true, projectId: true, title: true, activeProviderThreadId: true, worktreePath: true, branch: true,
-    updatedAt: true, lineage: ["relationshipToParent", "parentThreadId"], modelSelection: ["model", "options"] },
+    updatedAt: true, settledOverride: true, snoozedUntil: true,
+    lineage: ["relationshipToParent", "parentThreadId", "sideChat"], modelSelection: ["model", "options"] },
   runs: { id: true, threadId: true, status: true, providerThreadId: true, startedAt: true, requestedAt: true,
     completedAt: true, modelSelection: ["model", "options"] },
   subagents: { id: true, threadId: true, parentNodeId: true, runId: true, providerThreadId: true, childThreadId: true,
@@ -73,6 +74,12 @@ export interface Item {
 export interface Event { t: number; cat: string; failed: boolean }
 export interface Point { pct: number; used: number; max: number; at: number; provider: string; model: string }
 export interface Step { text: string; status: string }
+/** Where T3 Code's sidebar files an app thread. */
+export interface Shelf {
+  listed: boolean // a top-level thread: T3 lists subagent threads and side chats only inside their parent
+  settled: boolean
+  snoozedUntil: string | null
+}
 
 export interface Agent {
   id: string
@@ -91,6 +98,7 @@ export interface Agent {
   started: string | null
   ended: string | null
   remote: Json | null
+  shelf?: Shelf // app threads only; native subagents have no sidebar row
   items: Item[] // latest run, or thread activity when T3 records no runs; newest first
   recentFailures: Item[] // failed calls across runs in the maximum lane window, newest first
   requests: string[]
@@ -344,6 +352,8 @@ export function buildAgents(threads: Json[], latest: Map<string, Json>, subs: Js
       context: ctx, turn, updated: thread.updatedAt ?? null, started: run.startedAt || run.requestedAt || null,
       ended: run.completedAt ?? null, remote: null, thread_id: tid, branch: thread.branch ?? null,
       options: selection.options ?? [],
+      shelf: { listed: lineage.relationshipToParent !== "subagent" && lineage.sideChat !== true,
+        settled: thread.settledOverride === "settled", snoozedUntil: thread.snoozedUntil ?? null },
     })
   }
   const { owner } = attributor(agents, subs, nodes)
@@ -462,6 +472,9 @@ function decorate(list: Agent[], x: Extras) {
  * default; older finished ones fold into one "earlier" row), or every one.
  */
 export type Stage = "folded" | "recent" | "all"
+/** Which threads the list shows: every unarchived one, only the active ones, or those T3's sidebar lists. */
+export type Scope = "all" | "active" | "t3"
+export const SCOPES: Scope[] = ["all", "active", "t3"] // the order a steps through them
 
 export interface TreeRow {
   id: string // the agent's id; for an earlier row, EARLIER and the parent's id
@@ -498,6 +511,7 @@ export interface Recent {
   now: number
   expanded: Set<string> // parents that list every subagent
   keep?: Set<string> // agents listed wherever they are: the selection, the thread open in T3
+  linked?: string | null // the thread open in T3 Code: its family stays in the T3 scope, settled or not
 }
 
 export const needsYou = (a: Agent) => a.requests.length > 0 || a.status === "waiting"
@@ -515,6 +529,18 @@ export function waitingSince(a: Agent): number | null {
 export const isLive = (a: Agent) => LIVE.has(a.status)
 /** Running, as the dashboard's ACTIVE tile, `--once` and the bar all count it: live and not waiting on you. */
 export const isRunning = (a: Agent) => isLive(a) && !needsYou(a)
+
+/**
+ * T3 Code's sidebar lists it: a top-level thread neither settled nor snoozed.
+ * A snoozed thread that needs you is back early, as T3 wakes it when it raises
+ * a hand. An agent without a shelf (a native subagent) never decides alone.
+ */
+export function inSidebar(a: Agent, now: number): boolean {
+  const s = a.shelf
+  if (!s) return true
+  const until = ms(s.snoozedUntil)
+  return s.listed && !s.settled && !(until !== null && until > now && !needsYou(a))
+}
 
 // ── Stall detection ─────────────────────────────────────────────────────────
 // Judgment values. A model can think for a minute or two between items, and
@@ -558,10 +584,11 @@ export function pace(a: Agent, now: number, childrenLive = false): Pace | null {
  * earlier row for the rest, unless it is in `recent.expanded`; without it,
  * every subagent is listed.
  */
-export function tree(agents: Agent[], collapsed: Set<string>, activeOnly = false, recent?: Recent): TreeRow[] {
+export function tree(agents: Agent[], collapsed: Set<string>, scope: Scope = "all", recent?: Recent): TreeRow[] {
   const byId = new Map(agents.map((a) => [a.id, a]))
   let allowed = new Set(byId.keys())
-  if (activeOnly) {
+  if (scope !== "all") {
+    // Every scope keeps what is live or waiting on you, with the threads above it.
     allowed = new Set()
     for (const start of agents) {
       if (!isLive(start) && !start.requests.length) continue
@@ -571,6 +598,27 @@ export function tree(agents: Agent[], collapsed: Set<string>, activeOnly = false
         seen.add(a.id)
         allowed.add(a.id)
         a = a.parent ? byId.get(a.parent) : undefined
+      }
+    }
+    if (scope === "t3") {
+      // As T3's sidebar has it, with each listed thread's subagents under it,
+      // and the thread T3 shows even when it is settled.
+      const now = recent?.now ?? Date.now()
+      let shown = recent?.linked ? byId.get(recent.linked) : undefined
+      for (const seen = new Set<string>(); shown?.parent && byId.has(shown.parent) && !seen.has(shown.id); ) {
+        seen.add(shown.id)
+        shown = byId.get(shown.parent)
+      }
+      const below = new Map<string, Agent[]>()
+      for (const a of agents) if (a.parent) below.set(a.parent, [...(below.get(a.parent) ?? []), a])
+      const stack = agents.filter((a) => !a.parent && (a === shown || inSidebar(a, now)))
+      const done = new Set<string>()
+      while (stack.length) {
+        const a = stack.pop()!
+        if (done.has(a.id)) continue
+        done.add(a.id)
+        allowed.add(a.id)
+        stack.push(...(below.get(a.id) ?? []))
       }
     }
   }

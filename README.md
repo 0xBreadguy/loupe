@@ -73,6 +73,12 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
   row, and its lane still shows their activity. Select it to see them listed in
   the details; `→`, `Enter` or a click puts them all back in the list. Top-level
   threads never fold.
+- **Three ways to scope the list:** `a` steps from every unarchived thread to
+  active only (running or waiting on you), then to T3's sidebar: the threads
+  you haven't settled or snoozed, with their subagents. That last one keeps up
+  with T3, so settling or snoozing a thread there takes it off here. Anything
+  running or waiting on you stays listed in every scope, and the T3 scope also
+  keeps the thread open in T3, settled or not.
 - **Stall detection:** a running agent with no tool call in flight and nothing
   new for 2 minutes stops spinning and says `◌ quiet 4m · last ❯ npm test`;
   after 8 it says `◌ stalled` and turns warm. A tool call shows its running
@@ -167,7 +173,7 @@ away, it falls back to the one on `PATH`; rerun the installer after switching.
 | `Enter` / `o` | open the selected agent's thread in T3 Code |
 | `Space` / `←` `→` | fold or unfold subagents; `→` again lists the earlier ones too, `←` steps back (on a leaf it jumps to the parent) |
 | `n` | jump to the next agent waiting on you (or click the NEEDS YOU tile) |
-| `a` | only agents that are running or waiting, plus their parents |
+| `a` | scope: all threads → active only → T3's sidebar (not settled or snoozed) → all |
 | `f` | follow the thread open in T3 (on by default) |
 | `t` | lane window: 15 min, 30 min, 1 h, 3 h |
 | `J` `K` / `PgDn` `PgUp`, wheel over details | scroll the details |
