@@ -5,7 +5,8 @@ import {
   type CliRenderer, type KeyEvent, type MouseEvent, type OptimizedBuffer, type RenderContext,
 } from "@opentui/core"
 import { CONTINUATION, Canvas } from "./canvas.ts"
-import { T3Window, environmentId, openLink, threadLink } from "./focus.ts"
+import { T3Window, agentThreadLink, environmentId, openLink } from "./focus.ts"
+import { threadRef } from "./identity.ts"
 import { keyName } from "./keys.ts"
 import { Source, type Snapshot } from "./source.ts"
 import { ThemeWatcher } from "./theme.ts"
@@ -253,10 +254,10 @@ export class App {
       st.notice = { text, at: Date.now(), error }
       this.renderer?.requestRender()
     }
-    const thread = this.snap.agents.find((x) => x.id === a.thread_id) ?? a
+    const thread = threadRef(a.remote) ? a : this.snap.agents.find((x) => x.id === a.thread_id) ?? a
     if (this.demo) return note(`Demo: would open ${thread.title} in T3 Code`)
     const env = environmentId(this.source.path)
-    const link = env ? threadLink(env, a.thread_id) : null
+    const link = agentThreadLink(a, env)
     if (!link) return note("Cannot open in T3: no environment id beside the T3 database", true)
     // T3 then shows the thread; following keeps this selection because it is in that thread's family.
     openLink(link).then(

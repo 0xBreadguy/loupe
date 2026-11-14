@@ -4,6 +4,7 @@
 import { accessSync, constants, existsSync, statSync } from "node:fs"
 import { homedir } from "node:os"
 import { DatabaseSync } from "node:sqlite"
+import { environmentId, threadKey, threadRef } from "./identity.ts"
 
 export const PREFIX = "orchestration_v2_projection_"
 export const LIVE = new Set(["running", "starting", "preparing", "queued", "waiting", "pending", "active"])
@@ -17,11 +18,13 @@ type Fields = Record<string, true | string[]>
 const FIELDS: Record<string, Fields> = {
   threads: { id: true, projectId: true, title: true, activeProviderThreadId: true, worktreePath: true, branch: true,
     updatedAt: true, settledOverride: true, snoozedUntil: true,
-    lineage: ["relationshipToParent", "parentThreadId", "sideChat"], modelSelection: ["model", "options"] },
+    lineage: ["relationshipToParent", "parentThreadId", "sideChat"],
+    delegatedFrom: ["environmentId", "threadId", "title"], modelSelection: ["model", "options"] },
   runs: { id: true, threadId: true, status: true, providerThreadId: true, startedAt: true, requestedAt: true,
     completedAt: true, modelSelection: ["model", "options"] },
   subagents: { id: true, threadId: true, parentNodeId: true, runId: true, providerThreadId: true, childThreadId: true,
-    status: true, title: true, model: true, startedAt: true, completedAt: true, updatedAt: true, remoteChild: ["label"] },
+    status: true, title: true, model: true, startedAt: true, completedAt: true, updatedAt: true,
+    remoteChild: ["environmentId", "threadId", "label"] },
   provider_threads: { id: true, contextUsage: true },
   provider_turns: { providerThreadId: true, model: true, tokenUsage: true, turnTokenUsage: true },
 }
@@ -98,6 +101,8 @@ export interface Agent {
   started: string | null
   ended: string | null
   remote: Json | null
+  referenceOnly?: boolean // the parent identity is known, but its state is absent locally
+  subagent_ids?: string[] // local spawning nodes represented by this row, including remote retries
   shelf?: Shelf // app threads only; native subagents have no sidebar row
   items: Item[] // latest run, or thread activity when T3 records no runs; newest first
   recentFailures: Item[] // failed calls across runs in the maximum lane window, newest first
@@ -295,7 +300,7 @@ export class Source {
       FROM ${PREFIX}turn_items WHERE type='todo_list' AND run_id IN (${runMarks})
       ORDER BY updated_at DESC`, ...runIds)
 
-    const agents = buildAgents(threads, latest, subs, providers, turns, nodes, projects, requests, items)
+    const agents = buildAgents(threads, latest, subs, providers, turns, nodes, projects, requests, items, environmentId(this.path))
     decorate(agents, { subs, nodes, events, history, spans, plans, now })
     return { agents, at: now, path: this.path }
   }
@@ -304,6 +309,7 @@ export class Source {
 function attributor(agents: Map<string, Agent>, subs: Json[], nodes: Map<string, Row>) {
   const subIds = new Set(subs.map((s) => s.id))
   const aliases = new Map(subs.filter((s) => s.childThreadId).map((s) => [s.id, s.childThreadId]))
+  for (const a of agents.values()) for (const id of a.subagent_ids ?? []) aliases.set(id, a.id)
   const owner = (node: string | null | undefined): string | null => {
     const visited = new Set<string>()
     while (node && !visited.has(node)) {
@@ -317,6 +323,10 @@ function attributor(agents: Map<string, Agent>, subs: Json[], nodes: Map<string,
   for (const a of agents.values()) {
     if (a.kind === "subagent" && a.provider_id && !native.has(a.provider_id)) native.set(a.provider_id, a.id)
   }
+  for (const sub of subs) {
+    const id = owner(sub.id)
+    if (id && sub.providerThreadId && !native.has(sub.providerThreadId)) native.set(sub.providerThreadId, id)
+  }
   // A native subagent's provider conversation identifies activity even when
   // the node is not explicitly nested under its spawning node.
   const target = (row: { node_id?: string | null; thread_id: string; provider_thread_id?: string | null }) =>
@@ -325,7 +335,8 @@ function attributor(agents: Map<string, Agent>, subs: Json[], nodes: Map<string,
 }
 
 export function buildAgents(threads: Json[], latest: Map<string, Json>, subs: Json[], providers: Map<string, Json>,
-  turns: Map<string, Json>, nodes: Map<string, Row>, projects: Map<string, Row>, requests: Row[], items: Item[]): Agent[] {
+  turns: Map<string, Json>, nodes: Map<string, Row>, projects: Map<string, Row>, requests: Row[], items: Item[],
+  localEnvironment: string | null = null): Agent[] {
   const agents = new Map<string, Agent>()
   const metrics = (pid: string | null | undefined): [Context, Json] => {
     const p = (pid && providers.get(pid)) || {}
@@ -356,25 +367,74 @@ export function buildAgents(threads: Json[], latest: Map<string, Json>, subs: Js
         settled: thread.settledOverride === "settled", snoozedUntil: thread.snoozedUntil ?? null },
     })
   }
-  const { owner } = attributor(agents, subs, nodes)
-  // A delegated app thread appears once, nested under its spawning agent.
-  for (const sub of subs) {
-    const child = sub.childThreadId
-    const parent = owner(sub.parentNodeId) || sub.threadId
-    const existing = child && agents.get(child)
+  const localIds = new Set(agents.keys())
+  const remoteIds = new Map<string, string>()
+  // Retries can point at the same remote thread. Keep one row, using the
+  // newest local delegation record, and retain every spawning-node alias.
+  const orderedSubs = [...subs].sort((a, b) =>
+    String(b.updatedAt ?? b.startedAt ?? "").localeCompare(String(a.updatedAt ?? a.startedAt ?? "")) ||
+    String(a.id).localeCompare(String(b.id)))
+  const preferred = new Map<string, Json>()
+  for (const sub of orderedSubs) {
+    const ref = threadRef(sub.remoteChild)
+    if (ref && !preferred.has(threadKey(ref))) preferred.set(threadKey(ref), sub)
+  }
+  // Keep the projection's order for the summary tiles and native agents.
+  for (const entry of subs) {
+    const ref = threadRef(entry.remoteChild)
+    const sub = ref ? preferred.get(threadKey(ref))! : entry
+    const known = ref && (ref.environmentId === localEnvironment && localIds.has(ref.threadId)
+      ? ref.threadId : remoteIds.get(threadKey(ref)))
+    const existing = agents.get(entry.childThreadId) ?? (known ? agents.get(known) : undefined)
     if (existing) {
-      existing.parent = parent
-      existing.kind = "subagent"
+      existing.subagent_ids ??= []
+      existing.subagent_ids.push(entry.id)
+      if (ref) remoteIds.set(threadKey(ref), existing.id)
       continue
     }
     const [ctx, turn] = metrics(sub.providerThreadId)
     agents.set(sub.id, {
-      ...structuredClone(blank), id: sub.id, parent, title: sub.title || "Subagent", kind: "subagent",
+      ...structuredClone(blank), id: sub.id, parent: null, title: sub.title || "Subagent", kind: "subagent",
       project: agents.get(sub.threadId)?.project ?? "", cwd: "", model: turn.model || sub.model || "--",
       status: sub.status ?? "unknown", run: { id: sub.runId }, provider_id: sub.providerThreadId ?? null,
       context: ctx, turn, updated: sub.updatedAt ?? null, started: sub.startedAt ?? null,
       ended: sub.completedAt ?? null, remote: sub.remoteChild ?? null, thread_id: sub.threadId, branch: null, options: [],
+      subagent_ids: [entry.id],
     })
+    if (ref) remoteIds.set(threadKey(ref), sub.id)
+  }
+  const { owner } = attributor(agents, subs, nodes)
+  const parented = new Set<string>()
+  for (const sub of orderedSubs) {
+    const id = owner(sub.id)!
+    if (parented.has(id)) continue
+    parented.add(id)
+    const a = agents.get(id)!
+    a.parent = owner(sub.parentNodeId) || sub.threadId
+    a.kind = "subagent"
+  }
+  for (const thread of threads) {
+    const ref = threadRef(thread.delegatedFrom)
+    if (!ref) continue
+    const a = agents.get(thread.id)!
+    // Native lineage is the more specific parent when present locally.
+    if (thread.lineage?.relationshipToParent === "subagent" && localIds.has(thread.lineage.parentThreadId)) continue
+    let parent = ref.environmentId === localEnvironment && localIds.has(ref.threadId)
+      ? ref.threadId : remoteIds.get(threadKey(ref))
+    if (!parent) {
+      // No invented run or settlement state, and no remote database access.
+      parent = "remote:" + threadKey(ref)
+      while (agents.has(parent)) parent += ":ref"
+      agents.set(parent, {
+        ...structuredClone(blank), id: parent, parent: null, title: thread.delegatedFrom.title || "Remote parent",
+        kind: "thread", project: a.project, cwd: "", model: "--", status: "unknown", run: {}, provider_id: null,
+        context: {}, turn: {}, updated: null, started: null, ended: null, remote: ref, referenceOnly: true,
+        thread_id: ref.threadId, branch: null, options: [],
+      })
+      remoteIds.set(threadKey(ref), parent)
+    }
+    a.parent = parent
+    a.kind = "subagent"
   }
   const { target } = attributor(agents, subs, nodes)
   for (const item of items) {
@@ -400,6 +460,22 @@ export function buildAgents(threads: Json[], latest: Map<string, Json>, subs: Js
       a.mix[cat] = (a.mix[cat] ?? 0) + 1
       if (i.status === "failed") a.failures++
     }
+  }
+  // Malformed cross-machine metadata must not make an entire family vanish.
+  const done = new Set<string>()
+  for (const start of agents.values()) {
+    const path = new Map<string, Agent>()
+    let a: Agent | undefined = start
+    while (a && !done.has(a.id) && !path.has(a.id)) {
+      path.set(a.id, a)
+      a = a.parent ? agents.get(a.parent) : undefined
+    }
+    if (a && path.has(a.id)) {
+      const ids = [...path.keys()]
+      const cycle = ids.slice(ids.indexOf(a.id)).sort()
+      agents.get(cycle[0])!.parent = null
+    }
+    for (const id of path.keys()) done.add(id)
   }
   return [...agents.values()]
 }
@@ -427,10 +503,8 @@ function decorate(list: Agent[], x: Extras) {
       if (failed) a.recentFailures.push(row as Item)
     }
   }
-  const nativeByProvider = new Map(list.filter((a) => a.kind === "subagent" && a.provider_id && a.thread_id !== a.id)
-    .map((a) => [a.provider_id!, a]))
   for (const row of x.history) {
-    const a = nativeByProvider.get(row.provider_thread_id) ?? agents.get(row.thread_id)
+    const a = agents.get(target(row as never))
     const used = Number(row.used)
     const max = Number(row.max)
     if (!a || !Number.isFinite(used) || !Number.isFinite(max) || max <= 0) continue
