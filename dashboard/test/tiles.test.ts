@@ -63,7 +63,7 @@ function render(snap: Snapshot, w: number, h: number, setup: (st: ViewState) => 
 test("zero and empty values are small and dim; big digits mean look here", () => {
   const snap = calm(demo())
   const { tile, c } = render(snap, 150, 50)
-  for (const label of ["ACTIVE", "NEEDS YOU", "FAILED"]) {
+  for (const label of ["ACTIVE", "NEEDS YOU", "FAILED CALLS"]) {
     const t = tile(label)
     assert.ok(!t.rows.slice(1).some((r) => BIG.test(r)), `${label} 0 is not drawn in big digits`)
     assert.ok(t.rows.some((r) => /^ {2}0\s*$/.test(r)), `${label} shows a small 0`)
@@ -92,7 +92,7 @@ test("missing values are a small dash with the reason", () => {
 test("tiles keep their places whatever their values", () => {
   const where = (snap: Snapshot) => {
     const { lines } = render(snap, 150, 50)
-    return ["ACTIVE", "NEEDS YOU", "TOOLS / MIN", "PEAK CONTEXT", "TOKENS TODAY", "FAILED"].map((l) => lines[1].indexOf(l))
+    return ["ACTIVE", "NEEDS YOU", "TOOLS / MIN", "PEAK CONTEXT", "TOKENS TODAY", "FAILED CALLS"].map((l) => lines[1].indexOf(l))
   }
   assert.deepEqual(where(calm(demo())), where(demo()))
 })
@@ -112,7 +112,7 @@ test("T3 never read: the tiles say so instead of showing zeros, and the list say
     st.error = (err as Error).message
     st.cause = trouble(err, path)
   })
-  for (const label of ["ACTIVE", "NEEDS YOU", "TOOLS / MIN", "PEAK CONTEXT", "FAILED"]) {
+  for (const label of ["ACTIVE", "NEEDS YOU", "TOOLS / MIN", "PEAK CONTEXT", "FAILED CALLS"]) {
     const t = tile(label).rows
     assert.ok(t.some((r) => /^ {2}—\s*$/.test(r)), `${label} is a dash`)
     assert.ok(t.some((r) => r.includes("can't read T3")), `${label} says why`)

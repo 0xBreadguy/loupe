@@ -656,8 +656,8 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, face: Face, st: Vie
           col += 2 + c.text(x + col + 2, yy, t, p.dim) + 2
         }
       } },
-    blind ? unread("FAILED") : !fails.length ? zero("FAILED", "0", note("clean run"))
-      : { label: "FAILED", value: String(fails.length), color: lastFail && now - lastFail < 10 * 60_000 ? p.hot : p.warn,
+    blind ? unread("FAILED CALLS") : !fails.length ? zero("FAILED CALLS", "0", note(`none in ${WINDOWS[st.windowIndex]}m`))
+      : { label: "FAILED CALLS", value: String(fails.length), color: lastFail && now - lastFail < 10 * 60_000 ? p.hot : p.warn,
         sub: note(`last ${duration((now - lastFail!) / 1000)} ago`) },
   ]
   const { count, tw } = tileGrid(W, tiles.length)
@@ -1052,12 +1052,12 @@ function detail(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
       let ly = top
       for (const blk of [b.context, b.growth, b.tokens, b.cache]) ly += blk(r.x, ly, cw, r.y + r.h - ly)
       let ry = top
-      for (const blk of [b.plan, b.activity, b.tools]) ry += blk(r.x + cw + 3, ry, W - cw - 3, r.y + r.h - ry)
+      for (const blk of [b.failures, b.plan, b.activity, b.tools]) ry += blk(r.x + cw + 3, ry, W - cw - 3, r.y + r.h - ry)
       for (let yy = top; yy < Math.max(ly, ry) - 1; yy++) c.set(r.x + cw + 1, yy, "┊", p.track)
       return Math.max(ly, ry) - r.y
     }
     let y = top
-    for (const blk of [b.context, b.plan, b.activity, b.tools, b.growth, b.tokens, b.cache]) y += blk(r.x, y, W, r.y + r.h - y)
+    for (const blk of [b.failures, b.context, b.plan, b.activity, b.tools, b.growth, b.tokens, b.cache]) y += blk(r.x, y, W, r.y + r.h - y)
     return y - r.y
   })
 }
@@ -1092,6 +1092,26 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
   const moving = working(a, frame.paces.get(a.id))
   const call = a.turn.tokenUsage ?? null
   return {
+    failures(X, Y, W) {
+      const minutes = WINDOWS[st.windowIndex]
+      const failed = a.recentFailures.filter((i) => (ms(i.updated_at) ?? 0) >= now - minutes * 60_000)
+      if (!failed.length) return 0
+      let y = Y
+      section(c, X, y++, W, "RECENT FAILURES", p, `${failed.length} · ${minutes}m`, p.hot)
+      for (const item of failed) {
+        const age = duration(since(item.updated_at, now)).replace(/ \d+s$/, "")
+        const exit = typeof item.exit_code === "number" ? `exit ${item.exit_code}` : "failed"
+        const scope = item.run_id && item.run_id !== a.run.id ? " · earlier run" : ""
+        const meta = `${age} ago · ${exit}${scope}`
+        const lines = wrap(`${meta}  ${itemLabel(item)}`, W - 2)
+        c.set(X, y, "✗", p.hot)
+        for (const line of lines) c.text(X + 2, y++, line, p.text2)
+        // Redundant shape and explicit exit code carry meaning without red text.
+        c.text(X + 2, y - lines.length, fit(meta, W - 2), p.hot)
+      }
+      c.text(X, y++, fit("Failed calls; agent status is separate. Enter opens T3.", W), p.dim)
+      return y + 1 - Y
+    },
     context(X, Y, W) {
       let y = Y
       const rr = ratio(a)
@@ -1194,7 +1214,7 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
       if (!entries.length) return 0
       let y = Y
       const total = entries.reduce((n, [, v]) => n + v, 0)
-      section(c, X, y++, W, "TOOLS", p, `${total} this run${a.failures ? ` · ${a.failures} failed` : ""}`, a.failures ? p.hot : p.dim)
+      section(c, X, y++, W, "TOOLS", p, `${total} ${a.run.id ? "this run" : "in thread"}${a.failures ? ` · ${a.failures} failed` : ""}`, a.failures ? p.hot : p.dim)
       const max = entries[0][1]
       const nw = Math.max(...entries.map(([, n]) => String(n).length))
       for (const [cat, n] of entries.slice(0, 7)) {
@@ -1210,9 +1230,9 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
       // (see observe()); calm mode holds the flash steady instead of fading it.
       const feed = a.items.filter(feedItem)
       let y = Y
-      section(c, X, y++, W, "ACTIVITY", p, "latest run")
+      section(c, X, y++, W, "ACTIVITY", p, a.run.id ? "latest run" : "thread activity")
       if (!feed.length) {
-        c.text(X, y++, "No tool activity recorded for this run.", p.dim)
+        c.text(X, y++, a.run.id ? "No tool activity recorded for this run." : "No tool activity recorded for this thread.", p.dim)
         return y + 1 - Y
       }
       const limit = Math.max(6, Math.min(16, room - 2))
@@ -1237,6 +1257,7 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
         c.text(X + 2, y, duration(age).replace(/ \d+s$/, "").padStart(6), running ? p.text2 : p.dim, { bg })
         c.text(X + 9, y++, fit(itemLabel(item), W - 9), failed ? mix(p.hot, fade, 0.3) : fade, { bg })
       }
+      if (feed.length > limit) c.text(X, y++, fit(`▼ ${feed.length - limit} more calls · Enter opens T3`, W), p.dim)
       return y + 1 - Y
     },
   }

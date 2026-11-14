@@ -67,6 +67,7 @@ export interface Item {
   command: string
   file: string
   tool: string | null
+  exit_code?: number | null
 }
 
 export interface Event { t: number; cat: string; failed: boolean }
@@ -90,7 +91,8 @@ export interface Agent {
   started: string | null
   ended: string | null
   remote: Json | null
-  items: Item[] // tool activity of the latest run, newest first
+  items: Item[] // latest run, or thread activity when T3 records no runs; newest first
+  recentFailures: Item[] // failed calls across runs in the maximum lane window, newest first
   requests: string[]
   asked: string | null // when its oldest open request was made, where T3 records it
   thread_id: string
@@ -251,21 +253,25 @@ export class Source {
     const runIds = [...new Set([...latest.values()].map((r) => r.id).concat(subs.map((s) => s.runId)).filter(Boolean))]
     const runMarks = runIds.map(() => "?").join(",") || "NULL"
     // Labels are tool names, titles, file names and command excerpts only.
-    const items = all(`SELECT thread_id,run_id,node_id,provider_thread_id,type,status,updated_at,
+    const itemFields = `thread_id,run_id,node_id,provider_thread_id,type,status,updated_at,
         json_extract(payload_json,'$.startedAt') AS started_at,
         json_extract(payload_json,'$.toolName') AS tool,
+        json_extract(payload_json,'$.exitCode') AS exit_code,
         substr(COALESCE(json_extract(payload_json,'$.title'), json_extract(payload_json,'$.toolName'),
           json_extract(payload_json,'$.label'),''),1,240) AS label,
         CASE WHEN type='command_execution' THEN substr(json_extract(payload_json,'$.input'),1,240) ELSE '' END AS command,
-        CASE WHEN type='file_change' THEN substr(json_extract(payload_json,'$.fileName'),1,240) ELSE '' END AS file
-      FROM ${PREFIX}turn_items WHERE run_id IN (${runMarks})
+        CASE WHEN type='file_change' THEN substr(json_extract(payload_json,'$.fileName'),1,240) ELSE '' END AS file`
+    // Native provider subagent threads can have items but no application runs.
+    // SQL IN never matches their NULL run_id; load their thread activity explicitly.
+    const runless = ids.filter((id) => !latest.has(id))
+    const runlessMarks = runless.map(() => "?").join(",") || "NULL"
+    const items = all(`SELECT ${itemFields}
+      FROM ${PREFIX}turn_items WHERE (run_id IN (${runMarks}) OR (run_id IS NULL AND thread_id IN (${runlessMarks})))
         AND type IN (${[...TOOLISH, "reasoning", "assistant_message"].map((t) => `'${t}'`).join(",")})
-      ORDER BY updated_at DESC, ordinal DESC LIMIT 3000`, ...runIds) as Item[]
+      ORDER BY updated_at DESC, ordinal DESC LIMIT 3000`, ...runIds, ...runless) as Item[]
 
     const since = new Date(now - MAX_WINDOW_MS).toISOString()
-    const events = all(`SELECT thread_id,run_id,node_id,provider_thread_id,type,status,updated_at,
-        json_extract(payload_json,'$.startedAt') AS started_at,
-        json_extract(payload_json,'$.toolName') AS tool
+    const events = all(`SELECT ${itemFields}
       FROM ${PREFIX}turn_items ${where} AND updated_at >= ? AND type NOT IN ('checkpoint','todo_list')
       ORDER BY updated_at DESC LIMIT 8000`, ...ids, since)
     const history = all(`SELECT provider_thread_id,thread_id,started_at,completed_at,
@@ -321,7 +327,7 @@ export function buildAgents(threads: Json[], latest: Map<string, Json>, subs: Js
     if (ctx.usedTokens == null) ctx = p.contextUsage || {}
     return [ctx, turn]
   }
-  const blank = { items: [], requests: [], asked: null, history: [], events: [], spans: [], plan: null, mix: {}, failures: 0, now: null }
+  const blank = { items: [], recentFailures: [], requests: [], asked: null, history: [], events: [], spans: [], plan: null, mix: {}, failures: 0, now: null }
   for (const thread of threads) {
     const tid = thread.id
     const run = latest.get(tid) ?? {}
@@ -363,7 +369,7 @@ export function buildAgents(threads: Json[], latest: Map<string, Json>, subs: Js
   const { target } = attributor(agents, subs, nodes)
   for (const item of items) {
     const a = agents.get(target(item))
-    if (a && item.run_id === a.run.id) a.items.push(item)
+    if (a && item.run_id === (a.run.id ?? null)) a.items.push(item)
   }
   for (const req of requests) {
     const a = agents.get(target(req as never))
@@ -403,8 +409,13 @@ function decorate(list: Agent[], x: Extras) {
   const { target } = attributor(agents, x.subs, x.nodes)
   for (const row of x.events) {
     const a = agents.get(target(row as never))
-    const t = ms(row.started_at) ?? ms(row.updated_at)
-    if (a && t !== null) a.events.push({ t, cat: category(row.type, row.tool), failed: row.status === "failed" })
+    // A failure belongs to when it was reported, even if the call ran for hours.
+    const failed = row.status === "failed"
+    const t = (failed ? ms(row.updated_at) : ms(row.started_at)) ?? ms(row.updated_at)
+    if (a && t !== null) {
+      a.events.push({ t, cat: category(row.type, row.tool), failed })
+      if (failed) a.recentFailures.push(row as Item)
+    }
   }
   const nativeByProvider = new Map(list.filter((a) => a.kind === "subagent" && a.provider_id && a.thread_id !== a.id)
     .map((a) => [a.provider_id!, a]))
