@@ -622,8 +622,18 @@ export function tree(agents: Agent[], collapsed: Set<string>, activeOnly = false
     const inner = depth > 0 ? [...guides, !last] : guides
     shown.forEach((k, i) => visit(k, depth + 1, inner, i === shown.length - 1 && !more.length))
     if (more.length) {
+      // The cue stands in for complete hidden subtrees, including their
+      // descendants' failures and lane activity, not just the direct children.
+      const hidden = new Map<string, Agent>()
+      const stack = [...more]
+      while (stack.length) {
+        const k = stack.pop()!
+        if (hidden.has(k.id) || seen.has(k.id)) continue
+        hidden.set(k.id, k)
+        stack.push(...(children.get(k.id) ?? []))
+      }
       rows.push({ id: EARLIER + a.id, agent: a, depth: depth + 1, hasChildren: false, stage: "all", kept: 0, tucked: 0,
-        guides: inner, last: true, earlier: more })
+        guides: inner, last: true, earlier: [...hidden.values()].sort((p, q) => lastSeen(q) - lastSeen(p)) })
     }
   }
   const roots = order(children.get(null) ?? [])

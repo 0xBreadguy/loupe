@@ -465,9 +465,13 @@ function acknowledge(st: ViewState, waiting: Agent[], linked: Set<string>, now: 
  * wrapping around, and unfold its parents so its row shows. Null when nobody waits.
  */
 export function nextWaiting(st: ViewState, agents: Agent[], now: number): string | null {
-  const order = tree(agents, new Set(), st.activeOnly).map((r) => r.agent) // as listed, with everything unfolded
-  const at = order.findIndex((a) => a.id === st.selected)
-  const next = order.slice(at + 1).find(needsYou) ?? order.find(needsYou)
+  // Keep synthetic earlier rows in list order, but unfold manual folds so
+  // requests inside them remain reachable. Recent folding never hides a wait.
+  const keep = new Set([st.selected, st.t3Linked].filter((id): id is string => !!id))
+  const order = tree(agents, new Set(), st.activeOnly, { now, expanded: st.expanded, keep })
+  const at = order.findIndex((r) => r.id === st.selected)
+  const waiting = (r: TreeRow) => !r.earlier && needsYou(r.agent)
+  const next = (order.slice(at + 1).find(waiting) ?? order.find(waiting))?.agent
   if (!next) return null
   const parent = new Map(agents.map((a) => [a.id, a.parent]))
   const seen = new Set<string>()
@@ -1036,6 +1040,7 @@ export function toggle(st: ViewState, row: TreeRow) {
 export function showEarlier(st: ViewState, row: TreeRow, now: number) {
   if (!row.earlier?.length) return
   setStage(st, row.agent.id, "all")
+  for (const a of row.earlier) if (a.parent) setStage(st, a.parent, "all")
   pick(st, row.earlier[0].id, now)
 }
 

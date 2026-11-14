@@ -23,7 +23,7 @@ function agent(id: string, parent: string | null, status: string, min: number, e
   return {
     id, parent, title: id, kind: parent ? "subagent" : "thread", project: "p", cwd: "", model: "claude-opus-5-5", status,
     run: {}, provider_id: null, context: {}, turn: {}, updated: ago(min), started: ago(min + 10), ended: live ? null : ago(min),
-    remote: null, items: [], requests: [], asked: null, thread_id: parent ?? id, branch: null, options: [], history: [],
+    remote: null, items: [], recentFailures: [], requests: [], asked: null, thread_id: parent ?? id, branch: null, options: [], history: [],
     events: [], spans: [], plan: null, mix: {}, failures: 0, now: null, ...extra,
   }
 }
@@ -129,6 +129,49 @@ function frame(a: App, w = 150, h = 70): Frame {
 }
 const titles = (f: Frame, parent: Agent) => f.rows.filter((r) => r.agent.parent === parent.id).map((r) => r.agent.title)
 const line = (a: App, f: Frame, id: string) => a.canvas.toText().split("\n")[f.hits.find((h) => h.id === id && h.area === "list")!.y]
+
+test("earlier rows include hidden descendants' counts, failures and lanes, and reveal their whole tree", () => {
+  const grand = agent("failed-grandchild", "d300", "failed", 10, {
+    events: [{ t: NOW - 10 * 60_000, cat: "shell", failed: true }],
+  })
+  const agents = [...longThread(), grand, agent("great-grandchild", grand.id, "completed", 15)]
+  const a = app({ ...demo(), agents })
+  a.st.selected = EARLIER + "root"
+  const f = frame(a, 200, 70)
+  const earlier = f.rows.find((r) => r.id === a.st.selected)!
+  assert.equal(earlier.earlier!.length, 6, "direct children and every hidden descendant, counted once")
+  assert.equal(earlier.earlier![0].id, grand.id, "newest descendant first")
+  assert.match(line(a, f, earlier.id), /6 earlier.*2 ✗/, "failed descendants contribute their status")
+  const y = f.hits.find((h) => h.id === earlier.id && h.area === "list")!.y
+  assert.match(a.canvas.toText().split("\n")[y + 1], /×/, "failed descendants contribute their lane activity")
+  assert.match(a.canvas.toText(), /failed-grandchild/)
+  assert.match(a.canvas.toText(), /great-grandchild/)
+  a.st.collapsed.add("d300")
+  press(a, "return")
+  const opened = frame(a, 200, 70)
+  assert.equal(a.st.selected, grand.id)
+  assert.equal(opened.rows.length, agents.length, "every previewed descendant is revealed")
+  assert.ok(opened.rows.some((r) => r.id === "great-grandchild"))
+  assert.ok(!opened.rows.some((r) => r.earlier))
+})
+
+test("n moves forward from an earlier row and wraps after the final tree", () => {
+  const agents = [
+    agent("root-a", null, "running", 0), agent("wait-a", "root-a", "waiting", 0),
+    agent("old-a", "root-a", "completed", 300),
+    agent("root-b", null, "running", 2), agent("wait-b", "root-b", "waiting", 0),
+    agent("old-b", "root-b", "completed", 300),
+  ]
+  const a = app({ ...demo(), agents })
+  a.st.selected = EARLIER + "root-a"
+  assert.ok(frame(a).rows.some((r) => r.id === a.st.selected))
+  press(a, "n")
+  assert.equal(a.st.selected, "wait-b", "the waiter below the selected tree")
+  a.st.selected = EARLIER + "root-b"
+  frame(a)
+  press(a, "n")
+  assert.equal(a.st.selected, "wait-a", "wrap to the first waiter")
+})
 
 test("the long thread shows what runs and its latest three, then an earlier row with a span and its failures", () => {
   const a = app(demo())
