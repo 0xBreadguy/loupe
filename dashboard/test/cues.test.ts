@@ -118,7 +118,7 @@ test("one-row lanes leave the provider dot and the age alone", () => {
     // An earlier row stands for many subagents: it has no single provider or age.
     for (const hit of frame.hits.filter((x) => x.area === "list" && !x.id.startsWith(EARLIER))) {
       const line = lines[hit.y]
-      const m = / ● (\d+[smhd]( \d+[smh])?)$/.exec(line)
+      const m = / ● (\d+[smhd](\d+[smh])?)$/.exec(line) // a compact run length: 36s, 6m32s, 4h50m
       assert.ok(m, `${w} cols: "${line}" ends with the provider dot and age`)
       const dot = line.length - m[0].length + 1
       const fam = c.fg[hit.y * c.w + dot]

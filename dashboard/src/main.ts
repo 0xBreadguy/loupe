@@ -3,8 +3,8 @@ import { constants, homedir } from "node:os"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
 // Only the interactive dashboard loads OpenTUI; --once and --status stay light.
-import { clean, duration, fit, shortModel } from "./format.ts"
-import { Source, SourceError, isRunning, needsYou, tree, type Agent } from "./source.ts"
+import { clean, clock, fit, shortModel, span, when } from "./format.ts"
+import { Source, SourceError, isLive, isRunning, needsYou, tree, type Agent } from "./source.ts"
 import { animationsOff } from "./calm.ts"
 import { line, watch } from "./status.ts"
 
@@ -32,6 +32,7 @@ const mark = (a: Agent) => (needsYou(a) ? "◆" : isRunning(a) ? "●" : DONE[a.
 
 function once(source: Source, demo = false) {
   const snap = source.snapshot()
+  const now = Date.now()
   const live = snap.agents.filter(isRunning).length
   const waiting = snap.agents.filter(needsYou).length
   console.log(`T3 AGENTS · ${demo ? "demo data" : "read-only"} · ${new Date().toTimeString().slice(0, 8)} · ${live} running · ${waiting} waiting · ${snap.agents.length} agents`)
@@ -42,7 +43,13 @@ function once(source: Source, demo = false) {
     const ctx = typeof used === "number" && typeof max === "number" && max > 0
       ? `${bar(used / max, 16)} ${String(Math.round((used / max) * 100)).padStart(3)}%` : "context n/a"
     const name = fit(clean(prefix + mark(a) + " " + a.title), 44).padEnd(44)
-    const age = a.ended ? duration((Date.now() - Date.parse(a.ended)) / 1000) + " ago" : duration(a.started ? (Date.now() - Date.parse(a.started)) / 1000 : null)
+    // How long the run took and when, as the dashboard's list and detail pane say it.
+    const start = a.started ? Date.parse(a.started) : NaN
+    const counting = isLive(a) || needsYou(a)
+    const end = counting || !a.ended ? null : Date.parse(a.ended)
+    const age = !Number.isFinite(start) ? "--"
+      : !counting && end === null ? `${"--".padStart(5)}  started ${clock(start, now)}`
+      : `${span(((end ?? now) - start) / 1000).padStart(5)}  ${when(start, end, now)}`
     console.log(`${name}  ${fit(shortModel(a.model), 16).padEnd(16)}  ${a.status.padEnd(11)}  ${ctx}  ${age}`)
   }
 }
