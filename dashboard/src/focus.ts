@@ -6,11 +6,12 @@
 // focus changes on its event socket: nothing is polled, nothing is written, and
 // only T3 Code windows' titles are kept.
 import { spawn } from "node:child_process"
-import { readFileSync } from "node:fs"
 import { createConnection, type Socket } from "node:net"
-import { dirname, join } from "node:path"
+import { join } from "node:path"
 import { clean } from "./format.ts"
+import { threadRef } from "./identity.ts"
 import type { Agent } from "./source.ts"
+export { environmentId } from "./identity.ts"
 
 const T3_CLASS = /t3code/i // com.t3tools.T3Code; never this dashboard (t3-agents)
 const RETRY_MS = 10_000
@@ -24,7 +25,7 @@ export function t3Thread(title: string | null, agents: Agent[]): string | null {
   let best: Agent | null = null
   let bestRank = 0
   for (const a of agents) {
-    if (a.id !== a.thread_id) continue // native subagents have no T3 page of their own
+    if (a.id !== a.thread_id && !threadRef(a.remote)) continue // native subagents have no T3 page of their own
     const name = norm(a.title)
     const rank = t === `${norm(a.project)} / ${name}` ? 2 : t === name ? 1 : 0
     if (rank > bestRank || (rank > 0 && rank === bestRank && (a.updated ?? "") > (best?.updated ?? ""))) {
@@ -179,19 +180,15 @@ export class T3Window {
 // t3code://threads/ENVIRONMENT/THREAD, shows that thread and raises its window;
 // the path is built the way T3 builds its own thread links.
 
-/** This installation's environment id, kept beside the database T3 writes. */
-export function environmentId(dbPath: string): string | null {
-  try {
-    const id = readFileSync(join(dirname(dbPath), "environment-id"), "utf8").trim()
-    return /^[\w-]{1,128}$/.test(id) ? id : null
-  } catch {
-    return null
-  }
-}
-
 export function threadLink(environment: string, threadId: string): string | null {
   if (!environment || !threadId || threadId.length > 1024) return null
   return `t3code://threads/${encodeURIComponent(environment)}/${encodeURIComponent(threadId)}`
+}
+
+/** Remote rows open their actual machine's thread; native agents open their local owning thread. */
+export function agentThreadLink(agent: Agent, localEnvironment: string | null): string | null {
+  const ref = threadRef(agent.remote)
+  return ref ? threadLink(ref.environmentId, ref.threadId) : localEnvironment ? threadLink(localEnvironment, agent.thread_id) : null
 }
 
 export type Spawner = typeof spawn

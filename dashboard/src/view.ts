@@ -1332,7 +1332,8 @@ function titleBlock(c: Canvas, X: number, Y: number, W: number, a: Agent, p: Pal
     c.text(X, y++, "  now  " + fitDoing(act, W - 7), act.color === p.dim ? p.text2 : act.color)
     if (why) c.text(X, y++, fit(why, W), p.dim)
   }
-  if (a.remote) c.text(X, y++, fit(`  remote on ${a.remote.label ?? "another environment"}; context and activity live there`, W), p.accent)
+  if (a.referenceOnly) c.text(X, y++, fit("  Parent reference · state unavailable in this local snapshot", W), p.accent)
+  else if (a.remote) c.text(X, y++, fit(`  remote on ${a.remote.label ?? "another environment"}; context and activity live there`, W), p.accent)
   return y - Y + 1
 }
 

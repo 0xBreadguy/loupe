@@ -239,8 +239,8 @@ check, and `--status` puts a short version in its `error` field for the bar.
   T3 windows' titles and never sends Hyprland a command that changes anything.
 - **Opening threads:** `Enter` runs `xdg-open` with a `t3code://threads/…` link,
   built the way T3 builds its own, using the environment id T3 keeps beside its
-  database. That's the only process it starts, and it only asks T3 to show a
-  thread.
+  database for local threads and the recorded destination for remote threads.
+  That's the only process it starts, and it only asks T3 to show a thread.
 - **Usage limits:** read from Omarchy's agent usage records in
   `~/.local/state/omarchy/agents/usage/`, if they exist.
 - **Network:** none. The bar widget runs one `t3-agents --status --watch`
@@ -254,7 +254,12 @@ check, and `--status` puts a short version in its `error` field for the bar.
   can match the id in your own window rules.
 
 Some limits worth knowing. Only agents in your local T3 database show up;
-delegates on linked machines show the status recorded here. Context figures are
+delegates on linked machines show the status recorded here. Cross-machine
+children nest under their actual parents using both the machine and thread
+IDs, including chains that return to this machine. When a parent's state is
+absent locally, its row says **UNKNOWN** and identifies it as a parent reference.
+Nesting does not change settlement values or infer a remote parent's settlement.
+Context figures are
 whatever the provider reports, sometimes only between turns. Stall thresholds
 are judgment calls: a model can think for a while, and builds take minutes, so
 read `◌` as "take a look", not "broken".
