@@ -1,7 +1,7 @@
 // Layout and drawing. Pure: (canvas, state, data, palette, time) -> pixels.
 // Encoding rules: shape + brightness carry state (works in monochrome themes);
 // the theme's hot color is reserved for "needs you", failures and limits.
-import { BIG_ROWS, BOLD, Braille, Canvas, bigWidth, clean, drawBig, drawFont, fit, hbar, level, textWidth } from "./canvas.ts"
+import { BIG_BASE, BIG_ROWS, BOLD, Braille, Canvas, bigWidth, clean, drawBig, fit, hbar, level, textWidth, type Face } from "./canvas.ts"
 import { duration, shortModel, tokens, wrap } from "./format.ts"
 import { t3Thread } from "./focus.ts"
 import { LIVE, SLOW_TOOL_MS, SourceError, isLive, isRunning, ms, needsYou, request, waitingSince, pace, tree, category, type Agent, type Item, type Pace, type Snapshot,
@@ -74,6 +74,7 @@ export interface Frame {
   smooth: boolean // a tween, name shimmer or boot wipe in flight: a higher frame rate, briefly
   linked: Set<string> // the thread open in T3 Code and everything under it
   paces: Map<string, Pace> // running agents: busy in a tool, working, or quiet
+  face: Face // every big number on screen is drawn in this one face
 }
 
 // ── Formatting ──────────────────────────────────────────────────────────────
@@ -246,7 +247,7 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
   st.lastFrame = now
   const frame: Frame = { rows: [], hits: [], list: { x: 0, y: 0, w: 0, h: 0 }, detail: { x: 0, y: 0, w: 0, h: 0 },
     detailMax: 0, helpMax: 0, beat: false, smooth: false, linked: new Set<string>(),
-    paces: new Map<string, Pace>() }
+    paces: new Map<string, Pace>(), face: faceFor(W, H) }
   if (W < 48 || H < 14) {
     c.text(1, 0, "T3 Agents", p.bright, { attr: BOLD })
     c.text(1, 2, "Enlarge the terminal to at least 48 × 14.", p.dim)
@@ -291,7 +292,7 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
 
   header(c, st, snap, p, now, W)
   let y = 1
-  y += kpis(c, y, W, H >= KPI_BIG_MIN_H, st, agents, running, waiting, unseen, usage, p, now, frame, blind)
+  y += kpis(c, y, W, H >= KPI_BIG_MIN_H, frame.face, st, agents, running, waiting, unseen, usage, p, now, frame, blind)
   const limited = usage.filter((u) => u.limits.length)
   // Short windows (beside T3) keep LIMITS to one line, so the agents get the rows.
   if (limited.length) y += H < LIMITS_FULL_MIN_H ? limitsLine(c, y, W, limited, p) : limits(c, y, W, limited, p, now)
@@ -542,8 +543,33 @@ function header(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: numbe
 
 // Below this height the tiles show their values as bold text to leave room for agents.
 const KPI_BIG_MIN_H = 30
+// Shadowed digits cost six rows, three in the tiles and three in the details:
+// shorter windows give those rows to the agents.
+export const SHADOW_MIN_H = 44
+const TILES = 6 // the top row's tiles, in kpis below
 
-function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agents: Agent[], running: Agent[], waiting: Agent[],
+/** How many of `n` tiles fit at 18 columns or more, and how wide each is (the last takes the rest). */
+function tileGrid(W: number, n = TILES): { count: number; tw: number } {
+  const count = Math.max(2, Math.min(n, Math.floor((W + 1) / 19)))
+  return { count, tw: Math.floor((W - (count - 1)) / count) }
+}
+
+/**
+ * The one face for every big number on screen, from the window's size alone, so
+ * it never flips as values change: shadowed when the window has the rows and
+ * every tile has room for a full context window ("100%"), plain half blocks otherwise.
+ */
+export function faceFor(W: number, H: number): Face {
+  return H >= SHADOW_MIN_H && tileGrid(W).tw - 3 >= bigWidth("100%", "shadow") ? "shadow" : "plain"
+}
+
+/** A decimal as a whole number, for big digits that cannot fit it: 27.6M becomes 28M. Under 1 stays as is. */
+function whole(v: string): string {
+  const m = /^(\d+\.\d+)(\D*)$/.exec(v)
+  return m && Number(m[1]) >= 1 ? String(Math.round(Number(m[1]))) + m[2] : v
+}
+
+function kpis(c: Canvas, y: number, W: number, big: boolean, face: Face, st: ViewState, agents: Agent[], running: Agent[], waiting: Agent[],
   unseen: Agent[], usage: Provider[], p: Palette, now: number, frame: Frame, blind: boolean): number {
   const paces = frame.paces
   const windowMs = WINDOWS[st.windowIndex] * 60_000
@@ -634,11 +660,11 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agen
       : { label: "FAILED", value: String(fails.length), color: lastFail && now - lastFail < 10 * 60_000 ? p.hot : p.warn,
         sub: note(`last ${duration((now - lastFail!) / 1000)} ago`) },
   ]
-  const count = Math.max(2, Math.min(tiles.length, Math.floor((W + 1) / 19)))
-  const tw = Math.floor((W - (count - 1)) / count)
-  const valueRows = big ? BIG_ROWS : 1
-  // Big digits leave half a row under the label; a blank row under them keeps
-  // the spinners, sparkline and notes from touching the numbers.
+  const { count, tw } = tileGrid(W, tiles.length)
+  const valueRows = big ? BIG_ROWS[face] : 1
+  const base = big ? 1 + BIG_BASE[face] : 1 // the row small values sit on, level with big digits' units
+  // A blank row under big digits keeps the spinners, sparkline and notes from
+  // touching them. (Plain digits also leave half a row under the label.)
   const gap = big ? 1 : 0
   const h = valueRows + gap + 2
   tiles.slice(0, count).forEach((t, n) => {
@@ -650,10 +676,11 @@ function kpis(c: Canvas, y: number, W: number, big: boolean, st: ViewState, agen
     if (t.alert) for (let yy = y; yy < y + h; yy++) c.set(x, yy, "▌", steady || blink(now) ? p.hot : mix(p.hot, p.panel, 0.6), p.panel)
     if (t.label === "NEEDS YOU") for (let yy = y; yy < y + h; yy++) frame.hits.push({ y: yy, x0: x, x1: x + w, id: NEEDS_YOU_TILE, area: "tile" })
     c.text(x + 2, y, t.label, t.alert ? p.hot : p.dim, { attr: BOLD, max: w - 3 })
-    // Quiet values and values too wide for big digits are text on the big digits' baseline.
-    if (t.quiet) c.text(x + 2, y + valueRows, t.value, p.dim, { max: w - 3 })
-    else if (big && bigWidth(t.value) <= w - 3) drawBig(c, x + 2, y + 1, t.value, t.color)
-    else c.text(x + 2, y + valueRows, t.value, t.color, { attr: BOLD, max: w - 3 })
+    // Quiet values, and values too wide for big digits even as whole numbers, are text on the baseline.
+    const shown = big && !t.quiet ? [t.value, whole(t.value)].find((v) => bigWidth(v, face) <= w - 3) : undefined
+    if (t.quiet) c.text(x + 2, y + base, t.value, p.dim, { max: w - 3 })
+    else if (shown) drawBig(c, x + 2, y + 1, shown, t.color, face, mix(t.color, p.panel, 0.6))
+    else c.text(x + 2, y + base, t.value, t.color, { attr: BOLD, max: w - 3 })
     t.sub(x + 2, y + valueRows + gap + 1, w - 3)
   })
   return h
@@ -1073,11 +1100,8 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
         c.text(X, y, "Context usage not reported for this agent.", p.dim)
         return y + 2 - Y
       }
-      const tall = r.h >= 40 && W >= 56
       const color = rr >= 0.9 ? p.hot : rr >= 0.75 ? p.warn : p.bright
-      const pct = Math.round(rr * 100) + "%"
-      const fw = tall ? drawFont(c, X, y, pct, "block", color, mix(color, p.bg, 0.6)) : drawBig(c, X, y, pct, color)
-      const fh = tall ? 6 : BIG_ROWS
+      const fw = drawBig(c, X, y, Math.round(rr * 100) + "%", color, frame.face, mix(color, p.bg, 0.6))
       const tx = X + fw + 3
       c.text(tx, y, fit(`${tokens(a.context.usedTokens)} of ${tokens(a.context.maxTokens)} tokens`, X + W - tx), p.fg, { attr: BOLD })
       const prev = a.history.at(-2)
@@ -1086,8 +1110,8 @@ function blocks(c: Canvas, r: Rect, a: Agent, st: ViewState, p: Palette, now: nu
         const delta = last.used - prev.used
         c.text(tx, y + 1, fit(`${delta >= 0 ? "+" : "−"}${tokens(Math.abs(delta))} last turn`, X + W - tx), p.text2)
       }
-      if (fh > 2) c.text(tx, y + 2, fit(`${tokens((a.context.maxTokens ?? 0) - (a.context.usedTokens ?? 0))} free`, X + W - tx), p.dim)
-      y += fh
+      c.text(tx, y + 2, fit(`${tokens((a.context.maxTokens ?? 0) - (a.context.usedTokens ?? 0))} free`, X + W - tx), p.dim)
+      y += BIG_ROWS[frame.face]
       contextBar(c, X, y++, W, st.tween.get(a.id) ?? rr, p)
       for (const [t, label, tone] of [[0.5, "50", p.dim], [0.75, "75", p.warn], [0.9, "90", p.hot]] as const) {
         c.text(X + Math.round(t * W) - 1, y, "╵" + label, tone)
