@@ -52,7 +52,10 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
 - **Big numbers up top:** active agents, agents waiting on you, tool calls per
   minute, peak context, tokens today, failed calls. Only numbers worth a look
   are big: zeros stay small and dim, and a missing value is a small `—` with the
-  reason. If T3 can't be read, the tiles say so instead of showing zeros.
+  reason. If T3 can't be read, the tiles say so instead of showing zeros. In a
+  window at least 44 rows tall and about 190 columns wide, every big number is
+  drawn in a shadowed block font; smaller windows get compact half-block digits.
+  One screen never mixes the two.
 - **Needs you, one key away:** the tile shows what's being asked and how long
   it has waited. `n` (or a click on the tile) jumps to the next agent waiting
   on you, and `Enter` opens it in T3. Its `◆` blinks until you've seen it.
