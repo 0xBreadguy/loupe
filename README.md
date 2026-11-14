@@ -52,7 +52,10 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
 - **Big numbers up top:** active agents, agents waiting on you, tool calls per
   minute, peak context, tokens today, failed calls. Only numbers worth a look
   are big: zeros stay small and dim, and a missing value is a small `—` with the
-  reason. If T3 can't be read, the tiles say so instead of showing zeros.
+  reason. If T3 can't be read, the tiles say so instead of showing zeros. In a
+  window at least 44 rows tall and about 190 columns wide, every big number is
+  drawn in a shadowed block font; smaller windows get compact half-block digits.
+  One screen never mixes the two.
 - **Needs you, one key away:** the tile shows what's being asked and how long
   it has waited. `n` (or a click on the tile) jumps to the next agent waiting
   on you, and `Enter` opens it in T3. Its `◆` blinks until you've seen it.
@@ -64,6 +67,12 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
   past 75% and goes hot past 90%, what it's doing right now, model, age, and an
   activity lane on a shared time axis, where a failed call shows as `×`. A new
   tool call sweeps once across the agent's name.
+- **Long threads stay short:** under each agent the list keeps the subagents
+  that are running, any waiting on you, and the three latest finishes from the
+  last 3 hours. The rest fold into one `┄ 27 earlier ▸ · 25m–7h ago · 2 ✗`
+  row, and its lane still shows their activity. Select it to see them listed in
+  the details; `→`, `Enter` or a click puts them all back in the list. Top-level
+  threads never fold.
 - **Stall detection:** a running agent with no tool call in flight and nothing
   new for 2 minutes stops spinning and says `◌ quiet 4m · last ❯ npm test`;
   after 8 it says `◌ stalled` and turns warm. A tool call shows its running
@@ -77,7 +86,15 @@ node --experimental-ffi --disable-warning=ExperimentalWarning src/main.ts --demo
   that thread.
 - **Details for the selected agent:** context as a big number, its growth per
   turn, the last call's token mix, a prompt-cache meter that drains in real
-  time, the plan's progress, tool mix, and recent activity.
+  time, the plan's progress, tool mix, and recent activity. Native subagents
+  also show activity when T3 records no application run for them.
+- **Failures you can inspect:** recent failed calls stay at the top of the
+  details, with the command or tool, age, and exit code when reported. They
+  cover the selected lane window across runs, so a later run or successful
+  call won't bury them. Scroll the details with `J` / `K` or the wheel;
+  `Enter` opens the thread in T3 for full output. A failed call does not by
+  itself mean the agent's task failed; even a search with no matches can
+  return a nonzero exit code.
 
 **The bar widget**
 
@@ -148,7 +165,7 @@ away, it falls back to the one on `PATH`; rerun the installer after switching.
 | `↑` `↓` / `j` `k`, click, wheel | select an agent |
 | `g` `G` / `Home` `End` | first / last agent |
 | `Enter` / `o` | open the selected agent's thread in T3 Code |
-| `Space` / `←` `→` | fold or unfold subagents (`←` on a leaf jumps to its parent) |
+| `Space` / `←` `→` | fold or unfold subagents; `→` again lists the earlier ones too, `←` steps back (on a leaf it jumps to the parent) |
 | `n` | jump to the next agent waiting on you (or click the NEEDS YOU tile) |
 | `a` | only agents that are running or waiting, plus their parents |
 | `f` | follow the thread open in T3 (on by default) |
@@ -173,6 +190,7 @@ Home, End and Page Up/Down act like the main keys.
 | `△` | a tool call running over 5 minutes |
 | `—` | no value, with the reason beside it |
 | `▼` `▲` N more | more out of view, below or above |
+| `┄` N earlier | subagents folded away: finished over 3 hours ago, or before the latest 3. `→`, `Enter` or a click lists them |
 | `✓` `✗` `⊘` | done, failed, interrupted |
 | `●` | provider. On grayscale themes: plum Claude, teal GPT / Codex, blue Grok, gray other. Colorful themes use their own colors |
 | `▎` and a band | the thread open in T3 and its subagents |
@@ -270,7 +288,8 @@ rm -r "${XDG_DATA_HOME:-$HOME/.local/share}/t3-agents"
 cd dashboard
 npm ci
 npm test        # which agent did what, read-only source, CLI errors, stall detection, T3 link,
-                # needs-you, contrast, palette, digits, motion, glyph coverage, layout, render
+                # earlier subagents, needs-you, contrast, palette, digits, motion, glyph coverage,
+                # layout, render
 npm run check   # TypeScript
 cd .. && node --test test/   # bar widget
 ```

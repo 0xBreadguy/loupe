@@ -9,7 +9,7 @@ import type { KeyEvent } from "@opentui/core"
 import { App } from "../src/app.ts"
 import { Canvas } from "../src/canvas.ts"
 import { buildDemo, demoUsage } from "../src/demo.ts"
-import { Source, needsYou, type Snapshot } from "../src/source.ts"
+import { EARLIER, Source, needsYou, type Snapshot } from "../src/source.ts"
 import { derivePalette } from "../src/theme.ts"
 import { LIMITS_FULL_MIN_H, draw, initialState, type ViewState } from "../src/view.ts"
 import { THEMES } from "./themes.ts"
@@ -84,7 +84,7 @@ test("the list's overflow marker has its own row and says what is hidden", () =>
   assert.ok(!frame.hits.some((x) => x.y === y), "and no agent")
   const hidden = frame.rows.length - new Set(frame.hits.filter((x) => x.area === "list").map((x) => x.id)).size
   assert.match(lines[y], new RegExp(`▼ ${hidden} more`))
-  assert.match(lines[y], /1 ✗/, "the failed agent below")
+  assert.match(lines[y], /2 ✗/, "the failed thread below, and the failed subagent in the earlier row below")
   assert.equal(c.fg[y * c.w + 2], palette.text2, "not hot while nobody waiting is hidden")
 })
 
@@ -105,7 +105,7 @@ test("a folded parent with a subagent waiting on you shows a ◆", () => {
   const callers = byTitle(snap, "Check rate-limit headers")
   callers.requests = ["user_input"]
   const parent = byTitle(snap, "Map callers of the legacy client")
-  const { lines, frame, c } = render(snap, 150, 50, (s) => s.collapsed.add(parent.id))
+  const { lines, frame, c } = render(snap, 150, 60, (s) => s.collapsed.add(parent.id)) // two rows each: titles whole
   const y = frame.hits.find((x) => x.id === parent.id && x.area === "list")!.y
   assert.match(lines[y], /Map callers of the legacy client ▸ ◆/)
   assert.equal(c.fg[y * c.w + lines[y].indexOf("◆")], palette.hot)
@@ -115,7 +115,8 @@ test("one-row lanes leave the provider dot and the age alone", () => {
   const snap = demo()
   for (const w of [80, 100, 120]) {
     const { frame, lines, c } = render(snap, w, 40)
-    for (const hit of frame.hits.filter((x) => x.area === "list")) {
+    // An earlier row stands for many subagents: it has no single provider or age.
+    for (const hit of frame.hits.filter((x) => x.area === "list" && !x.id.startsWith(EARLIER))) {
       const line = lines[hit.y]
       const m = / ● (\d+[smhd]( \d+[smh])?)$/.exec(line)
       assert.ok(m, `${w} cols: "${line}" ends with the provider dot and age`)

@@ -231,81 +231,27 @@ export class Braille {
   }
 }
 
-// ── ASCII-art fonts (OpenTUI's bundled cfonts data) ─────────────────────────
+// ── Big numbers ─────────────────────────────────────────────────────────────
+// Two faces of the same digits, and one face per screen: "plain", a 4×5 pixel
+// font in half blocks three rows tall, and "shadow", OpenTUI's bundled cfonts
+// "block" digits six rows tall, each block casting a box-drawing shadow. Digits
+// are tabular, one width within a face, so a value keeps its width as it counts
+// and nothing beside it moves. Units (% K M B) are text on the face's baseline.
 
-export type FontName = "block"
-type Segment = { text: string; tone: number }
-const parsed = new Map<string, Segment[][]>()
+export type Face = "plain" | "shadow"
+export const BIG_ROWS: Record<Face, number> = { plain: 3, shadow: 6 }
+/** The row units sit on: the plain digits' last row, the shadowed digits' last solid row. */
+export const BIG_BASE: Record<Face, number> = { plain: 2, shadow: 4 }
 
-function glyph(font: FontName, ch: string): Segment[][] | null {
-  const key = font + ch
-  if (parsed.has(key)) return parsed.get(key)!
-  const def = (fonts as unknown as Record<string, { chars: Record<string, string[]> }>)[font]
-  const lines = def?.chars[ch]
-  if (!lines) return null
-  const rows = lines.map((line) => {
-    const out: Segment[] = []
-    const re = /<c(\d+)>(.*?)<\/c\d+>/g
-    let last = 0
-    let m: RegExpExecArray | null
-    while ((m = re.exec(line))) {
-      if (m.index > last) out.push({ text: line.slice(last, m.index), tone: 0 })
-      out.push({ text: m[2], tone: Math.max(0, Number(m[1]) - 1) })
-      last = m.index + m[0].length
-    }
-    if (last < line.length) out.push({ text: line.slice(last), tone: 0 })
-    return out
-  })
-  parsed.set(key, rows)
-  return rows
-}
-
-function glyphWidth(rows: Segment[][]): number {
-  return Math.max(...rows.map((r) => r.reduce((n, s) => n + [...s.text].length, 0)))
-}
-
-export function fontWidth(text: string, font: FontName): number {
-  let w = 0
-  let n = 0
-  for (const ch of text.toUpperCase()) {
-    const g = glyph(font, ch)
-    if (!g) continue
-    w += glyphWidth(g)
-    n++
-  }
-  return w + Math.max(0, n - 1)
-}
-
-/** Draw big text; tone 0 uses `color`, tone 1 (font shading) uses `shade`. */
-export function drawFont(c: Canvas, x: number, y: number, text: string, font: FontName, color: Color, shade?: Color): number {
-  let cx = x
-  for (const ch of text.toUpperCase()) {
-    const g = glyph(font, ch)
-    if (!g) continue
-    const gw = glyphWidth(g)
-    g.forEach((row, ry) => {
-      let col = 0
-      for (const seg of row) {
-        for (const chr of seg.text) {
-          if (chr !== " ") c.set(cx + col, y + ry, chr, seg.tone ? (shade ?? mix(color, 0, 0.5)) : color)
-          col++
-        }
-      }
-    })
-    cx += gw + 1
-  }
-  return cx - x - 1
-}
-
-// ── Big numbers: a 4×5 pixel font drawn with half blocks over three rows ─────
-// Five pixel rows are the fewest that keep every digit distinct: at four (the
-// bundled "tiny" font) 0, 6, 8 and 9 collapse into blobs. Rounded corners make
-// 0 an oval and 8 two loops, so neither reads as a filled block. Pixel rows are
-// listed top to bottom, "#" lit; each glyph sits on the last row, leaving the
-// top half of the first row empty as a gap below a label.
-const BIG_GLYPHS: Record<string, string> = {
+// Plain: five pixel rows are the fewest that keep every digit distinct: at four
+// (the bundled "tiny" font) 0, 6, 8 and 9 collapse into blobs. Rounded corners
+// make 0 an oval and 8 two loops, so neither reads as a filled block. Pixel rows
+// are listed top to bottom, "#" lit; each glyph sits on the last row, leaving the
+// top half of the first row empty as a gap below a label. The 1 keeps a blank
+// column so it is as wide as the other digits.
+const PLAIN_GLYPHS: Record<string, string> = {
   "0": ".##./#..#/#..#/#..#/.##.",
-  "1": ".#./##./.#./.#./###",
+  "1": ".#../##../.#../.#../###.",
   "2": "###./...#/.##./#.../####",
   "3": "###./...#/.##./...#/###.",
   "4": "#..#/#..#/####/...#/...#",
@@ -317,43 +263,66 @@ const BIG_GLYPHS: Record<string, string> = {
   ".": "././././#",
   "-": ".../.../###/.../...",
 }
-export const BIG_ROWS = 3
-const bigCells = new Map<string, string[]>()
 
-/** A glyph as three rows of half-block characters ("▀", "▄", "█" or space). */
-export function bigGlyph(ch: string): string[] | null {
-  const cached = bigCells.get(ch)
-  if (cached) return cached
-  const def = BIG_GLYPHS[ch]
+// Shadow: cfonts draws 0 and 6 nine columns wide and 1 only four. These three
+// are redrawn eight wide like the rest, in the same strokes: 0 an oval and 1 on
+// a base, the shapes the plain face has.
+const SHADOW_OWN: Record<string, string[]> = {
+  "0": [" █████╗ ", "██╔══██╗", "██║  ██║", "██║  ██║", "╚█████╔╝", " ╚════╝ "],
+  "1": ["  ██╗   ", " ███║   ", " ╚██║   ", "  ██║   ", "██████╗ ", "╚═════╝ "],
+  "6": [" █████╗ ", "██╔═══╝ ", "██████╗ ", "██╔══██╗", "╚█████╔╝", " ╚════╝ "],
+}
+const SHADOW_STROKE = /[\u2500-\u257f]/ // box drawing: the shadow, drawn in the shade color
+
+function halfBlocks(ch: string): string[] | null {
+  const def = PLAIN_GLYPHS[ch]
   if (!def) return null
   const rows = def.split("/")
   const lit = (row: number, col: number) => rows[row - 1]?.[col] === "#" // pixel row -1 is the top gap
-  const out = [0, 1, 2].map((r) => Array.from(rows[0], (_, col) => {
+  return [0, 1, 2].map((r) => Array.from(rows[0], (_, col) => {
     const top = lit(r * 2, col)
     const bottom = lit(r * 2 + 1, col)
     return top && bottom ? "█" : top ? "▀" : bottom ? "▄" : " "
   }).join(""))
-  bigCells.set(ch, out)
-  return out
+}
+
+function shadowed(ch: string): string[] | null {
+  if (!PLAIN_GLYPHS[ch]) return null // digits and their punctuation only; units stay text
+  const block = (fonts as unknown as Record<string, { chars: Record<string, string[]> }>).block
+  const rows = SHADOW_OWN[ch] ?? block?.chars[ch]?.map((line) => line.replace(/<\/?c\d+>/g, ""))
+  if (!rows) return null
+  const w = Math.max(...rows.map((r) => r.length))
+  return rows.map((r) => r.padEnd(w))
+}
+
+const glyphs = new Map<string, string[] | null>()
+
+/** A big glyph's rows: half blocks ("▀", "▄", "█") for plain; blocks and box-drawing shadow for shadow. */
+export function bigGlyph(ch: string, face: Face): string[] | null {
+  const key = face + ch
+  if (!glyphs.has(key)) glyphs.set(key, face === "plain" ? halfBlocks(ch) : shadowed(ch))
+  return glyphs.get(key)!
 }
 
 /** Width of a big number; characters without a glyph (units: % K M B) are one text cell. */
-export function bigWidth(text: string): number {
+export function bigWidth(text: string, face: Face): number {
   let w = 0
-  for (const ch of text) w += (bigGlyph(ch)?.[0].length ?? cellWidth(ch.codePointAt(0)!)) + 1
+  for (const ch of text) w += (bigGlyph(ch, face)?.[0].length ?? cellWidth(ch.codePointAt(0)!)) + 1
   return Math.max(0, w - 1)
 }
 
-/** Draw a big number three rows tall; units are drawn as text on the baseline row. */
-export function drawBig(c: Canvas, x: number, y: number, text: string, color: Color): number {
+/** Draw a big number; units are text on the face's baseline, and the shadow takes `shade`. */
+export function drawBig(c: Canvas, x: number, y: number, text: string, color: Color, face: Face, shade = mix(color, 0, 0.5)): number {
   let cx = x
   for (const ch of text) {
-    const g = bigGlyph(ch)
+    const g = bigGlyph(ch, face)
     if (!g) {
-      cx += c.text(cx, y + BIG_ROWS - 1, ch, color, { attr: BOLD }) + 1
+      cx += c.text(cx, y + BIG_BASE[face], ch, color, { attr: BOLD }) + 1
       continue
     }
-    g.forEach((row, ry) => [...row].forEach((chr, col) => chr !== " " && c.set(cx + col, y + ry, chr, color)))
+    g.forEach((row, ry) => [...row].forEach((chr, col) => {
+      if (chr !== " ") c.set(cx + col, y + ry, chr, SHADOW_STROKE.test(chr) ? shade : color)
+    }))
     cx += g[0].length + 1
   }
   return Math.max(0, cx - x - 1)

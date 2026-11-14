@@ -67,6 +67,7 @@ export interface Item {
   command: string
   file: string
   tool: string | null
+  exit_code?: number | null
 }
 
 export interface Event { t: number; cat: string; failed: boolean }
@@ -90,7 +91,8 @@ export interface Agent {
   started: string | null
   ended: string | null
   remote: Json | null
-  items: Item[] // tool activity of the latest run, newest first
+  items: Item[] // latest run, or thread activity when T3 records no runs; newest first
+  recentFailures: Item[] // failed calls across runs in the maximum lane window, newest first
   requests: string[]
   asked: string | null // when its oldest open request was made, where T3 records it
   thread_id: string
@@ -251,21 +253,25 @@ export class Source {
     const runIds = [...new Set([...latest.values()].map((r) => r.id).concat(subs.map((s) => s.runId)).filter(Boolean))]
     const runMarks = runIds.map(() => "?").join(",") || "NULL"
     // Labels are tool names, titles, file names and command excerpts only.
-    const items = all(`SELECT thread_id,run_id,node_id,provider_thread_id,type,status,updated_at,
+    const itemFields = `thread_id,run_id,node_id,provider_thread_id,type,status,updated_at,
         json_extract(payload_json,'$.startedAt') AS started_at,
         json_extract(payload_json,'$.toolName') AS tool,
+        json_extract(payload_json,'$.exitCode') AS exit_code,
         substr(COALESCE(json_extract(payload_json,'$.title'), json_extract(payload_json,'$.toolName'),
           json_extract(payload_json,'$.label'),''),1,240) AS label,
         CASE WHEN type='command_execution' THEN substr(json_extract(payload_json,'$.input'),1,240) ELSE '' END AS command,
-        CASE WHEN type='file_change' THEN substr(json_extract(payload_json,'$.fileName'),1,240) ELSE '' END AS file
-      FROM ${PREFIX}turn_items WHERE run_id IN (${runMarks})
+        CASE WHEN type='file_change' THEN substr(json_extract(payload_json,'$.fileName'),1,240) ELSE '' END AS file`
+    // Native provider subagent threads can have items but no application runs.
+    // SQL IN never matches their NULL run_id; load their thread activity explicitly.
+    const runless = ids.filter((id) => !latest.has(id))
+    const runlessMarks = runless.map(() => "?").join(",") || "NULL"
+    const items = all(`SELECT ${itemFields}
+      FROM ${PREFIX}turn_items WHERE (run_id IN (${runMarks}) OR (run_id IS NULL AND thread_id IN (${runlessMarks})))
         AND type IN (${[...TOOLISH, "reasoning", "assistant_message"].map((t) => `'${t}'`).join(",")})
-      ORDER BY updated_at DESC, ordinal DESC LIMIT 3000`, ...runIds) as Item[]
+      ORDER BY updated_at DESC, ordinal DESC LIMIT 3000`, ...runIds, ...runless) as Item[]
 
     const since = new Date(now - MAX_WINDOW_MS).toISOString()
-    const events = all(`SELECT thread_id,run_id,node_id,provider_thread_id,type,status,updated_at,
-        json_extract(payload_json,'$.startedAt') AS started_at,
-        json_extract(payload_json,'$.toolName') AS tool
+    const events = all(`SELECT ${itemFields}
       FROM ${PREFIX}turn_items ${where} AND updated_at >= ? AND type NOT IN ('checkpoint','todo_list')
       ORDER BY updated_at DESC LIMIT 8000`, ...ids, since)
     const history = all(`SELECT provider_thread_id,thread_id,started_at,completed_at,
@@ -321,7 +327,7 @@ export function buildAgents(threads: Json[], latest: Map<string, Json>, subs: Js
     if (ctx.usedTokens == null) ctx = p.contextUsage || {}
     return [ctx, turn]
   }
-  const blank = { items: [], requests: [], asked: null, history: [], events: [], spans: [], plan: null, mix: {}, failures: 0, now: null }
+  const blank = { items: [], recentFailures: [], requests: [], asked: null, history: [], events: [], spans: [], plan: null, mix: {}, failures: 0, now: null }
   for (const thread of threads) {
     const tid = thread.id
     const run = latest.get(tid) ?? {}
@@ -363,7 +369,7 @@ export function buildAgents(threads: Json[], latest: Map<string, Json>, subs: Js
   const { target } = attributor(agents, subs, nodes)
   for (const item of items) {
     const a = agents.get(target(item))
-    if (a && item.run_id === a.run.id) a.items.push(item)
+    if (a && item.run_id === (a.run.id ?? null)) a.items.push(item)
   }
   for (const req of requests) {
     const a = agents.get(target(req as never))
@@ -403,8 +409,13 @@ function decorate(list: Agent[], x: Extras) {
   const { target } = attributor(agents, x.subs, x.nodes)
   for (const row of x.events) {
     const a = agents.get(target(row as never))
-    const t = ms(row.started_at) ?? ms(row.updated_at)
-    if (a && t !== null) a.events.push({ t, cat: category(row.type, row.tool), failed: row.status === "failed" })
+    // A failure belongs to when it was reported, even if the call ran for hours.
+    const failed = row.status === "failed"
+    const t = (failed ? ms(row.updated_at) : ms(row.started_at)) ?? ms(row.updated_at)
+    if (a && t !== null) {
+      a.events.push({ t, cat: category(row.type, row.tool), failed })
+      if (failed) a.recentFailures.push(row as Item)
+    }
   }
   const nativeByProvider = new Map(list.filter((a) => a.kind === "subagent" && a.provider_id && a.thread_id !== a.id)
     .map((a) => [a.provider_id!, a]))
@@ -446,12 +457,47 @@ function decorate(list: Agent[], x: Extras) {
 
 // ── Tree ordering ───────────────────────────────────────────────────────────
 
+/**
+ * How much of a parent's subagents the list shows: none, the recent ones (the
+ * default; older finished ones fold into one "earlier" row), or every one.
+ */
+export type Stage = "folded" | "recent" | "all"
+
 export interface TreeRow {
-  agent: Agent
+  id: string // the agent's id; for an earlier row, EARLIER and the parent's id
+  agent: Agent // for an earlier row, the parent whose subagents it holds
   depth: number
   hasChildren: boolean
+  stage: Stage // what its subagents show as; "all" for an agent without any
+  kept: number // subagents the recent stage lists
+  tucked: number // subagents the recent stage folds into its earlier row
   guides: boolean[] // per ancestor level: whether a vertical guide continues
   last: boolean
+  earlier?: Agent[] // only on an earlier row: the subagents folded into it, newest first
+}
+
+// ── Earlier subagents ───────────────────────────────────────────────────────
+// Judgment values. A long-running thread can collect dozens of finished
+// subagents; listed one by one, three such threads fill the list. Under each
+// parent the list keeps its running subagents, anyone waiting on you, and its
+// latest finishes; the rest fold into one "earlier" row. Top-level threads
+// never fold this way.
+export const RECENT_MS = 3 * 3600_000 // a finished subagent counts as recent for this long
+export const RECENT_MAX = 3 // and at most this many of them per parent
+export const EARLIER = "earlier:" // an earlier row's id: this, then its parent's id
+
+/**
+ * When an agent last did anything: when it finished, else the later of its last
+ * update and its start (0 when unknown). A finished thread's update time also
+ * moves when only its record changes, so its end is the truer time.
+ */
+export const lastSeen = (a: Agent): number => ms(a.ended) ?? Math.max(ms(a.updated) ?? 0, ms(a.started) ?? 0)
+
+/** Fold older finished subagents into earlier rows, as of `now`. */
+export interface Recent {
+  now: number
+  expanded: Set<string> // parents that list every subagent
+  keep?: Set<string> // agents listed wherever they are: the selection, the thread open in T3
 }
 
 export const needsYou = (a: Agent) => a.requests.length > 0 || a.status === "waiting"
@@ -506,7 +552,13 @@ export function pace(a: Agent, now: number, childrenLive = false): Pace | null {
   return { tool: null, toolMs: 0, delegating: childrenLive, quietMs, quiet: quietMs >= QUIET_MS, stalled: quietMs >= STALL_MS }
 }
 
-export function tree(agents: Agent[], collapsed: Set<string>, activeOnly = false): TreeRow[] {
+/**
+ * The agents as a tree, in list order. `collapsed` parents list no subagents.
+ * With `recent`, every other parent lists only its recent subagents and one
+ * earlier row for the rest, unless it is in `recent.expanded`; without it,
+ * every subagent is listed.
+ */
+export function tree(agents: Agent[], collapsed: Set<string>, activeOnly = false, recent?: Recent): TreeRow[] {
   const byId = new Map(agents.map((a) => [a.id, a]))
   let allowed = new Set(byId.keys())
   if (activeOnly) {
@@ -536,15 +588,53 @@ export function tree(agents: Agent[], collapsed: Set<string>, activeOnly = false
     for (let i = 0; i < 3; i++) if (a[i] !== b[i]) return (a[i] as number) - (b[i] as number)
     return a[3] < b[3] ? -1 : a[3] > b[3] ? 1 : 0
   })
+  // Never folded into an earlier row: live, waiting on you, kept, or above one that is.
+  const busy = new Map<string, boolean>()
+  const stays = (a: Agent, path = new Set<string>()): boolean => {
+    const known = busy.get(a.id)
+    if (known !== undefined) return known
+    if (path.has(a.id)) return false
+    path.add(a.id)
+    const v = isLive(a) || needsYou(a) || !!recent?.keep?.has(a.id) || (children.get(a.id) ?? []).some((k) => stays(k, path))
+    busy.set(a.id, v)
+    return v
+  }
+  // The recent stage: what stays, plus the latest finishes inside the window; the rest newest first.
+  const split = (kids: Agent[]): [Agent[], Agent[]] => {
+    if (!recent) return [kids, []]
+    const done = kids.filter((k) => !stays(k)).sort((p, q) => lastSeen(q) - lastSeen(p))
+    const latest = new Set(done.slice(0, RECENT_MAX).filter((k) => lastSeen(k) >= recent.now - RECENT_MS))
+    return [kids.filter((k) => latest.has(k) || stays(k)), done.filter((k) => !latest.has(k))]
+  }
   const rows: TreeRow[] = []
   const seen = new Set<string>()
   const visit = (a: Agent, depth: number, guides: boolean[], last: boolean) => {
     if (seen.has(a.id)) return
     seen.add(a.id)
     const kids = order(children.get(a.id) ?? [])
-    rows.push({ agent: a, depth, hasChildren: kids.length > 0, guides, last })
-    if (collapsed.has(a.id)) return
-    kids.forEach((k, i) => visit(k, depth + 1, depth > 0 ? [...guides, !last] : guides, i === kids.length - 1))
+    const [kept, tucked] = split(kids)
+    // Nothing recent to list reads as folded: one row, not a lonely earlier row.
+    const stage: Stage = !kids.length ? "all" : collapsed.has(a.id) ? "folded"
+      : !tucked.length || recent?.expanded.has(a.id) ? "all" : kept.length ? "recent" : "folded"
+    rows.push({ id: a.id, agent: a, depth, hasChildren: kids.length > 0, stage, kept: kept.length, tucked: tucked.length, guides, last })
+    const shown = stage === "all" ? kids : stage === "recent" ? kept : []
+    const more = stage === "recent" ? tucked : []
+    const inner = depth > 0 ? [...guides, !last] : guides
+    shown.forEach((k, i) => visit(k, depth + 1, inner, i === shown.length - 1 && !more.length))
+    if (more.length) {
+      // The cue stands in for complete hidden subtrees, including their
+      // descendants' failures and lane activity, not just the direct children.
+      const hidden = new Map<string, Agent>()
+      const stack = [...more]
+      while (stack.length) {
+        const k = stack.pop()!
+        if (hidden.has(k.id) || seen.has(k.id)) continue
+        hidden.set(k.id, k)
+        stack.push(...(children.get(k.id) ?? []))
+      }
+      rows.push({ id: EARLIER + a.id, agent: a, depth: depth + 1, hasChildren: false, stage: "all", kept: 0, tucked: 0,
+        guides: inner, last: true, earlier: [...hidden.values()].sort((p, q) => lastSeen(q) - lastSeen(p)) })
+    }
   }
   const roots = order(children.get(null) ?? [])
   roots.forEach((a, i) => visit(a, 0, [], i === roots.length - 1))

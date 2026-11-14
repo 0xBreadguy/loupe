@@ -1,1 +1,3 @@
 node_modules/
+# Local design direction, review captures and check output.
+.crumb/

@@ -66,6 +66,17 @@ test("the demo database builds in a temp dir and Source reads it into the expect
       "Add streaming export to the CLI": null,
       "Profile the CSV writer": "Add streaming export to the CLI",
       "Run the integration suite": "Add streaming export to the CLI",
+      "Harden the webhook pipeline": null,
+      "Replay the dead-letter queue": "Harden the webhook pipeline",
+      "Review the signature check": "Harden the webhook pipeline",
+      "Add idempotency keys": "Harden the webhook pipeline",
+      "Load-test the receiver": "Harden the webhook pipeline",
+      "Audit the retry headers": "Harden the webhook pipeline",
+      "Map the webhook senders": "Harden the webhook pipeline",
+      "Check the payload schemas": "Harden the webhook pipeline",
+      "Compare queue backends": "Harden the webhook pipeline",
+      "Sample production logs": "Harden the webhook pipeline",
+      "Inventory webhook endpoints": "Harden the webhook pipeline",
       "Refresh the onboarding guide": null,
       "Tune the retry backoff": null,
       "Upgrade the image pipeline": null,
@@ -209,7 +220,7 @@ test("--once --demo and --status --demo work without any T3 or Omarchy data and 
 
   const once = run("--once", "--demo")
   assert.equal(once.status, 0, once.stderr)
-  assert.match(once.stdout, /^T3 AGENTS · demo data · .* 1 waiting · 14 agents/)
+  assert.match(once.stdout, /^T3 AGENTS · demo data · .* 1 waiting · 25 agents/)
   assert.match(once.stdout, /◆ Plan the search index rebuild/)
 
   const status = run("--status", "--demo")

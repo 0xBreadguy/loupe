@@ -152,6 +152,64 @@ const SCENARIO: Role[] = [
     ],
   },
   {
+    // Long-running: hours of subagents. The list keeps the running one and the
+    // latest three finishes; the six before them fold into one earlier row.
+    id: "demo-webhooks", project: "atlas", title: "Harden the webhook pipeline", model: GPT, max: 400_000,
+    ctx: [0.06, 0.58], status: "running", from: 290, every: 50, branch: "harden-webhooks",
+    options: [{ id: "reasoning", value: "medium" }],
+    work: ["Read src/webhooks/receiver.ts", "$ npm test -- webhooks", "Grep verifySignature", "~ src/webhooks/retry.ts",
+      "Read docs/webhooks.md", "$ npm run typecheck"],
+    tail: [[30.1, "% Review the signature check", "completed", 0.1], [6.1, "% Replay the dead-letter queue", "completed", 0.1]],
+    plan: ["✓ Inventory the endpoints", "✓ Pick a queue backend", "✓ Verify every signature", "▸ Replay what was dropped",
+      "○ Alert on retry storms"],
+    subs: [
+      {
+        id: "demo-wh-replay", title: "Replay the dead-letter queue", model: SONNET, max: 1_000_000, ctx: [0.03, 0.19],
+        status: "running", from: 6, every: 24,
+        work: ["$ npm run dlq:list", "Read src/webhooks/dlq.ts", "$ npm run dlq:replay -- --dry-run", "~ src/webhooks/dlq.ts"],
+      },
+      {
+        id: "demo-wh-signature", title: "Review the signature check", model: OPUS, max: 1_000_000, ctx: [0.05, 0.31],
+        status: "completed", from: 30, to: 16, every: 40,
+        work: ["Read src/webhooks/verify.ts", "Grep timingSafeEqual", "Read test/webhooks/verify.test.ts"],
+      },
+      {
+        id: "demo-wh-idempotency", title: "Add idempotency keys", model: GPT, max: 400_000, ctx: [0.07, 0.44],
+        status: "completed", from: 70, to: 41, every: 45,
+        work: ["~ src/webhooks/receiver.ts", "~ src/db/migrations/0042_idempotency.sql", "$ npm test -- receiver"],
+      },
+      {
+        id: "demo-wh-load", title: "Load-test the receiver", model: GROK_FAST, max: 2_000_000, ctx: [0.01, 0.06],
+        status: "completed", from: 95, to: 78, every: 30,
+        work: ["!$ k6 run load/webhooks.js", "Read load/webhooks.js", "~ load/webhooks.js"],
+      },
+      {
+        id: "demo-wh-headers", title: "Audit the retry headers", model: HAIKU, max: 200_000, ctx: [0.04, 0.27],
+        status: "completed", from: 140, to: 128, every: 35, work: ["Grep Retry-After", "Read src/webhooks/retry.ts"],
+      },
+      {
+        id: "demo-wh-senders", title: "Map the webhook senders", model: SONNET, max: 1_000_000, ctx: [0.04, 0.35],
+        status: "completed", from: 175, to: 152, every: 50, work: ["Grep webhooks.send", "Read src/billing/events.ts", "Read src/orders/events.ts"],
+      },
+      {
+        id: "demo-wh-schema", title: "Check the payload schemas", model: HAIKU, max: 200_000, ctx: [0.06, 0.4],
+        status: "completed", from: 200, to: 188, every: 35, work: ["Read schemas/webhooks/*.json", "$ npm run schema:check"],
+      },
+      {
+        id: "demo-wh-queue", title: "Compare queue backends", model: GPT, max: 400_000, ctx: [0.05, 0.52],
+        status: "failed", from: 235, to: 214, every: 55, work: ["? sqs vs redis streams for webhooks", "!$ npm run bench:queue"],
+      },
+      {
+        id: "demo-wh-logs", title: "Sample production logs", model: GROK_FAST, max: 2_000_000, ctx: [0.01, 0.04],
+        status: "completed", from: 262, to: 247, every: 40, work: ["$ ./scripts/logs.sh webhooks --since 7d", "Read logs/sample.txt"],
+      },
+      {
+        id: "demo-wh-inventory", title: "Inventory webhook endpoints", model: HAIKU, max: 200_000, ctx: [0.03, 0.21],
+        status: "completed", from: 285, to: 272, every: 35, work: ["Glob src/**/webhooks/*.ts", "Read src/routes.ts"],
+      },
+    ],
+  },
+  {
     id: "demo-docs", project: "book", title: "Refresh the onboarding guide", model: SONNET, max: 1_000_000,
     ctx: [0.06, 0.41], status: "completed", from: 52, to: 18, every: 50, cache: 60,
     work: ["Read guides/onboarding.md", "~ guides/onboarding.md", "? markdown link checker", "$ npx markdownlint guides",

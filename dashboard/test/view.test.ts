@@ -1,7 +1,7 @@
 // Drawing primitives, palette derivation, usage parsing and whole-layout smoke tests.
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { BIG_ROWS, Braille, Canvas, bigGlyph, bigWidth, drawBig, fit, fontWidth, hbar, spark, textWidth } from "../src/canvas.ts"
+import { BIG_BASE, BIG_ROWS, Braille, Canvas, bigGlyph, bigWidth, drawBig, fit, hbar, spark, textWidth, type Face } from "../src/canvas.ts"
 import { buildAgents, type Agent } from "../src/source.ts"
 import { chroma, contrast, derivePalette, family, parseColorsToml } from "../src/theme.ts"
 import { parseProvider, windowLength } from "../src/usage.ts"
@@ -47,13 +47,9 @@ test("braille raster", () => {
   assert.equal(c.toText(), "⡇")
 })
 
-test("big font measurement covers the hero glyphs", () => {
-  assert.ok(fontWidth("100%", "block") > 20)
-})
-
 // Decode a big glyph's half blocks back to pixels (6 rows: the top gap and 5 drawn).
 function pixels(ch: string): boolean[][] {
-  const g = bigGlyph(ch)!
+  const g = bigGlyph(ch, "plain")!
   return g.flatMap((row) => [[...row].map((b) => b === "█" || b === "▀"), [...row].map((b) => b === "█" || b === "▄")])
 }
 
@@ -81,8 +77,8 @@ function holes(px: boolean[][]): number {
 test("big digits are five pixels tall and each one is distinct", () => {
   const digits = [..."0123456789"]
   for (const d of digits) {
-    const g = bigGlyph(d)!
-    assert.equal(g.length, BIG_ROWS)
+    const g = bigGlyph(d, "plain")!
+    assert.equal(g.length, BIG_ROWS.plain)
     assert.ok(g.every((row) => row.length === g[0].length), `${d} rows differ in width`)
     const px = pixels(d)
     assert.ok(px[0].every((on) => !on), `${d} must leave the top half row empty`)
@@ -99,13 +95,55 @@ test("big digits are five pixels tall and each one is distinct", () => {
   }
 })
 
+test("digits are tabular: every digit in a face is as wide as the others", () => {
+  for (const face of ["plain", "shadow"] as const) {
+    const widths = new Set<number>()
+    for (const d of "0123456789") {
+      const g = bigGlyph(d, face)!
+      assert.equal(g.length, BIG_ROWS[face], `${face} ${d} rows`)
+      assert.ok(g.every((row) => row.length === g[0].length), `${face} ${d} rows differ in width`)
+      widths.add(g[0].length)
+    }
+    assert.equal(widths.size, 1, `${face} digit widths: ${[...widths]}`)
+    // So a value keeps its width as it counts, and the text beside it stays put.
+    assert.equal(bigWidth("11%", face), bigWidth("88%", face))
+  }
+})
+
+test("both faces draw the same digit shapes", () => {
+  // The shadowed digits' solid blocks, as pixels: the shadow strokes are only shading.
+  const solid = (d: string) => bigGlyph(d, "shadow")!.map((row) => [...row].map((ch) => ch === "█"))
+  const digits = [..."0123456789"]
+  assert.deepEqual(digits.map((d) => holes(solid(d))), digits.map((d) => holes(pixels(d))))
+  for (const d of digits) assert.match(bigGlyph(d, "shadow")!.join(""), /^[█╔╗╚╝═║ ]+$/, `${d} uses blocks and box drawing only`)
+  assert.equal(new Set(digits.map((d) => bigGlyph(d, "shadow")!.join("/"))).size, 10, "no two shadowed digits alike")
+})
+
 test("big numbers draw digits as glyphs and units as text on the baseline", () => {
   const c = new Canvas(24, 3)
   c.clear(0, 0)
-  const w = drawBig(c, 0, 0, "11.1M", 1)
-  assert.equal(w, bigWidth("11.1M"))
-  assert.equal(c.toText(), [" ▄   ▄     ▄", "▀█  ▀█    ▀█", "▄█▄ ▄█▄ ▄ ▄█▄ M"].join("\n"))
-  assert.equal(bigWidth("100%"), 3 + 1 + 4 + 1 + 4 + 1 + 1)
+  const w = drawBig(c, 0, 0, "11.1M", 1, "plain")
+  assert.equal(w, bigWidth("11.1M", "plain"))
+  assert.equal(c.toText(), [" ▄    ▄      ▄", "▀█   ▀█     ▀█", "▄█▄  ▄█▄  ▄ ▄█▄  M"].join("\n"))
+  assert.equal(bigWidth("100%", "plain"), 4 + 1 + 4 + 1 + 4 + 1 + 1)
+})
+
+test("shadowed numbers shade their shadow and set units on the last solid row", () => {
+  const face: Face = "shadow"
+  const c = new Canvas(30, BIG_ROWS[face])
+  c.clear(0, 0)
+  const w = drawBig(c, 0, 0, "28M", 1, face, 2)
+  assert.equal(w, bigWidth("28M", face))
+  assert.equal(w, 8 + 1 + 8 + 1 + 1)
+  const rows = c.toText().split("\n")
+  assert.equal(rows.length, 6)
+  assert.equal(rows[BIG_BASE[face]].at(-1), "M", "the unit sits on the last solid row")
+  assert.ok(rows[5].startsWith("╚"), "the bottom row is all shadow")
+  for (let i = 0; i < c.w * c.h; i++) {
+    const ch = String.fromCodePoint(c.ch[i])
+    if (ch === "█") assert.equal(c.fg[i], 1, "blocks take the color")
+    else if (/[╔╗╚╝═║]/.test(ch)) assert.equal(c.fg[i], 2, "the shadow takes the shade")
+  }
 })
 
 test("the Solitude theme keeps its single ember as the hot color", () => {
