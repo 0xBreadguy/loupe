@@ -2,9 +2,9 @@
   "schemaVersion": 1,
   "id": "0xbreadguy.t3-agents",
   "name": "T3 Agents",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "0xBreadguy",
-  "description": "Unofficial: running and waiting T3 Code agents in the bar. Click to open the T3 Agents dashboard. Not affiliated with Omarchy or T3 Code.",
+  "description": "Unofficial: running and waiting T3 Code agents in the bar. Click for a card listing them; right-click opens the T3 Agents dashboard. Not affiliated with Omarchy or T3 Code.",
   "kinds": [
     "service",
     "bar-widget"
@@ -15,7 +15,7 @@
   },
   "barWidget": {
     "displayName": "T3 Agents",
-    "description": "Unofficial. A spinner and count while T3 Code agents run, the bar's alert color with a diamond when one needs you, and a warning sign when it can't read T3. Click opens the dashboard.",
+    "description": "Unofficial. A dot cell that spins, with a count, while T3 Code agents run, the bar's alert color with a diamond when one needs you, and an alert icon when it can't read T3. Click opens a card listing the agents, right-click opens the dashboard, middle-click restarts the watcher.",
     "category": "AI",
     "allowMultiple": false,
     "defaultSection": "right",

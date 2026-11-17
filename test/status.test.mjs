@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs"
 import { test } from "node:test"
 
 const source = readFileSync(new URL("../Status.js", import.meta.url), "utf8").replace(/^\.pragma library\s*$/m, "")
-const S = new Function(source + "\nreturn { plain, parse, glyph, agentLine, unavailable, frameAt, SPIN }")()
+const S = new Function(source + "\nreturn { plain, parse, unavailable, frameAt, dots, spinDots, litDots, working, cardSpins, SPIN }")()
 
 const line = (extra = {}) => JSON.stringify({ v: 1, running: 2, waiting: 1, failed: 0,
   agents: [{ title: "Fix the build", state: "waiting", ctx: 0.364, model: "opus 5.5" },
@@ -17,8 +17,8 @@ test("a status line parses into bounded values", () => {
   assert.equal(s.waiting, 1)
   assert.equal(s.error, "")
   assert.equal(s.agents.length, 2)
-  assert.equal(S.agentLine(s.agents[0]), "◆ Fix the build · opus 5.5 · 36%")
-  assert.equal(S.agentLine(s.agents[1]), "⠿ Refactor · gpt 6.1-sol")
+  assert.deepEqual(s.agents.map(a => [a.title, a.state, a.model, a.ctx]),
+    [["Fix the build", "waiting", "opus 5.5", 0.364], ["Refactor", "running", "gpt 6.1-sol", null]])
 })
 
 test("markup-shaped and control text is neutralized before it reaches a tooltip", () => {
@@ -62,25 +62,6 @@ test("counts and lists are bounded", () => {
   assert.ok(s.agents[0].title.length <= 60)
 })
 
-test("the bar mark follows the most important state", () => {
-  const s = S.parse(line())
-  assert.equal(S.glyph(s, 3, true), "◆")
-  const running = S.parse(line({ waiting: 0 }))
-  assert.equal(S.glyph(running, 2, true), "⠹")
-  assert.equal(S.glyph(running, 2, false), "⠿", "no spinner when animations are off")
-  assert.equal(S.glyph(null, 0, true), "⠿", "idle until the first line")
-  assert.equal(S.glyph(S.parse(line({ running: 0, waiting: 0, agents: [] })), 0, true), "⠿")
-})
-
-test("a monitor that cannot see T3 shows its own mark, never the idle one", () => {
-  for (const cause of ["watcher", "launcher", "exited", "service"]) {
-    const g = S.glyph(S.unavailable("x", cause), 4, true)
-    assert.equal(g, "⚠")
-    assert.notEqual(g, S.glyph(null, 4, true))
-  }
-  assert.equal(S.glyph(S.parse(JSON.stringify({ v: 1, error: "No T3 database" })), 0, false), "⚠", "also without animations")
-})
-
 test("the spinner follows the shared 100 ms beat", () => {
   assert.equal(S.SPIN.join(""), "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
   assert.equal(S.frameAt(0), 0)
@@ -89,5 +70,83 @@ test("the spinner follows the shared 100 ms beat", () => {
   assert.equal(S.frameAt(1_000), 0, "ten frames per second")
   const now = 1_763_000_000_123
   assert.equal(S.frameAt(now), Math.floor(now / 100) % 10)
-  assert.equal(S.glyph(S.parse(line({ waiting: 0 })), S.frameAt(250), true), "⠹")
+})
+
+test("provider family and activity are kept, and unknown values fall back", () => {
+  const s = S.parse(line({ agents: [
+    { title: "a", state: "running", family: "claude", now: "think" },
+    { title: "b", state: "running", family: "<b>evil</b>", now: "<script>" },
+    { title: "c", state: "running", family: "toString", now: "constructor" },
+    { title: "d", state: "running", now: null },
+    { title: "e", state: "running" },
+  ] }))
+  const [a, b, c, d, e] = s.agents
+  assert.equal(a.family, "claude")
+  assert.equal(a.now, "think")
+  assert.equal(b.family, "other", "an unknown family takes the muted hue")
+  assert.equal(b.now, "other", "an unknown activity is still activity, not quiet")
+  assert.equal(c.family, "other", "inherited object keys are not families")
+  assert.equal(c.now, "other")
+  assert.equal(d.now, null, "null means the agent has gone quiet")
+  assert.equal(e.family, "other")
+  assert.equal(e.now, null)
+  for (const f of ["claude", "openai", "grok", "other"])
+    assert.equal(S.parse(line({ agents: [{ title: "x", family: f }] })).agents[0].family, f)
+  for (const n of ["shell", "read", "edit", "web", "agent", "ask", "think", "reply", "you", "note", "tool", "other"])
+    assert.equal(S.parse(line({ agents: [{ title: "x", now: n }] })).agents[0].now, n)
+})
+
+test("braille glyphs become dot masks", () => {
+  assert.equal(S.dots("⠀"), 0)
+  assert.equal(S.dots("⣿"), 0xff, "all eight")
+  assert.equal(S.dots("⠿"), 0x3f, "six dots")
+  assert.equal(S.dots("⠋"), 0b1011, "dots 1, 2 and 4")
+  assert.equal(S.dots("x"), 0, "anything else lights nothing")
+  assert.equal(S.dots(""), 0)
+  for (const g of S.SPIN) {
+    const n = S.dots(g).toString(2).replace(/0/g, "").length
+    assert.ok(n >= 3 && n <= 4, `${g} lights a few dots, never the whole cell`)
+  }
+})
+
+test("the bar's cell lights dots only while agents run and none need you", () => {
+  const running = S.parse(line({ waiting: 0 }))
+  assert.equal(S.litDots(running, 0, true), S.dots("⠋"))
+  assert.equal(S.litDots(running, S.frameAt(250), true), S.dots("⠹"), "on the shared beat")
+  assert.equal(S.litDots(S.parse(line({ running: 0, waiting: 0, agents: [] })), 3, true), 0, "idle lights nothing")
+  assert.equal(S.litDots(S.parse(line()), 3, true), 0, "waiting shows the diamond, not the cell")
+  assert.equal(S.litDots(null, 3, true), 0, "starting lights nothing")
+  assert.equal(S.litDots(S.unavailable("x"), 3, true), 0)
+})
+
+test("with animations off a running cell holds one frame that still differs from idle", () => {
+  const running = S.parse(line({ waiting: 0 }))
+  const still = S.litDots(running, 0, false)
+  assert.notEqual(still, 0, "not idle")
+  assert.notEqual(still, 0xff, "not the whole cell either")
+  for (let f = 0; f < 20; f++) assert.equal(S.litDots(running, f, false), still, "it doesn't move")
+  assert.equal(S.spinDots(7, false), still)
+})
+
+test("only agents with a current activity count as working", () => {
+  const s = S.parse(line({ agents: [
+    { title: "a", state: "running", now: "think" },
+    { title: "b", state: "running", now: null },
+    { title: "c", state: "waiting", now: "ask" },
+    { title: "d", state: "queued", now: "tool" },
+    { title: "e", state: "pending", now: "tool" },
+    { title: "f", state: "active", now: "teleport" },
+  ] }))
+  assert.deepEqual(s.agents.map(S.working), [true, false, false, false, false, true])
+})
+
+test("an open card ticks only when something in it spins", () => {
+  assert.equal(S.cardSpins(S.parse(line({ waiting: 0 }))), true, "the header's cell spins while agents run")
+  const waitingAndQuiet = S.parse(line({ agents: [{ title: "a", state: "waiting", now: "ask" }, { title: "b", state: "running", now: null }] }))
+  assert.equal(S.cardSpins(waitingAndQuiet), false, "a diamond and a quiet ring don't move")
+  const waitingAndWorking = S.parse(line({ agents: [{ title: "a", state: "waiting", now: "ask" }, { title: "b", state: "running", now: "edit" }] }))
+  assert.equal(S.cardSpins(waitingAndWorking), true)
+  assert.equal(S.cardSpins(S.parse(line({ running: 0, waiting: 0, agents: [] }))), false, "idle")
+  assert.equal(S.cardSpins(null), false, "starting")
+  assert.equal(S.cardSpins(S.unavailable("x")), false, "broken")
 })

@@ -210,13 +210,27 @@ impl Pty {
         assert_eq!(unsafe { libc::kill(pid, sig) }, 0);
     }
 
+    /// Reap the child while draining the master. Reading first matters on macOS: the kernel
+    /// holds an exiting session leader until its controlling terminal's output is read, so a
+    /// blocking `wait` here would never return (see `wait_reaps_a_child_whose_last_bytes_are_unread`).
     fn wait(&mut self) -> std::process::ExitStatus {
-        let status = self
-            .child
-            .take()
-            .unwrap()
-            .wait()
-            .unwrap_or_else(|e| panic!("wait: {e}"));
+        let mut child = self.child.take().unwrap();
+        let limit = Instant::now() + Duration::from_secs(20);
+        let status = loop {
+            self.pump();
+            if let Some(status) = child.try_wait().unwrap_or_else(|e| panic!("wait: {e}")) {
+                break status;
+            }
+            if Instant::now() >= limit {
+                let _ = child.kill();
+                self.pump();
+                panic!(
+                    "child did not exit within 20s, output:\n{}",
+                    String::from_utf8_lossy(&self.buf)
+                );
+            }
+            select_fd(self.master, false, 20);
+        };
         let deadline = Instant::now() + Duration::from_secs(2);
         while Instant::now() < deadline {
             if self.pump() {
@@ -228,8 +242,21 @@ impl Pty {
     }
 
     fn assert_restored(&self) {
+        // Which descriptor shows the attributes the child left behind. Linux: the slave (its
+        // master has termios of its own). macOS: when the session leader exits, the kernel
+        // revokes its controlling terminal, so this side's slave descriptor answers ENOTTY; the
+        // master still reaches the same tty there, and shows a raw mode left set.
+        #[cfg(target_os = "macos")]
+        let fd = self.master;
+        #[cfg(not(target_os = "macos"))]
+        let fd = self.slave;
         let mut now: libc::termios = unsafe { std::mem::zeroed() };
-        assert_eq!(unsafe { libc::tcgetattr(self.slave, &mut now) }, 0);
+        assert_eq!(
+            unsafe { libc::tcgetattr(fd, &mut now) },
+            0,
+            "tcgetattr: {}",
+            io::Error::last_os_error()
+        );
         assert_eq!(now.c_iflag, self.orig.c_iflag, "input flags not restored");
         assert_eq!(now.c_oflag, self.orig.c_oflag, "output flags not restored");
         assert_eq!(now.c_cflag, self.orig.c_cflag, "control flags not restored");
@@ -254,14 +281,16 @@ impl Pty {
 
 impl Drop for Pty {
     fn drop(&mut self) {
+        // Close the master before reaping: on macOS a killed child still waits in exit for its
+        // unread output, and a closed master releases it.
         if let Some(child) = self.child.as_mut() {
             let _ = child.kill();
+            unsafe { libc::close(self.master) };
             let _ = child.wait();
+        } else {
+            unsafe { libc::close(self.master) };
         }
-        unsafe {
-            libc::close(self.master);
-            libc::close(self.slave);
-        }
+        unsafe { libc::close(self.slave) };
     }
 }
 
@@ -590,6 +619,45 @@ fn quit_signal_and_panic_restore_the_terminal() {
     pty.assert_restored();
 }
 
+/// `Pty::wait` must reap a child whose last bytes nobody has read yet. On macOS the kernel holds
+/// an exiting session leader until its controlling terminal's output has drained, so a harness
+/// that reaps before it reads waits for the child while the child waits for the harness (Linux
+/// does not drain there, which is why this only ever hung on a Mac). The panicking presenter
+/// writes its enter and leave sequences and exits at once, before this side reads anything.
+/// A rescue thread drains the master after a few seconds so a regression fails here instead of
+/// hanging the run.
+#[test]
+fn wait_reaps_a_child_whose_last_bytes_are_unread() {
+    let mut pty = Pty::spawn(COLS, ROWS, &[("T3_TERM_PANIC", "1")]);
+    let master = pty.master;
+    let (done, wait_done) = std::sync::mpsc::channel::<()>();
+    let rescue = std::thread::spawn(move || {
+        if wait_done.recv_timeout(Duration::from_secs(5)).is_ok() {
+            return false;
+        }
+        let mut tmp = [0u8; 8192];
+        let end = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < end {
+            let n = unsafe { libc::read(master, tmp.as_mut_ptr() as *mut libc::c_void, tmp.len()) };
+            if n <= 0 {
+                select_fd(master, false, 20);
+            }
+        }
+        true
+    });
+    let started = Instant::now();
+    let status = pty.wait();
+    let _ = done.send(());
+    let rescued = rescue.join().unwrap();
+    assert!(
+        !rescued,
+        "Pty::wait did not reap the child until another thread read the pty ({:?})",
+        started.elapsed()
+    );
+    assert_eq!(status.code(), Some(101), "panic status {status}");
+    pty.assert_restored();
+}
+
 /// CPU time a presenter used from launch to exit, from `wait4` on that one child. The child is
 /// reaped here, so it never touches `RUSAGE_CHILDREN`, which other tests share.
 fn cpu_used(idle: Duration) -> Duration {
@@ -599,18 +667,25 @@ fn cpu_used(idle: Duration) -> Duration {
     pty.send(b"q");
     let child = pty.child.take().unwrap();
     let pid = child.id() as libc::pid_t;
-    // A watchdog, so a presenter that never quits fails the test instead of hanging it.
-    let (done, wait_done) = std::sync::mpsc::channel::<()>();
-    let dog = std::thread::spawn(move || {
-        if wait_done.recv_timeout(Duration::from_secs(20)).is_err() {
-            unsafe { libc::kill(pid, libc::SIGKILL) };
-        }
-    });
+    // Reap without blocking and drain the pty meanwhile: on macOS the presenter cannot finish
+    // exiting until its leave sequence is read (see `Pty::wait`). The limit makes a presenter that
+    // never quits fail the test instead of hanging it.
+    let limit = Instant::now() + Duration::from_secs(20);
     let mut status = 0;
     let mut usage: libc::rusage = unsafe { std::mem::zeroed() };
-    let rc = unsafe { libc::wait4(pid, &mut status, 0, &mut usage) };
-    let _ = done.send(());
-    dog.join().unwrap();
+    let rc = loop {
+        pty.pump();
+        let rc = unsafe { libc::wait4(pid, &mut status, libc::WNOHANG, &mut usage) };
+        if rc != 0 {
+            break rc;
+        }
+        if Instant::now() >= limit {
+            unsafe { libc::kill(pid, libc::SIGKILL) };
+            pty.pump();
+            panic!("presenter did not quit within 20s of q");
+        }
+        select_fd(pty.master, false, 20);
+    };
     assert_eq!(rc, pid, "wait4: {}", io::Error::last_os_error());
     assert!(libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0, "exit status {status:#x}");
     let tv = |t: libc::timeval| Duration::new(t.tv_sec as u64, t.tv_usec as u32 * 1000);

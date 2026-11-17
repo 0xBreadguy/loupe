@@ -863,7 +863,9 @@ fn exit_case(how: &str) {
         format!("stty -g > {}", quote(file("stty-before").to_str().unwrap())),
         format!("stty -a > {}", quote(file("stty-a-before").to_str().unwrap())),
         "(".into(),
-        format!("  echo $BASHPID > {}", quote(file("pid").to_str().unwrap())),
+        // The subshell's pid, which `exec` hands to the app. Not `$BASHPID`: macOS's /bin/bash is
+        // 3.2, which has none. A child's `$PPID` is the same number on every bash.
+        format!("  sh -c 'echo $PPID' > {}", quote(file("pid").to_str().unwrap())),
         // The app waits here so pipe-pane is attached before the first query.
         format!("  while [ ! -f {} ]; do sleep 0.02; done", quote(file("go").to_str().unwrap())),
         format!("  exec {}", app_command(&["--calm", "--interval", "30", "--demo"])),

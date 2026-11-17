@@ -7,7 +7,7 @@
 # T3 Agents
 
 [![test](https://github.com/0xBreadguy/t3-agents/actions/workflows/test.yml/badge.svg)](https://github.com/0xBreadguy/t3-agents/actions/workflows/test.yml)
-[![Release 1.0.0](https://img.shields.io/badge/release-1.0.0-2ea44f)](https://github.com/0xBreadguy/t3-agents/releases/latest)
+[![Release 1.1.0](https://img.shields.io/badge/release-1.1.0-2ea44f)](https://github.com/0xBreadguy/t3-agents/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-2024%20edition-b7410e?logo=rust&logoColor=white)
 ![Omarchy bar widget](https://img.shields.io/badge/Omarchy-bar%20widget-5c6b73)
@@ -50,7 +50,7 @@ The quick way is the prebuilt program from the
 Nothing gets installed and nothing gets compiled:
 
 ```sh
-v=1.0.0 t=$(uname -m)-unknown-linux-gnu
+v=1.1.0 t=$(uname -m)-unknown-linux-gnu
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/t3-agents-$v-$t.tar.gz"
 tar -xzf "t3-agents-$v-$t.tar.gz"
 "t3-agents-$v-$t/t3-agents-term" --demo
@@ -130,16 +130,22 @@ cargo run --release -p t3-agents-term -- --demo
 
 **The bar widget**
 
-- A dim `⠿` when nothing's running, a spinner and a count while agents work,
-  and a `◆` with a count in the bar's alert color when one needs you.
-- A `⚠` at full strength when it can't see T3: no dashboard installed yet, no
-  T3 database, or a watcher that stopped. Hover says which, in plain words. It
-  keeps retrying on its own, and it's never hidden, so a broken monitor never
-  passes for a quiet one.
-- Hover for the list with models and context, click to open the dashboard,
-  middle-click to restart its watcher.
+- A dim dot cell, the dashboard's spinner at rest, when nothing's running.
+  While agents work it spins on the dashboard's beat with their count before
+  it; with animations off it holds one lit frame, so running never looks idle.
+- A `◆` with a count in the bar's alert color when one needs you.
+- An alert icon at full strength when it can't see T3: no dashboard installed
+  yet, no T3 database, or a watcher that stopped. Its card says which, in
+  plain words. It keeps retrying on its own, and it's never hidden, so a broken
+  monitor never passes for a quiet one.
+- Click for a card that lists them: the ones that need you first, in the alert
+  color, then the ones running, each with its model, what it's doing and how
+  much of its context it has used. `Esc` closes it; `Enter` or its button opens
+  the dashboard.
+- Right-click opens the dashboard straight away, middle-click restarts the
+  watcher, and hovering gives a one-line summary.
 
-![The bar widget's tooltip on stock Omarchy, with demo data](docs/bar-widget.png)
+![The bar widget's card on stock Omarchy, with demo data](docs/bar-widget.png)
 
 ## Install
 
@@ -153,7 +159,7 @@ overwrite a launcher it didn't create.
 **From a release, with nothing to compile:**
 
 ```sh
-v=1.0.0 t=$(uname -m)-unknown-linux-gnu
+v=1.1.0 t=$(uname -m)-unknown-linux-gnu
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/t3-agents-$v-$t.tar.gz"
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/SHA256SUMS"
 sha256sum -c --ignore-missing SHA256SUMS
@@ -184,7 +190,7 @@ omarchy plugin add https://github.com/0xBreadguy/t3-agents --enable
 
 The widget runs the `t3-agents` command, so it works with the dashboard
 installed either way above. Until the dashboard is installed, the widget shows
-`⚠` and says so. It checks again every 15 seconds, so it picks the dashboard up
+its alert icon and says so. It checks again every 15 seconds, so it picks the dashboard up
 by itself once the installer finishes, with no shell restart.
 
 The plugin folder is a copy of this repository, so if you have `cargo` you can
@@ -195,8 +201,8 @@ also build and install straight from it:
 ```
 
 Hide the widget while nothing runs with
-`omarchy bar set 0xbreadguy.t3-agents hideWhenIdle true --json`. The `⚠` stays
-visible either way.
+`omarchy bar set 0xbreadguy.t3-agents hideWhenIdle true --json`. The alert
+icon stays visible either way.
 
 Once it's installed, run `t3-agents` in any terminal, or `t3-agents --window`
 for a dedicated window: [foot](https://codeberg.org/dnkl/foot) when it's installed,
@@ -406,11 +412,11 @@ working here. [AGENTS.md](AGENTS.md) has the same for coding agents, and how to
 install T3 Agents for someone.
 
 The bar widget lives at the repository root (`manifest.json`, `Service.qml`,
-`BarWidget.qml`, `Status.js`) so `omarchy plugin add` can install it straight
-from git; check it with `omarchy plugin validate .`. Omarchy rejects symlinks in
-a plugin folder, and `npm ci` creates some under `oracle/node_modules`, so
-validate a clean clone and never install the checks' dependencies inside an
-installed plugin.
+`BarWidget.qml`, `Status.js`, and its parts in `ui/`) so `omarchy plugin add`
+can install it straight from git; check it with `omarchy plugin validate .`.
+Omarchy rejects symlinks in a plugin folder, and `npm ci` creates some under
+`oracle/node_modules`, so validate a clean clone and never install the checks'
+dependencies inside an installed plugin.
 
 ## License
 

@@ -20,7 +20,7 @@ checks/fixtures/      Synthetic inputs and recorded results, tracked
 checks/generated/     Scratch output, ignored
 install.sh            Installs, updates and removes the program for the current user
 dashboard/install.sh  Forwards to install.sh; the path older installs update from
-manifest.json, Service.qml, BarWidget.qml, Status.js, i18n/, test/
+manifest.json, Service.qml, BarWidget.qml, Status.js, ui/, i18n/, test/
                       The Omarchy bar widget
 ```
 
