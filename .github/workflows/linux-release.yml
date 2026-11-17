@@ -1,0 +1,31 @@
+name: Linux release artifacts
+
+# Builds the Linux release archives and keeps them as this run's artifacts. Nothing is published.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build and package
+        run: checks/scripts/package-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.target }}
+          path: |
+            checks/generated/linux-release/${{ matrix.target }}/*.tar.gz
+            checks/generated/linux-release/${{ matrix.target }}/SHA256SUMS
+          if-no-files-found: error

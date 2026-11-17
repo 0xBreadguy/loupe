@@ -1,0 +1,116 @@
+{
+  "commit": "ccae953c46c09255038897b2872eb4952f8637e5",
+  "from": 83,
+  "to": 96,
+  "stages": [
+    {
+      "id": 84,
+      "name": "LastExecutedRunIndex",
+      "source": "apps/server/src/persistence/Migrations/084_LastExecutedRunIndex.ts",
+      "sql": [
+        "CREATE INDEX IF NOT EXISTS orchestration_v2_projection_runs_last_executed_idx\n    ON orchestration_v2_projection_runs(\n      thread_id, (completed_at IS NULL) DESC, completed_at DESC, ordinal DESC, run_id DESC\n    )\n    WHERE status <> 'queued'\n      AND NOT (status = 'cancelled' AND json_extract(payload_json, '$.startedAt') IS NULL)"
+      ]
+    },
+    {
+      "id": 85,
+      "name": "TurnItemCounts",
+      "source": "apps/server/src/persistence/Migrations/085_TurnItemCounts.ts",
+      "sql": [
+        "CREATE TABLE orchestration_v2_projection_turn_item_counts (\n      thread_id TEXT NOT NULL,\n      run_key TEXT NOT NULL,\n      item_count INTEGER NOT NULL,\n      PRIMARY KEY (thread_id, run_key)\n    ) WITHOUT ROWID",
+        "INSERT INTO orchestration_v2_projection_turn_item_counts (thread_id, run_key, item_count)\n    SELECT thread_id, COALESCE(run_id, ''), COUNT(*)\n    FROM orchestration_v2_projection_turn_items\n    GROUP BY thread_id, run_id",
+        "CREATE TRIGGER orchestration_v2_turn_item_counts_insert\n    AFTER INSERT ON orchestration_v2_projection_turn_items\n    BEGIN\n      INSERT INTO orchestration_v2_projection_turn_item_counts (thread_id, run_key, item_count)\n      VALUES (new.thread_id, COALESCE(new.run_id, ''), 1)\n      ON CONFLICT (thread_id, run_key) DO UPDATE SET item_count = item_count + 1;\n    END",
+        "CREATE TRIGGER orchestration_v2_turn_item_counts_update\n    AFTER UPDATE OF thread_id, run_id ON orchestration_v2_projection_turn_items\n    WHEN old.thread_id IS NOT new.thread_id OR old.run_id IS NOT new.run_id\n    BEGIN\n      UPDATE orchestration_v2_projection_turn_item_counts SET item_count = item_count - 1\n      WHERE thread_id = old.thread_id AND run_key = COALESCE(old.run_id, '');\n      DELETE FROM orchestration_v2_projection_turn_item_counts\n      WHERE thread_id = old.thread_id AND run_key = COALESCE(old.run_id, '') AND item_count <= 0;\n      INSERT INTO orchestration_v2_projection_turn_item_counts (thread_id, run_key, item_count)\n      VALUES (new.thread_id, COALESCE(new.run_id, ''), 1)\n      ON CONFLICT (thread_id, run_key) DO UPDATE SET item_count = item_count + 1;\n    END",
+        "CREATE TRIGGER orchestration_v2_turn_item_counts_delete\n    AFTER DELETE ON orchestration_v2_projection_turn_items\n    BEGIN\n      UPDATE orchestration_v2_projection_turn_item_counts SET item_count = item_count - 1\n      WHERE thread_id = old.thread_id AND run_key = COALESCE(old.run_id, '');\n      DELETE FROM orchestration_v2_projection_turn_item_counts\n      WHERE thread_id = old.thread_id AND run_key = COALESCE(old.run_id, '') AND item_count <= 0;\n    END"
+      ]
+    },
+    {
+      "id": 86,
+      "name": "QueuedTurnInputIndex",
+      "source": "apps/server/src/persistence/Migrations/086_QueuedTurnInputIndex.ts",
+      "sql": [
+        "CREATE INDEX orchestration_v2_projection_turn_items_queued_input_idx\n    ON orchestration_v2_projection_turn_items(run_id)\n    WHERE type = 'user_message'\n      AND json_valid(payload_json)\n      AND json_extract(payload_json, '$.inputIntent') = 'queued_turn'"
+      ]
+    },
+    {
+      "id": 87,
+      "name": "ProjectionProjectsCustomTitle",
+      "source": "apps/server/src/persistence/Migrations/087_ProjectionProjectsCustomTitle.ts",
+      "sql": [
+        "ALTER TABLE projection_projects\n      ADD COLUMN has_custom_title INTEGER NOT NULL DEFAULT 0",
+        "UPDATE projection_projects\n    SET has_custom_title = 1\n    WHERE project_id IN (\n      SELECT stream_id FROM orchestration_events\n      WHERE aggregate_kind = 'project'\n        AND event_type = 'project.meta-updated'\n        AND json_type(payload_json, '$.title') = 'text'\n    )"
+      ]
+    },
+    {
+      "id": 88,
+      "name": "TurnItemTypeStatusIndex",
+      "source": "apps/server/src/persistence/Migrations/088_TurnItemTypeStatusIndex.ts",
+      "sql": [
+        "CREATE INDEX IF NOT EXISTS orchestration_v2_projection_turn_items_thread_type_idx\n    ON orchestration_v2_projection_turn_items(thread_id, type, status)"
+      ]
+    },
+    {
+      "id": 89,
+      "name": "ShellThreadReadIndexes",
+      "source": "apps/server/src/persistence/Migrations/089_ShellThreadReadIndexes.ts",
+      "sql": [
+        "CREATE INDEX IF NOT EXISTS orchestration_v2_projection_threads_worktree_path_idx\n    ON orchestration_v2_projection_threads(\n      CASE WHEN json_valid(payload_json) THEN json_extract(payload_json, '$.worktreePath') END\n    )",
+        "CREATE INDEX IF NOT EXISTS orchestration_v2_projection_threads_root_thread_idx\n    ON orchestration_v2_projection_threads(\n      CASE WHEN json_valid(payload_json) THEN json_extract(payload_json, '$.lineage.rootThreadId') END\n    )",
+        "CREATE INDEX IF NOT EXISTS orchestration_v2_projection_runs_run_status_idx\n    ON orchestration_v2_projection_runs(run_id, status)"
+      ]
+    },
+    {
+      "id": 90,
+      "name": "AuthConnectDevices",
+      "source": "apps/server/src/persistence/Migrations/090_AuthConnectDevices.ts",
+      "sql": []
+    },
+    {
+      "id": 91,
+      "name": "AuthConnectDeniedRequests",
+      "source": "apps/server/src/persistence/Migrations/091_AuthConnectDeniedRequests.ts",
+      "sql": []
+    },
+    {
+      "id": 92,
+      "name": "QueuedTurnInputIndexJsonValid",
+      "source": "apps/server/src/persistence/Migrations/092_QueuedTurnInputIndexJsonValid.ts",
+      "sql": [
+        "DROP INDEX IF EXISTS orchestration_v2_projection_turn_items_queued_input_idx",
+        "CREATE INDEX orchestration_v2_projection_turn_items_queued_input_idx\n    ON orchestration_v2_projection_turn_items(run_id)\n    WHERE type = 'user_message'\n      AND json_valid(payload_json)\n      AND json_extract(payload_json, '$.inputIntent') = 'queued_turn'"
+      ]
+    },
+    {
+      "id": 93,
+      "name": "ProviderTurnAttemptIndex",
+      "source": "apps/server/src/persistence/Migrations/093_ProviderTurnAttemptIndex.ts",
+      "sql": [
+        "CREATE INDEX orchestration_v2_projection_provider_turns_attempt_idx\n    ON orchestration_v2_projection_provider_turns(run_attempt_id)"
+      ]
+    },
+    {
+      "id": 94,
+      "name": "TurnItemMessageOrdinalIndex",
+      "source": "apps/server/src/persistence/Migrations/094_TurnItemMessageOrdinalIndex.ts",
+      "sql": [
+        "CREATE INDEX IF NOT EXISTS orchestration_v2_projection_turn_items_message_ordinal_idx\n    ON orchestration_v2_projection_turn_items(\n      thread_id, json_extract(payload_json, '$.messageId'), ordinal\n    )\n    WHERE type IN ('user_message', 'assistant_message') AND json_valid(payload_json)"
+      ]
+    },
+    {
+      "id": 95,
+      "name": "TurnItemInlineWorkOutput",
+      "source": "apps/server/src/persistence/Migrations/095_TurnItemInlineWorkOutput.ts",
+      "sql": [
+        "ALTER TABLE orchestration_v2_projection_turn_items\n    ADD COLUMN inline_work_output INTEGER NOT NULL DEFAULT 0",
+        "UPDATE orchestration_v2_projection_turn_items\n    SET inline_work_output = 1\n    WHERE type = 'dynamic_tool' AND (\n      payload_json LIKE '%htmlRender%' OR payload_json LIKE '%t3McpApp%'\n      OR payload_json LIKE '%\"viewedImagePath\"%'\n      OR payload_json LIKE '%\"toolName\":\"%delegate_task\"%'\n      OR payload_json LIKE '%\"toolName\":\"%send_to_user\"%'\n      OR payload_json LIKE '%sentMessage%')"
+      ]
+    },
+    {
+      "id": 96,
+      "name": "RepairStaleTitleRegeneration",
+      "source": "apps/server/src/persistence/Migrations/096_RepairStaleTitleRegeneration.ts",
+      "sql": [
+        "UPDATE orchestration_v2_projection_threads\n    SET payload_json = json_set(payload_json, '$.titleRegeneration', json('null'))\n    WHERE json_valid(payload_json)\n      AND json_type(payload_json, '$.titleRegeneration') = 'object'\n      AND NOT EXISTS (\n        SELECT 1 FROM orchestration_v2_effect_outbox AS job\n        WHERE job.effect_type = 'thread-title.generate'\n          AND job.thread_id = orchestration_v2_projection_threads.thread_id\n          AND job.command_id =\n            json_extract(orchestration_v2_projection_threads.payload_json, '$.titleRegeneration.requestId')\n          AND job.status IN ('pending', 'running')\n      )"
+      ]
+    }
+  ]
+}

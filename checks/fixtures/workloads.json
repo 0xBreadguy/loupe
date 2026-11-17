@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "epoch": 1794484800000,
+  "description": "Invented data only. Times are milliseconds, actions run after a frame. No accounts or real service inputs.",
+  "cases": ["demo", "empty", "error", "edge", "large", "rapid"],
+  "large": { "agents": 256, "eventsPerAgent": 160, "historyPerAgent": 160 },
+  "rapid": { "updates": 120, "stepMs": 16 },
+  "actions": [
+    { "key": "down" }, { "key": "up" }, { "key": "end" }, { "key": "home" },
+    { "select": "edge-root" }, { "key": "space" }, { "key": "right" }, { "key": "right" },
+    { "key": "left" }, { "select": "earlier:edge-root" }, { "key": "enter" },
+    { "key": "n" }, { "key": "a" }, { "key": "a" }, { "key": "a" },
+    { "key": "pagedown" }, { "key": "pageup" }, { "key": "t" }, { "key": "m" }
+  ]
+}

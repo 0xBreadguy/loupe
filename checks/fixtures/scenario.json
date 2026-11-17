@@ -1,0 +1,697 @@
+{
+  "projects": [
+    {
+      "id": "atlas",
+      "title": "atlas-api",
+      "root": "/home/user/projects/atlas-api"
+    },
+    {
+      "id": "shop",
+      "title": "storefront-web",
+      "root": "/home/user/projects/storefront-web"
+    },
+    {
+      "id": "pipe",
+      "title": "pipeline-cli",
+      "root": "/home/user/projects/pipeline-cli"
+    },
+    {
+      "id": "book",
+      "title": "handbook",
+      "root": "/home/user/projects/handbook"
+    }
+  ],
+  "roles": [
+    {
+      "id": "demo-billing",
+      "project": "atlas",
+      "title": "Migrate billing to the v2 API",
+      "model": "claude-opus-5-5",
+      "max": 1000000,
+      "ctx": [
+        0.18,
+        0.64
+      ],
+      "status": "running",
+      "from": 38,
+      "every": 34,
+      "cache": 60,
+      "branch": "billing-v2",
+      "options": [
+        {
+          "id": "effort",
+          "value": "high"
+        }
+      ],
+      "work": [
+        "Read src/billing/client.ts",
+        "Grep LegacyBillingClient",
+        "~ src/billing/v2/invoices.ts",
+        "~ src/billing/v2/customers.ts",
+        "$ npm run typecheck",
+        "$ npm test -- billing",
+        "Read docs/billing-v2.md",
+        "Edit src/billing/index.ts",
+        "Read src/billing/v2/types.ts",
+        "$ npm run lint -- src/billing"
+      ],
+      "tail": [
+        [
+          31.1,
+          "% Write migration tests",
+          "completed",
+          0.1
+        ],
+        [
+          24.1,
+          "% Map callers of the legacy client",
+          "completed",
+          0.1
+        ]
+      ],
+      "plan": [
+        "✓ Inventory legacy client calls",
+        "✓ Add the v2 client behind a flag",
+        "▸ Port invoices and customers",
+        "○ Write migration tests",
+        "○ Remove the legacy client"
+      ],
+      "subs": [
+        {
+          "id": "demo-callers",
+          "title": "Map callers of the legacy client",
+          "model": "claude-sonnet-5-5",
+          "max": 1000000,
+          "ctx": [
+            0.35,
+            0.91
+          ],
+          "status": "running",
+          "from": 24,
+          "every": 22,
+          "work": [
+            "Grep billing.legacy",
+            "Read src/orders/checkout.ts",
+            "Read src/reports/revenue.ts",
+            "Glob src/**/*.billing.ts",
+            "$ rg -l 'LegacyBillingClient' src",
+            "Read src/webhooks/invoice.ts"
+          ],
+          "subs": [
+            {
+              "id": "demo-headers",
+              "title": "Check rate-limit headers",
+              "model": "claude-haiku-5-5",
+              "max": 200000,
+              "ctx": [
+                0.03,
+                0.03
+              ],
+              "status": "queued",
+              "from": 0.6,
+              "queued": 1,
+              "every": 26,
+              "work": [
+                "? rate limit response headers",
+                "Read src/http/retry.ts",
+                "Grep Retry-After"
+              ]
+            }
+          ]
+        },
+        {
+          "id": "demo-tests",
+          "title": "Write migration tests",
+          "model": "claude-sonnet-5-5",
+          "max": 1000000,
+          "ctx": [
+            0.05,
+            0.27
+          ],
+          "status": "running",
+          "from": 31,
+          "until": 9.5,
+          "every": 40,
+          "work": [
+            "~ test/billing/v2.test.ts",
+            "!$ npm test -- billing/v2",
+            "Read test/fixtures/invoices.json"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "demo-checkout",
+      "project": "shop",
+      "title": "Fix the flaky checkout tests",
+      "model": "gpt-6.1-sol",
+      "max": 400000,
+      "ctx": [
+        0.22,
+        0.78
+      ],
+      "status": "running",
+      "from": 44,
+      "until": 7.5,
+      "every": 45,
+      "branch": "fix/checkout-flake",
+      "options": [
+        {
+          "id": "reasoning",
+          "value": "high"
+        }
+      ],
+      "work": [
+        "Read src/checkout/cart.ts",
+        "!$ npx playwright test checkout",
+        "~ src/checkout/payment.ts",
+        "Grep waitForSelector",
+        "Read playwright.config.ts",
+        "Read test/e2e/checkout.spec.ts",
+        "~ test/e2e/checkout.spec.ts"
+      ],
+      "tail": [
+        [
+          21.1,
+          "% Bisect the checkout regression",
+          "completed",
+          0.1
+        ],
+        [
+          7.3,
+          "$ npx playwright test checkout.spec.ts",
+          "failed",
+          0.7
+        ],
+        [
+          6.4,
+          "$ npm run test:e2e -- --repeat 20",
+          "running"
+        ]
+      ],
+      "plan": [
+        "✓ Reproduce the flake",
+        "▸ Find the commit that broke it",
+        "○ Fix the race",
+        "○ Run the suite 20 times"
+      ],
+      "subs": [
+        {
+          "id": "demo-bisect",
+          "child": true,
+          "project": "shop",
+          "title": "Bisect the checkout regression",
+          "model": "grok-4.7",
+          "max": 2000000,
+          "ctx": [
+            0.04,
+            0.33
+          ],
+          "status": "running",
+          "from": 21,
+          "every": 30,
+          "work": [
+            "$ git bisect good",
+            "$ git bisect bad",
+            "!$ npx playwright test checkout.spec.ts",
+            "!$ npx playwright test checkout.spec.ts",
+            "Read src/checkout/session.ts",
+            "$ git log --oneline -5",
+            "$ git show --stat HEAD"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "demo-search",
+      "project": "atlas",
+      "title": "Plan the search index rebuild",
+      "model": "claude-opus-5-5",
+      "max": 1000000,
+      "ctx": [
+        0.12,
+        0.54
+      ],
+      "status": "running",
+      "from": 27,
+      "until": 1.8,
+      "every": 38,
+      "cache": 5,
+      "options": [
+        {
+          "id": "effort",
+          "value": "medium"
+        }
+      ],
+      "work": [
+        "Read src/search/indexer.ts",
+        "$ npm run bench:search",
+        "? inverted index compression trade-offs",
+        "Grep buildIndex",
+        "Read docs/search.md",
+        "Read src/search/query.ts",
+        "$ npm test -- search"
+      ],
+      "tail": [
+        [
+          22.1,
+          "% Survey index sizes",
+          "completed",
+          0.1
+        ],
+        [
+          1.7,
+          "@ Which index layout should we keep?",
+          "pending"
+        ]
+      ],
+      "plan": [
+        "✓ Measure the current index",
+        "✓ Compare layouts",
+        "▸ Choose a layout",
+        "○ Write the rebuild job"
+      ],
+      "subs": [
+        {
+          "id": "demo-sizes",
+          "title": "Survey index sizes",
+          "model": "claude-haiku-5-5",
+          "max": 200000,
+          "ctx": [
+            0.05,
+            0.38
+          ],
+          "status": "completed",
+          "from": 22,
+          "to": 12,
+          "every": 25,
+          "work": [
+            "$ du -sh data/index/*",
+            "Read scripts/index-stats.ts",
+            "$ node scripts/index-stats.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "demo-export",
+      "project": "pipe",
+      "title": "Add streaming export to the CLI",
+      "model": "grok-4.7",
+      "max": 2000000,
+      "ctx": [
+        0.03,
+        0.29
+      ],
+      "status": "running",
+      "from": 29,
+      "every": 28,
+      "branch": "streaming-export",
+      "before": {
+        "model": "gpt-6.1-sol",
+        "max": 400000,
+        "from": 55,
+        "to": 33,
+        "ctx": [
+          0.1,
+          0.71
+        ]
+      },
+      "work": [
+        "~ src/export/stream.rs",
+        "~ src/export/csv.rs",
+        "$ cargo test export",
+        "$ cargo clippy",
+        "Read src/export/mod.rs",
+        "Edit src/cli/args.rs",
+        "Read Cargo.toml"
+      ],
+      "tail": [
+        [
+          17.1,
+          "% Profile the CSV writer",
+          "completed",
+          0.1
+        ],
+        [
+          26.1,
+          "% Run the integration suite",
+          "completed",
+          0.1
+        ]
+      ],
+      "plan": [
+        "✓ Sketch the stream API",
+        "▸ Write the CSV encoder",
+        "○ Wire up --format",
+        "○ Benchmark large exports"
+      ],
+      "subs": [
+        {
+          "id": "demo-bench",
+          "title": "Profile the CSV writer",
+          "model": "grok-4.7-fast",
+          "max": 2000000,
+          "ctx": [
+            0.02,
+            0.11
+          ],
+          "status": "running",
+          "from": 17,
+          "rest": 6,
+          "every": 20,
+          "work": [
+            "$ cargo bench --bench csv",
+            "Read benches/csv.rs",
+            "~ benches/csv.rs"
+          ]
+        },
+        {
+          "id": "demo-remote",
+          "title": "Run the integration suite",
+          "model": "grok-4.7",
+          "max": 2000000,
+          "ctx": null,
+          "status": "completed",
+          "from": 26,
+          "to": 5,
+          "every": 60,
+          "work": [],
+          "remote": "cloud sandbox"
+        }
+      ]
+    },
+    {
+      "id": "demo-webhooks",
+      "project": "atlas",
+      "title": "Harden the webhook pipeline",
+      "model": "gpt-6.1-sol",
+      "max": 400000,
+      "ctx": [
+        0.06,
+        0.58
+      ],
+      "status": "running",
+      "from": 290,
+      "every": 50,
+      "branch": "harden-webhooks",
+      "options": [
+        {
+          "id": "reasoning",
+          "value": "medium"
+        }
+      ],
+      "work": [
+        "Read src/webhooks/receiver.ts",
+        "$ npm test -- webhooks",
+        "Grep verifySignature",
+        "~ src/webhooks/retry.ts",
+        "Read docs/webhooks.md",
+        "$ npm run typecheck"
+      ],
+      "tail": [
+        [
+          30.1,
+          "% Review the signature check",
+          "completed",
+          0.1
+        ],
+        [
+          6.1,
+          "% Replay the dead-letter queue",
+          "completed",
+          0.1
+        ]
+      ],
+      "plan": [
+        "✓ Inventory the endpoints",
+        "✓ Pick a queue backend",
+        "✓ Verify every signature",
+        "▸ Replay what was dropped",
+        "○ Alert on retry storms"
+      ],
+      "subs": [
+        {
+          "id": "demo-wh-replay",
+          "title": "Replay the dead-letter queue",
+          "model": "claude-sonnet-5-5",
+          "max": 1000000,
+          "ctx": [
+            0.03,
+            0.19
+          ],
+          "status": "running",
+          "from": 6,
+          "every": 24,
+          "work": [
+            "$ npm run dlq:list",
+            "Read src/webhooks/dlq.ts",
+            "$ npm run dlq:replay -- --dry-run",
+            "~ src/webhooks/dlq.ts"
+          ]
+        },
+        {
+          "id": "demo-wh-signature",
+          "title": "Review the signature check",
+          "model": "claude-opus-5-5",
+          "max": 1000000,
+          "ctx": [
+            0.05,
+            0.31
+          ],
+          "status": "completed",
+          "from": 30,
+          "to": 16,
+          "every": 40,
+          "work": [
+            "Read src/webhooks/verify.ts",
+            "Grep timingSafeEqual",
+            "Read test/webhooks/verify.test.ts"
+          ]
+        },
+        {
+          "id": "demo-wh-idempotency",
+          "title": "Add idempotency keys",
+          "model": "gpt-6.1-sol",
+          "max": 400000,
+          "ctx": [
+            0.07,
+            0.44
+          ],
+          "status": "completed",
+          "from": 70,
+          "to": 41,
+          "every": 45,
+          "work": [
+            "~ src/webhooks/receiver.ts",
+            "~ src/db/migrations/0042_idempotency.sql",
+            "$ npm test -- receiver"
+          ]
+        },
+        {
+          "id": "demo-wh-load",
+          "title": "Load-test the receiver",
+          "model": "grok-4.7-fast",
+          "max": 2000000,
+          "ctx": [
+            0.01,
+            0.06
+          ],
+          "status": "completed",
+          "from": 95,
+          "to": 78,
+          "every": 30,
+          "work": [
+            "!$ k6 run load/webhooks.js",
+            "Read load/webhooks.js",
+            "~ load/webhooks.js"
+          ]
+        },
+        {
+          "id": "demo-wh-headers",
+          "title": "Audit the retry headers",
+          "model": "claude-haiku-5-5",
+          "max": 200000,
+          "ctx": [
+            0.04,
+            0.27
+          ],
+          "status": "completed",
+          "from": 140,
+          "to": 128,
+          "every": 35,
+          "work": [
+            "Grep Retry-After",
+            "Read src/webhooks/retry.ts"
+          ]
+        },
+        {
+          "id": "demo-wh-senders",
+          "title": "Map the webhook senders",
+          "model": "claude-sonnet-5-5",
+          "max": 1000000,
+          "ctx": [
+            0.04,
+            0.35
+          ],
+          "status": "completed",
+          "from": 175,
+          "to": 152,
+          "every": 50,
+          "work": [
+            "Grep webhooks.send",
+            "Read src/billing/events.ts",
+            "Read src/orders/events.ts"
+          ]
+        },
+        {
+          "id": "demo-wh-schema",
+          "title": "Check the payload schemas",
+          "model": "claude-haiku-5-5",
+          "max": 200000,
+          "ctx": [
+            0.06,
+            0.4
+          ],
+          "status": "completed",
+          "from": 200,
+          "to": 188,
+          "every": 35,
+          "work": [
+            "Read schemas/webhooks/*.json",
+            "$ npm run schema:check"
+          ]
+        },
+        {
+          "id": "demo-wh-queue",
+          "title": "Compare queue backends",
+          "model": "gpt-6.1-sol",
+          "max": 400000,
+          "ctx": [
+            0.05,
+            0.52
+          ],
+          "status": "failed",
+          "from": 235,
+          "to": 214,
+          "every": 55,
+          "work": [
+            "? sqs vs redis streams for webhooks",
+            "!$ npm run bench:queue"
+          ]
+        },
+        {
+          "id": "demo-wh-logs",
+          "title": "Sample production logs",
+          "model": "grok-4.7-fast",
+          "max": 2000000,
+          "ctx": [
+            0.01,
+            0.04
+          ],
+          "status": "completed",
+          "from": 262,
+          "to": 247,
+          "every": 40,
+          "work": [
+            "$ ./scripts/logs.sh webhooks --since 7d",
+            "Read logs/sample.txt"
+          ]
+        },
+        {
+          "id": "demo-wh-inventory",
+          "title": "Inventory webhook endpoints",
+          "model": "claude-haiku-5-5",
+          "max": 200000,
+          "ctx": [
+            0.03,
+            0.21
+          ],
+          "status": "completed",
+          "from": 285,
+          "to": 272,
+          "every": 35,
+          "work": [
+            "Glob src/**/webhooks/*.ts",
+            "Read src/routes.ts"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "demo-docs",
+      "project": "book",
+      "title": "Refresh the onboarding guide",
+      "model": "claude-sonnet-5-5",
+      "max": 1000000,
+      "shelf": "settled",
+      "ctx": [
+        0.06,
+        0.41
+      ],
+      "status": "completed",
+      "from": 52,
+      "to": 18,
+      "every": 50,
+      "cache": 60,
+      "work": [
+        "Read guides/onboarding.md",
+        "~ guides/onboarding.md",
+        "? markdown link checker",
+        "$ npx markdownlint guides",
+        "Edit guides/setup.md"
+      ]
+    },
+    {
+      "id": "demo-images",
+      "project": "shop",
+      "title": "Upgrade the image pipeline",
+      "model": "gpt-6.1-sol",
+      "max": 400000,
+      "shelf": "snoozed",
+      "ctx": [
+        0.08,
+        0.55
+      ],
+      "status": "interrupted",
+      "from": 49,
+      "to": 34,
+      "every": 42,
+      "work": [
+        "Read src/images/resize.ts",
+        "~ src/images/resize.ts",
+        "$ npm run build",
+        "$ npm ls sharp"
+      ]
+    },
+    {
+      "id": "demo-retry",
+      "project": "pipe",
+      "title": "Tune the retry backoff",
+      "model": "grok-4.7",
+      "max": 2000000,
+      "ctx": [
+        0.02,
+        0.17
+      ],
+      "status": "failed",
+      "from": 40,
+      "to": 26,
+      "every": 36,
+      "work": [
+        "Read src/net/retry.rs",
+        "~ src/net/retry.rs",
+        "!$ cargo test retry",
+        "$ cargo build"
+      ],
+      "tail": [
+        [
+          26.6,
+          "$ cargo test retry::backoff",
+          "failed",
+          0.5
+        ]
+      ]
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "events": [
+    {"t": 1, "type": "key", "name": "Down"},
+    {"t": 2, "type": "key", "name": "Down"},
+    {"t": 3, "type": "key", "name": "n"},
+    {"t": 4, "type": "key", "name": "?"},
+    {"t": 5.5, "type": "key", "name": "Escape"},
+    {"t": 6, "type": "key", "name": "End"},
+    {"t": 7, "type": "key", "name": "Home"},
+    {"t": 8, "type": "key", "name": "a"},
+    {"t": 9, "type": "key", "name": "a"},
+    {"t": 10, "type": "key", "name": "a"},
+    {"t": 11, "type": "key", "name": "x"},
+    {"t": 12, "type": "key", "name": "x"},
+    {"t": 13, "type": "mark", "name": "end"}
+  ]
+}
