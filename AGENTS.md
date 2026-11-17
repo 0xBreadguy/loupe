@@ -6,7 +6,7 @@ This file covers two jobs: installing it for someone, and working on the code. [
 
 ## Installing it for someone
 
-It runs on Linux. T3 Code's desktop app must be on the same machine, because the dashboard reads its database. macOS and Windows are not supported yet.
+It runs on Linux. T3 Code's desktop app must be on the same machine, because the dashboard reads its database. For macOS there is a preview build with no installer: follow "On a Mac" in the README (download, unpack, run `./t3-agents-term --demo`, and copy the program onto `PATH` only if the person wants to keep it), and say that it is a preview. Windows is not supported yet.
 
 **With a release archive.** No toolchain is needed. The [releases page](https://github.com/0xBreadguy/t3-agents/releases/latest) has one archive for x86-64 and one for ARM, and a `SHA256SUMS` file listing both. Check the page for the newest version and use its number for `v`.
 

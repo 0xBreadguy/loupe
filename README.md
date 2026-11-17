@@ -66,7 +66,8 @@ cd t3-agents
 cargo run --release -p t3-agents-term -- --demo
 ```
 
-`--help` lists every option.
+On a Mac, use the preview archive under [Install](#install). `--help` lists
+every option.
 
 ## What you get
 
@@ -149,9 +150,10 @@ cargo run --release -p t3-agents-term -- --demo
 
 ## Install
 
-You need Linux and T3 Code's desktop app on the same machine. macOS and
-Windows aren't supported yet. Whichever way you install, you get the same
-three things, for your user only: one program in `~/.local/share/t3-agents/`,
+You need T3 Code's desktop app on the same machine. Linux is the supported
+system; there's a preview build for macOS further down, and Windows isn't
+supported yet. On Linux, whichever way you install, you get the same three
+things, for your user only: one program in `~/.local/share/t3-agents/`,
 a `t3-agents` command in `~/.local/bin` and a **T3 Agents** entry in the app
 launcher. No root, no autostart, no keybindings, no window rules, and it won't
 overwrite a launcher it didn't create.
@@ -203,6 +205,30 @@ also build and install straight from it:
 Hide the widget while nothing runs with
 `omarchy bar set 0xbreadguy.t3-agents hideWhenIdle true --json`. The alert
 icon stays visible either way.
+
+**On a Mac (preview):**
+
+```sh
+v=1.1.0 f=t3-agents-$v-universal-apple-darwin
+curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/$f.tar.gz"
+tar -xzf "$f.tar.gz"
+"$f/t3-agents-term" --demo
+```
+
+One archive runs on Apple silicon and Intel Macs, on macOS 11 or later, with
+nothing else to install. Drop `--demo` to see your own agents. To keep it, copy
+the program somewhere on your `PATH`:
+
+```sh
+mkdir -p ~/.local/bin && cp "$f/t3-agents-term" ~/.local/bin/t3-agents
+```
+
+It's a preview. The program builds and passes its tests on a Mac, but it hasn't
+been checked window by window in Mac terminals the way the Linux build has.
+There's no installer, no `--window`, no menu bar item and no usage-limit meter
+on macOS yet, and it doesn't follow the thread you have open in T3. It also
+isn't signed by an Apple developer account, so download it with `curl` as
+above: macOS may block a copy downloaded with a browser.
 
 Once it's installed, run `t3-agents` in any terminal, or `t3-agents --window`
 for a dedicated window: [foot](https://codeberg.org/dnkl/foot) when it's installed,
@@ -340,7 +366,8 @@ read `◌` as "take a look", not "broken".
 ## Requirements and compatibility
 
 - Linux, on x86-64 or ARM. The released program needs glibc 2.34 or later and
-  nothing else installed: SQLite is compiled in. Building it yourself needs a
+  nothing else installed: SQLite is compiled in. The macOS preview needs
+  macOS 11 or later, on Apple silicon or Intel. Building it yourself needs a
   Rust toolchain (developed with Rust 1.99, released with 1.100).
 - T3 Code's desktop app with its v2 local database. This is an unofficial
   adapter to internal storage: a T3 update can change the tables or the window

@@ -1,0 +1,28 @@
+name: macOS release artifacts
+
+# Builds the macOS release archive (one universal program for Apple silicon and Intel) and keeps it as this run's
+# artifact. Nothing is published.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: Build and package
+        run: checks/scripts/package-macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-universal-apple-darwin
+          path: |
+            checks/generated/macos-release/*.tar.gz
+            checks/generated/macos-release/SHA256SUMS
+          if-no-files-found: error
