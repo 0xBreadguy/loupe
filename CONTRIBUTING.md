@@ -95,4 +95,6 @@ Contributions are under the repository's license, MIT.
 
 ## Releases
 
-`.github/workflows/linux-release.yml` is started by hand. It builds an archive for x86-64 and ARM Linux (the program, `install.sh`, the license, the third-party notices and a build record) and keeps it as the run's artifact. `checks/scripts/package-linux.sh` does the same for the machine it runs on. Publishing a release is the maintainer's step.
+`.github/workflows/linux-release.yml` is started by hand. It builds an archive for x86-64 and ARM Linux (the program, `install.sh`, the license, the third-party notices and a build record) and keeps it as the run's artifact. `checks/scripts/package-linux.sh` does the same for the machine it runs on.
+
+A release is the tag `vVERSION` on a commit of `main`, with the two archives from that commit's run and one `SHA256SUMS` file listing both. The version is the one in `Cargo.toml`. The badge and the `v=` lines in `README.md`, and the `v=` line in `AGENTS.md`, name it too, so change them in the same commit. Publishing a release is the maintainer's step.

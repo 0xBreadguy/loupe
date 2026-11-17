@@ -7,6 +7,7 @@
 # T3 Agents
 
 [![test](https://github.com/0xBreadguy/t3-agents/actions/workflows/test.yml/badge.svg)](https://github.com/0xBreadguy/t3-agents/actions/workflows/test.yml)
+[![Release 1.0.0](https://img.shields.io/badge/release-1.0.0-2ea44f)](https://github.com/0xBreadguy/t3-agents/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-2024%20edition-b7410e?logo=rust&logoColor=white)
 ![Omarchy bar widget](https://img.shields.io/badge/Omarchy-bar%20widget-5c6b73)
@@ -44,13 +45,27 @@ You don't need T3 data to see it. `--demo` runs the dashboard on a made-up
 workspace: a few projects, subagents across Claude, GPT and Grok, one agent
 waiting on you, one gone quiet, one slow test run.
 
+The quick way is the prebuilt program from the
+[latest release](https://github.com/0xBreadguy/t3-agents/releases/latest).
+Nothing gets installed and nothing gets compiled:
+
+```sh
+v=1.0.0 t=$(uname -m)-unknown-linux-gnu
+curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/t3-agents-$v-$t.tar.gz"
+tar -xzf "t3-agents-$v-$t.tar.gz"
+"t3-agents-$v-$t/t3-agents-term" --demo
+```
+
+That works on x86-64 and ARM Linux with glibc 2.34 or later: Ubuntu 22.04,
+Debian 12, Fedora 35, and anything newer. Or build it yourself, which needs a
+Rust toolchain and about a minute the first time:
+
 ```sh
 git clone https://github.com/0xBreadguy/t3-agents
 cd t3-agents
 cargo run --release -p t3-agents-term -- --demo
 ```
 
-That needs a Rust toolchain, and the first build takes about a minute.
 `--help` lists every option.
 
 ## What you get
@@ -128,62 +143,82 @@ That needs a Rust toolchain, and the first build takes about a minute.
 
 ## Install
 
-You need a Rust toolchain with `cargo` ([rustup.rs](https://rustup.rs) or your
-distribution's package) and T3 Code's desktop app on the same machine. There
-are no prebuilt binaries yet, so the installer compiles the program. It runs on
-Linux; macOS and Windows aren't supported yet.
+You need Linux and T3 Code's desktop app on the same machine. macOS and
+Windows aren't supported yet. Whichever way you install, you get the same
+three things, for your user only: one program in `~/.local/share/t3-agents/`,
+a `t3-agents` command in `~/.local/bin` and a **T3 Agents** entry in the app
+launcher. No root, no autostart, no keybindings, no window rules, and it won't
+overwrite a launcher it didn't create.
 
-**On Omarchy, with the bar widget:**
+**From a release, with nothing to compile:**
 
 ```sh
-omarchy plugin add https://github.com/0xBreadguy/t3-agents --enable
-~/.config/omarchy/plugins/0xbreadguy.t3-agents/install.sh
+v=1.0.0 t=$(uname -m)-unknown-linux-gnu
+curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/t3-agents-$v-$t.tar.gz"
+curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/SHA256SUMS"
+sha256sum -c --ignore-missing SHA256SUMS
+tar -xzf "t3-agents-$v-$t.tar.gz"
+cd "t3-agents-$v-$t" && ./install.sh --binary ./t3-agents-term
 ```
 
-The first line installs the bar widget from this repository. The second builds
-the dashboard from that same copy and installs it: one program in
-`~/.local/share/t3-agents/`, a `t3-agents` command in `~/.local/bin` and a
-**T3 Agents** entry in the app launcher. The build happens in
-`~/.cache/t3-agents`, not inside the plugin folder. It adds no autostart, no
-keybindings and no window rules, and it won't overwrite a launcher it didn't
-create.
+There's an archive for x86-64 and one for ARM, and `uname -m` picks yours. The
+program needs glibc 2.34 or later and nothing else: SQLite is compiled in.
+`BUILD-INFO` in the archive says exactly what it was built from.
 
-Until the second step runs, the widget shows `⚠` and says the dashboard isn't
-installed. It checks again every 15 seconds, so once the installer finishes
-it picks the dashboard up by itself, with no shell restart.
-
-Hide the widget while nothing runs with
-`omarchy bar set 0xbreadguy.t3-agents hideWhenIdle true --json`. The `⚠` stays
-visible either way.
-
-**Dashboard only, any Linux terminal:**
+**From source:**
 
 ```sh
 git clone https://github.com/0xBreadguy/t3-agents
 ./t3-agents/install.sh
 ```
 
-Then run `t3-agents` in any terminal, or `t3-agents --window` for a
-dedicated window: [foot](https://codeberg.org/dnkl/foot) when it's installed,
+This needs a Rust toolchain with `cargo` ([rustup.rs](https://rustup.rs) or
+your distribution's package). The installer checks for it before it copies
+anything, and builds in `~/.cache/t3-agents`, not inside the clone.
+
+**On Omarchy, add the bar widget:**
+
+```sh
+omarchy plugin add https://github.com/0xBreadguy/t3-agents --enable
+```
+
+The widget runs the `t3-agents` command, so it works with the dashboard
+installed either way above. Until the dashboard is installed, the widget shows
+`⚠` and says so. It checks again every 15 seconds, so it picks the dashboard up
+by itself once the installer finishes, with no shell restart.
+
+The plugin folder is a copy of this repository, so if you have `cargo` you can
+also build and install straight from it:
+
+```sh
+~/.config/omarchy/plugins/0xbreadguy.t3-agents/install.sh
+```
+
+Hide the widget while nothing runs with
+`omarchy bar set 0xbreadguy.t3-agents hideWhenIdle true --json`. The `⚠` stays
+visible either way.
+
+Once it's installed, run `t3-agents` in any terminal, or `t3-agents --window`
+for a dedicated window: [foot](https://codeberg.org/dnkl/foot) when it's installed,
 otherwise your default terminal through `xdg-terminal-exec`, otherwise
 `$TERMINAL -e`. Under Hyprland, `--window` focuses the dashboard instead when
 it's already open with its app id, which foot always sets and
 `xdg-terminal-exec` sets when your terminal supports it.
 
-The installer checks for `cargo` before it copies anything, and it tells you if
-`~/.local/bin` isn't on your `PATH`. A few options, for the cases that need
-them:
+The installer tells you if `~/.local/bin` isn't on your `PATH`. A few options,
+for the cases that need them:
 
 | Option | What it does |
 | --- | --- |
 | `--name NAME` | install under another name: its own command, folder, launcher entry and window id. Two names never touch each other, so you can try a new build beside the one you use |
-| `--binary PATH` | install a program you already built, without `cargo` |
+| `--binary PATH` | install a program that's already built, from a release or your own build, without `cargo` |
 | `--uninstall` | remove what an install with that name wrote, and nothing else |
 
-**Coming from the Node.js version:** run the installer the same way you always
-have. `dashboard/install.sh` still works and does the same thing. It replaces
-the old program in place, leaves no `node_modules` behind, and the bar widget
-moves to the new program by itself within a few seconds.
+**Coming from the Node.js version:** install any of the ways above, over the
+top of it. `dashboard/install.sh` still works too, and builds from source like
+`install.sh`. Either way it replaces the old program in place, leaves no
+`node_modules` behind, and the bar widget moves to the new program by itself
+within a few seconds.
 
 ## Use
 
@@ -298,8 +333,9 @@ read `◌` as "take a look", not "broken".
 
 ## Requirements and compatibility
 
-- Linux, and a Rust toolchain to build it (built and tested with Rust 1.99).
-  The program itself needs nothing installed: SQLite is compiled in.
+- Linux, on x86-64 or ARM. The released program needs glibc 2.34 or later and
+  nothing else installed: SQLite is compiled in. Building it yourself needs a
+  Rust toolchain (developed with Rust 1.99, released with 1.100).
 - T3 Code's desktop app with its v2 local database. This is an unofficial
   adapter to internal storage: a T3 update can change the tables or the window
   title format. Built against T3 Code Nightly, November 2026.
@@ -315,25 +351,30 @@ read `◌` as "take a look", not "broken".
 
 ## Update and remove
 
-Pulling or `omarchy plugin update` refreshes the source. To apply it, rerun the
-installer:
+To update, install again the way you installed. From a release, that's the
+same commands with the new version number. From source or the plugin folder,
+refresh the source and rerun the installer:
 
 ```sh
 omarchy plugin update 0xbreadguy.t3-agents
 ~/.config/omarchy/plugins/0xbreadguy.t3-agents/install.sh
 ```
 
+`omarchy plugin update` on its own updates the bar widget.
+
 The bar widget moves to the new program by itself: the installer ends the old
 watcher and the widget starts a new one within a few seconds. Reopen the
 dashboard to get the new version of that. If the widget itself still looks like
 the old version, run `omarchy restart shell`.
 
-To remove everything:
+To remove the dashboard, run `./install.sh --uninstall` from any copy of the
+installer: the unpacked release folder, a clone, or the plugin folder. To
+remove everything on Omarchy:
 
 ```sh
 ~/.config/omarchy/plugins/0xbreadguy.t3-agents/install.sh --uninstall
 omarchy plugin remove 0xbreadguy.t3-agents
-rm -r "${XDG_CACHE_HOME:-$HOME/.cache}/t3-agents"
+rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/t3-agents"   # the build folder, if you built from source
 ```
 
 ## Develop

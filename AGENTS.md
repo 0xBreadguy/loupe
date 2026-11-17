@@ -8,16 +8,18 @@ This file covers two jobs: installing it for someone, and working on the code. [
 
 It runs on Linux. T3 Code's desktop app must be on the same machine, because the dashboard reads its database. macOS and Windows are not supported yet.
 
-**With a release archive.** Unpack it and run the installer from its folder. No toolchain is needed.
+**With a release archive.** No toolchain is needed. The [releases page](https://github.com/0xBreadguy/t3-agents/releases/latest) has one archive for x86-64 and one for ARM, and a `SHA256SUMS` file listing both. Check the page for the newest version and use its number for `v`.
 
 ```sh
-tar -xzf t3-agents-VERSION-TARGET.tar.gz
-cd t3-agents-VERSION-TARGET
-sha256sum -c ../SHA256SUMS       # when the checksum file is beside the archive
-./install.sh --binary ./t3-agents-term
+v=1.0.0 t=$(uname -m)-unknown-linux-gnu
+curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/t3-agents-$v-$t.tar.gz"
+curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/SHA256SUMS"
+sha256sum -c --ignore-missing SHA256SUMS
+tar -xzf "t3-agents-$v-$t.tar.gz"
+cd "t3-agents-$v-$t" && ./install.sh --binary ./t3-agents-term
 ```
 
-`BUILD-INFO` in the archive says which glibc the binary needs. Compare it with `ldd --version` first if the system is old.
+Stop if the checksum does not match. The binary needs glibc 2.34 or later; `BUILD-INFO` in the archive says so, and `ldd --version` shows what the system has. On an older system, install from source instead.
 
 **From source.** This needs a Rust toolchain with `cargo`. Check for one before starting, and ask before installing one.
 
