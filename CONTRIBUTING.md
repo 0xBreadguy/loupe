@@ -71,6 +71,14 @@ Two checks are not part of `ci.sh` because they need more than a build machine:
 - `checks/scripts/window-parity.sh` runs both programs in a real terminal emulator inside an isolated desktop ([omabox](https://github.com/diogochaves/omabox)) and compares the windows pixel by pixel. Its header has the options.
 - `checks/bench/` holds the measurement harnesses. Report a measurement as the median and range of at least five alternating trials, on built binaries that do not change during the run.
 
+## The bar widget
+
+The widget lives at the repository root (`manifest.json`, `Service.qml`, `BarWidget.qml`, `Status.js`, and its parts in `ui/`) so `omarchy plugin add` can install it straight from git. `node --test test/` checks its logic without a desktop, and `omarchy plugin validate .` checks the folder. Omarchy rejects symlinks in a plugin folder, and `npm ci` creates some under `oracle/node_modules`, so validate a clean clone and never install the checks' dependencies inside an installed plugin.
+
+## Documentation
+
+`README.md` stays short: what it is, where it runs, the quickest install, and a feature list. Instructions and detail go in `docs/`: `install.md`, `usage.md`, `features.md` and `how-it-works.md`. When a release changes the version, the `v=` lines are in `README.md`, `docs/install.md` and `AGENTS.md`.
+
 ## Rules
 
 **Synthetic data only.** No check, test or benchmark may open a real T3 Code database. Pass `--demo` or `--db` with a database the check built, and set `T3CODE_HOME` to a new empty folder as well, so a default path can never reach a real one. The scripts here already do both.
@@ -99,4 +107,4 @@ Contributions are under the repository's license, MIT.
 
 `.github/workflows/macos-release.yml` is started by hand too. It runs `checks/scripts/package-macos.sh`, which builds one universal macOS program (minimum macOS 11.0, ad hoc signed) and archives it without `install.sh`; `--native-only` builds just the Mac it runs on.
 
-A release is the tag `vVERSION` on a commit of `main`, with the archives from that commit's runs (two for Linux, one for macOS) and one `SHA256SUMS` file listing them all. The version is the one in `Cargo.toml`. The badge and the `v=` lines in `README.md`, and the `v=` line in `AGENTS.md`, name it too, so change them in the same commit. Publishing a release is the maintainer's step.
+A release is the tag `vVERSION` on a commit of `main`, with the archives from that commit's runs (two for Linux, one for macOS) and one `SHA256SUMS` file listing them all. The version is the one in `Cargo.toml`. The badge in `README.md` and the `v=` lines in `README.md`, `docs/install.md` and `AGENTS.md` name it too, so change them in the same commit. Publishing a release is the maintainer's step.

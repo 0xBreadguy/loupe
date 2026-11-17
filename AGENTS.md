@@ -2,11 +2,11 @@
 
 T3 Agents is a terminal dashboard for T3 Code agents, and an Omarchy bar widget that shows their status. The dashboard is one Rust program, `t3-agents-term`, installed as the command `t3-agents`. It reads T3 Code's local SQLite database read-only and never writes to it.
 
-This file covers two jobs: installing it for someone, and working on the code. [CONTRIBUTING.md](CONTRIBUTING.md) has the detail for the second, and [README.md](README.md) describes the product.
+This file covers two jobs: installing it for someone, and working on the code. [CONTRIBUTING.md](CONTRIBUTING.md) has the detail for the second, [README.md](README.md) describes the product, and [docs/](docs/) has the full install guide, the keys and options, and what the program reads.
 
 ## Installing it for someone
 
-It runs on Linux. T3 Code's desktop app must be on the same machine, because the dashboard reads its database. For macOS there is a preview build with no installer: follow "On a Mac" in the README (download, unpack, run `./t3-agents-term --demo`, and copy the program onto `PATH` only if the person wants to keep it), and say that it is a preview. Windows is not supported yet.
+It runs on Linux. T3 Code's desktop app must be on the same machine, because the dashboard reads its database. For macOS there is a preview build with no installer: follow [docs/install.md](docs/install.md#macos-preview) (download, unpack, run `./t3-agents-term --demo`, and copy the program onto `PATH` only if the person wants to keep it), and say that it is a preview. Windows is not supported yet.
 
 **With a release archive.** No toolchain is needed. The [releases page](https://github.com/0xBreadguy/t3-agents/releases/latest) has one archive for x86-64 and one for ARM, and a `SHA256SUMS` file listing both. Check the page for the newest version and use its number for `v`.
 

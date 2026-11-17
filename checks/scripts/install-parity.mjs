@@ -14,7 +14,7 @@
 //      byte-identical for the default name.)
 //   2. The new installer takes --name, --title and --binary. The original is fixed to
 //      t3-agents, so only the new one can sit two builds side by side. --uninstall also exists
-//      only here: the original is removed by hand (README "Update and remove").
+//      only here: the original is removed by hand (docs/install.md, "Remove").
 //   3. The launcher runs the installed `t3-agents-term` instead of
 //      `node --experimental-ffi .../src/main.ts`. Everything after the interpreter prefix is
 //      compared, which is the argv the program receives.
