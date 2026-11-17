@@ -357,21 +357,31 @@ read `◌` as "take a look", not "broken".
 
 ## Update and remove
 
-To update, install again the way you installed. From a release, that's the
-same commands with the new version number. From source or the plugin folder,
-refresh the source and rerun the installer:
+The dashboard and the bar widget update separately.
+
+**The dashboard:** install again the way you installed. From a release, that's
+the same commands with the new version number. From source or the plugin
+folder, refresh the source and rerun the installer:
 
 ```sh
 omarchy plugin update 0xbreadguy.t3-agents
 ~/.config/omarchy/plugins/0xbreadguy.t3-agents/install.sh
 ```
 
-`omarchy plugin update` on its own updates the bar widget.
-
 The bar widget moves to the new program by itself: the installer ends the old
 watcher and the widget starts a new one within a few seconds. Reopen the
-dashboard to get the new version of that. If the widget itself still looks like
-the old version, run `omarchy restart shell`.
+dashboard to get the new version of that.
+
+**The bar widget:**
+
+```sh
+omarchy plugin update 0xbreadguy.t3-agents
+omarchy restart shell
+```
+
+The restart matters. Omarchy keeps a widget's code in memory, so until the
+shell restarts, the bar still runs the old widget against the new files, and
+its hover text can show placeholder names where words should be.
 
 To remove the dashboard, run `./install.sh --uninstall` from any copy of the
 installer: the unpacked release folder, a clone, or the plugin folder. To
