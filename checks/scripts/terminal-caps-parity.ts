@@ -700,23 +700,49 @@ function describe(c: Cell) {
   return `${JSON.stringify(c.ch)} fg=${c.fg} bg=${c.bg}${c.bold ? " bold" : ""}${c.explicit ? ` w=${c.explicit}` : ""}`
 }
 
-function compareGrids(label: string, a: Cell[], b: Cell[], nameA = "original", nameB = "rust", flags = true) {
+// One kind of difference is not the programs' and cannot be seen, and terminal-parity.ts accepts the
+// same thing in tmux (see compareRaw there). In a terminal without explicit widths, where the
+// terminal measures a cluster differently from the original's renderer, the blank cells to the right
+// of it are not written again, so they keep the foreground an earlier frame gave them, and the
+// original's earliest frames vary from run to run. The slow start below is one way that happens and
+// is caught by its first frame; on GitHub's two-core runner the original also did it once with a
+// first frame that looked complete (2026-11-17: three cells, original white, Rust default, in the
+// unsupported profile only, with code that had passed there four times). A cell that holds a space
+// in both programs, with the same background and weight, shows nothing whatever its foreground.
+// With `blankForeground` those cells are counted and noted, to the right of a non-ASCII cell on
+// their row, and nowhere else.
+let blankForegroundCells = 0
+function compareGrids(label: string, a: Cell[], b: Cell[], nameA = "original", nameB = "rust", flags = true, blankForeground = false) {
   cases++
   const bad: string[] = []
   let flagDiffs = 0
-  for (let i = 0; i < a.length; i++) {
-    cellsCompared++
-    if (a[i]!.explicit) explicitCells++
-    const x = a[i]!
-    const y = b[i]!
-    const body = x.ch === y.ch && x.fg === y.fg && x.bg === y.bg && x.bold === y.bold
-    const flag = !flags || x.explicit === y.explicit
-    if (!flag) flagDiffs++
-    if (!body || !flag) {
+  let total = 0
+  let open = 0
+  for (let row = 0; row * COLS < a.length; row++) {
+    let afterWide = false // a non-ASCII cell earlier on this row
+    for (let i = row * COLS; i < (row + 1) * COLS && i < a.length; i++) {
+      cellsCompared++
+      if (a[i]!.explicit) explicitCells++
+      const x = a[i]!
+      const y = b[i]!
+      const body = x.ch === y.ch && x.fg === y.fg && x.bg === y.bg && x.bold === y.bold
+      const flag = !flags || x.explicit === y.explicit
+      const invisible = blankForeground && afterWide && flag && x.ch === " " && y.ch === " " && x.bg === y.bg && x.bold === y.bold
+      if ([...x.ch].some((c) => c.codePointAt(0)! > 0x7f) || [...y.ch].some((c) => c.codePointAt(0)! > 0x7f)) afterWide = true
+      if (body && flag) continue
+      if (invisible) {
+        open++
+        continue
+      }
+      total++
+      if (!flag) flagDiffs++
       if (bad.length < Number(process.env.T3_CAPS_SHOW ?? 6)) bad.push(`(${i % COLS},${Math.floor(i / COLS)}) ${nameA} ${describe(x)} | ${nameB} ${describe(y)}`)
     }
   }
-  const total = a.reduce((n, c, i) => n + (c.ch !== b[i]!.ch || c.fg !== b[i]!.fg || c.bg !== b[i]!.bg || c.bold !== b[i]!.bold || (flags && c.explicit !== b[i]!.explicit) ? 1 : 0), 0)
+  if (open) {
+    blankForegroundCells += open
+    notes.push(`open: ${label}: ${open} blank cells differ only in foreground color, beside a cluster this terminal measures differently from the renderer (see compareGrids)`)
+  }
   if (clusterTally) clusterTally.cells += total
   if (total) differences.push(`${label}: ${total} cells differ (${flagDiffs} only in explicit width); ${bad.join("; ")}`)
 }
@@ -800,7 +826,9 @@ async function scenario(profileName: string, keys: string[], input: string[] = [
     differences.push(`${label}: ${node.snapshots.length} settled screens from the original, ${rust.snapshots.length} from Rust`)
     return { node, rust }
   }
-  node.snapshots.forEach((s, i) => compareGrids(`${label} ${s.step}`, s.grid, rust.snapshots[i]!.grid))
+  // Blank cells' foregrounds are let through only where they can differ without anything to see:
+  // cluster titles, in a terminal without explicit widths.
+  node.snapshots.forEach((s, i) => compareGrids(`${label} ${s.step}`, s.grid, rust.snapshots[i]!.grid, "original", "rust", true, clusterTally !== null && !profile.osc66))
   if (profileName === "color-late-tc") {
     if (!rust.firstGrid?.some((c) => c.fg.startsWith("idx("))) differences.push(`${label}: Rust did not draw indexed colors before the late reply`)
     if (!rust.snapshots.at(-1)?.grid.some((c) => c.fg.startsWith("rgb("))) differences.push(`${label}: late Tc reply did not repaint in RGB`)
@@ -1304,6 +1332,7 @@ function finish() {
     errors: errors.length,
     deliberate: deliberate.length,
     open_cluster_cells: clusterCells,
+    blank_foreground_cells_let_through: blankForegroundCells,
     cluster_cells_seen: clusterCellsSeen,
     profiles_skipped_for_a_slow_start: slowStarts.length,
   }
