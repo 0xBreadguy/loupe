@@ -82,9 +82,11 @@ removing are all in [docs/install.md](docs/install.md).
 - **Three scopes:** everything, active only, or what's in T3's sidebar.
 - **Follows T3.** On Hyprland it selects the thread you have open in T3.
 - **Usage-limit meters** from Omarchy's usage records.
-- **27 themes,** Omarchy's own among them. It follows your live Omarchy theme,
-  or your terminal between light and dark. `c` steps through them, and your
-  own theme is one small file.
+- **Every Omarchy theme:** all 23 built in, plus any you've installed, and it
+  follows your live theme when you switch.
+- **27 themes on any system,** with Dracula and three of its own. It follows
+  your terminal between light and dark, `c` steps through them, and your own
+  theme is one small file.
 - **Calm mode,** for when you want nothing moving.
 - **A bar widget** on Omarchy: a count in the bar, and a card of who's doing
   what when you click it.
