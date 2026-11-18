@@ -7,7 +7,7 @@
 # T3 Agents
 
 [![test](https://github.com/0xBreadguy/t3-agents/actions/workflows/test.yml/badge.svg)](https://github.com/0xBreadguy/t3-agents/actions/workflows/test.yml)
-[![Release 1.1.0](https://img.shields.io/badge/release-1.1.0-2ea44f)](https://github.com/0xBreadguy/t3-agents/releases/latest)
+[![Release 1.2.0](https://img.shields.io/badge/release-1.2.0-2ea44f)](https://github.com/0xBreadguy/t3-agents/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-2024%20edition-b7410e?logo=rust&logoColor=white)
 ![Omarchy bar widget](https://img.shields.io/badge/Omarchy-bar%20widget-5c6b73)
@@ -38,7 +38,7 @@ bar.
 Linux:
 
 ```sh
-v=1.1.0 t=$(uname -m)-unknown-linux-gnu
+v=1.2.0 t=$(uname -m)-unknown-linux-gnu
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/t3-agents-$v-$t.tar.gz"
 tar -xzf "t3-agents-$v-$t.tar.gz"
 cd "t3-agents-$v-$t" && ./install.sh --binary ./t3-agents-term
@@ -50,7 +50,7 @@ first.
 macOS:
 
 ```sh
-v=1.1.0 f=t3-agents-$v-universal-apple-darwin
+v=1.2.0 f=t3-agents-$v-universal-apple-darwin
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/$f.tar.gz"
 tar -xzf "$f.tar.gz"
 "$f/t3-agents-term" --demo
