@@ -1,0 +1,40 @@
+# Everforest, from Omarchy: themes/everforest/colors.toml in github.com/omacom/omarchy
+# (MIT, commit 3f974d011). Omarchy's file is copied unchanged down to the roles below.
+
+mode = "dark"
+
+accent = "#7fbbb3"
+selection = "#3d484d"
+muted = "#475258"
+
+background = "#2d353b"
+dark_background = "#21272c"
+darker_background = "#181d20"
+lighter_background = "#343f44"
+
+foreground = "#d3c6aa"
+dark_foreground = "#4f585e"
+light_foreground = "#9da9a0"
+bright_foreground = "#d3c6aa"
+
+red = "#e67e80"
+yellow = "#dbbc7f"
+orange = "#e09d7f"
+green = "#a7c080"
+cyan = "#83c092"
+blue = "#7fbbb3"
+magenta = "#d699b6"
+brown = "#704e3f"
+
+bright_red = "#e67e80"
+bright_yellow = "#dbbc7f"
+bright_green = "#a7c080"
+bright_cyan = "#83c092"
+bright_blue = "#7fbbb3"
+bright_magenta = "#d699b6"
+
+# T3 Agents roles: colors from or near this palette that keep Claude, OpenAI, Grok,
+# "needs you" and the warning apart. See docs/themes.md.
+claude = "#bf7540"
+openai = "#87cbd6"
+grok   = "#ab8cc8"

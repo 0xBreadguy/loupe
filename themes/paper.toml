@@ -1,0 +1,41 @@
+# Paper, a T3 Agents theme: a printed report on warm stock. Graphite ink, a
+# proofreader's red for "needs you", amber for warnings.
+name = "Paper"
+mode = "light"
+
+accent = "#3a3833"
+selection = "#ddd5c3"
+muted = "#c9c1ae"
+
+background = "#f4f1e8"
+dark_background = "#ebe6da"
+darker_background = "#e2dccd"
+lighter_background = "#faf8f2"
+
+foreground = "#1f1d1a"
+dark_foreground = "#8a857a"
+light_foreground = "#3a3833"
+bright_foreground = "#000000"
+
+red = "#97182b"
+yellow = "#9a5505"
+orange = "#b4532c"
+green = "#2f6b3a"
+cyan = "#098777"
+blue = "#1a38a6"
+magenta = "#5f3369"
+brown = "#6b4a2b"
+
+bright_red = "#b8283f"
+bright_yellow = "#b8700c"
+bright_green = "#3f8a4c"
+bright_cyan = "#0aa192"
+bright_blue = "#2f50c4"
+bright_magenta = "#7a4787"
+
+# T3 Agents roles. Claude is plum here: on a light page, orange already reads as a warning.
+hot    = "#97182b"
+warn   = "#9a5505"
+claude = "#5f3369"
+openai = "#098777"
+grok   = "#1a38a6"

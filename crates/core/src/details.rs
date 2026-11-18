@@ -1257,7 +1257,7 @@ pub(crate) fn draw_details(
 }
 
 pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
-    let keys = [
+    let all_keys = [
         ("↑↓ j k", "select agent"),
         ("n", "next agent waiting on you"),
         ("⏎ o", "open the thread in T3 Code"),
@@ -1271,8 +1271,11 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
         ("r", "refresh now"),
         ("m", "calm mode: nothing moves"),
         ("mouse", "click selects, wheel scrolls"),
+        ("c C", "theme: next · back"),
         ("q Esc", "quit (Esc closes help)"),
     ];
+    // `c` is the product's; the original's help, which the parity checks compare, has no theme key.
+    let keys: Vec<_> = all_keys.into_iter().filter(|k| s.themes || k.0 != "c C").collect();
     let legend = [
         (
             "⠹ ◆ ✓ ✗ ⊘",

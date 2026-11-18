@@ -18,6 +18,7 @@ checks/scripts/       The comparisons, and the generators for their inputs
 checks/bench/         Measurement harnesses
 checks/fixtures/      Synthetic inputs and recorded results, tracked
 checks/generated/     Scratch output, ignored
+themes/               The built-in color themes, compiled into the program
 install.sh            Installs, updates and removes the program for the current user
 dashboard/install.sh  Forwards to install.sh; the path older installs update from
 manifest.json, Service.qml, BarWidget.qml, Status.js, ui/, i18n/, test/
@@ -70,6 +71,20 @@ Two checks are not part of `ci.sh` because they need more than a build machine:
 
 - `checks/scripts/window-parity.sh` runs both programs in a real terminal emulator inside an isolated desktop ([omabox](https://github.com/diogochaves/omabox)) and compares the windows pixel by pixel. Its header has the options.
 - `checks/bench/` holds the measurement harnesses. Report a measurement as the median and range of at least five alternating trials, on built binaries that do not change during the run.
+
+## Themes
+
+The built-in themes are the files in `themes/`, compiled in by `crates/core/src/theme.rs`;
+[docs/themes.md](docs/themes.md) describes the format. Omarchy's are its own `colors.toml`
+files, copied unchanged from the commit their header names, with the dashboard's role keys
+added at the end. To add one, put the file in `themes/`, add a line to `BUILTINS` in
+`theme.rs`, and run the core's tests: `every_builtin_reads_and_keeps_what_means_different_things_apart`
+holds every built-in to the contrast and separation floors. `t3-agents --theme-check NAME`
+shows where a theme stands.
+
+The theme options, the `c` key and the light and dark detection are the product's, not the
+original's. `T3_AGENTS_NO_THEMES=1` turns them off, and the checks that compare the two
+programs set it; `crates/term/tests/pty.rs` and the tests in `theme.rs` cover the rest.
 
 ## The bar widget
 

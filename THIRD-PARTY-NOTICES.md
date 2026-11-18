@@ -1,6 +1,6 @@
 # Third-party notices
 
-Covers T3 Code fixtures, OpenTUI ports, uucode and Unicode data, and the Rust dependency tree and bundled SQLite in the Linux binary.
+Covers T3 Code fixtures, OpenTUI ports, the Omarchy and Dracula theme palettes, uucode and Unicode data, and the Rust dependency tree and bundled SQLite in the Linux binary.
 
 The original T3 Agents in `oracle/` is this project’s earlier implementation; its npm dependencies are not checked in or included in the release.
 
@@ -44,6 +44,65 @@ https://github.com/anomalyco/opentui (formerly sst/opentui), v0.8.3. Ported logi
 MIT License
 
 Copyright (c) 2025 opentui
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## Omarchy
+
+https://github.com/omacom/omarchy, commit 3f974d011. `themes/catppuccin.toml`, `catppuccin-latte.toml`, `ethereal.toml`, `everforest.toml`, `flexoki-light.toml`, `gruvbox.toml`, `hackerman.toml`, `jade-horse.toml`, `kanagawa.toml`, `last-horizon.toml`, `lumon.toml`, `lupine.toml`, `matte-black.toml`, `miasma.toml`, `nord.toml`, `retro-82.toml`, `ristretto.toml`, `rose-pine.toml`, `solitude.toml`, `starship.toml`, `tokyo-night.toml`, `vantablack.toml` and `white.toml` contain Omarchy's `themes/NAME/colors.toml` unchanged, followed by this project's role keys; they are compiled into the program. Omarchy's theme files adapt palettes from their own upstream projects, credited in Omarchy. License from that commit's `LICENSE`.
+
+### LICENSE
+
+```text
+Copyright (c) David Heinemeier Hansson
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+## Dracula
+
+https://draculatheme.com/spec. `themes/dracula.toml` uses the Dracula palette, compiled into the program. License from https://github.com/dracula/dracula-theme (`LICENSE` on `main`).
+
+### LICENSE
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2023 Dracula Theme
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

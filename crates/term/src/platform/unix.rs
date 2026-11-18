@@ -17,6 +17,7 @@ static PENDING: AtomicU32 = AtomicU32::new(0);
 static RESTORE: Mutex<Option<Saved>> = Mutex::new(None);
 /// Mode 2027 was found off and this program switched it on: leaving puts it back.
 static GRAPHEME_TO_RESTORE: AtomicBool = AtomicBool::new(false);
+static THEME_MODE_TO_RESTORE: AtomicBool = AtomicBool::new(false);
 
 struct Saved {
     fd: i32,
@@ -294,6 +295,9 @@ fn restore_now() {
     if GRAPHEME_TO_RESTORE.swap(false, Ordering::SeqCst) {
         let _ = write_all_fd(saved.out, crate::GRAPHEME_OFF);
     }
+    if THEME_MODE_TO_RESTORE.swap(false, Ordering::SeqCst) {
+        let _ = write_all_fd(saved.out, crate::THEME_MODE_OFF);
+    }
     let _ = write_all_fd(saved.out, LEAVE_TERM);
     // SAFETY: `orig` is the attribute block `tcgetattr` filled in.
     unsafe { libc::tcsetattr(saved.fd, libc::TCSANOW, &saved.orig) };
@@ -340,6 +344,11 @@ pub fn enter_raw() -> io::Result<Restorer> {
 /// (quit, a signal, a panic) switches it off again.
 pub fn restore_grapheme_mode_on_exit() {
     GRAPHEME_TO_RESTORE.store(true, Ordering::SeqCst);
+}
+
+/// Color scheme reports (mode 2031) were switched on: switch them off on the way out.
+pub fn restore_theme_mode_on_exit() {
+    THEME_MODE_TO_RESTORE.store(true, Ordering::SeqCst);
 }
 
 /// Columns and rows of the terminal on standard output, each at least 1.

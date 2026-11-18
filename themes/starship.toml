@@ -1,0 +1,40 @@
+# Starship, from Omarchy: themes/starship/colors.toml in github.com/omacom/omarchy
+# (MIT, commit 3f974d011). Omarchy's file is copied unchanged down to the roles below.
+
+mode = "dark"
+
+accent = "#ff9f0a"
+selection = "#3a3a3c"
+muted = "#8e8e93"
+
+background = "#1c1c1e"
+dark_background = "#161618"
+darker_background = "#0e0e10"
+lighter_background = "#2c2c2e"
+
+foreground = "#f5f5f7"
+dark_foreground = "#98989d"
+light_foreground = "#fbfbfd"
+bright_foreground = "#ffffff"
+
+red = "#ff5f4a"
+yellow = "#ffc27a"
+orange = "#ff6a3d"
+green = "#ff9f0a"
+cyan = "#a6dcef"
+blue = "#8fb8de"
+magenta = "#ff8fa3"
+brown = "#b8a99a"
+
+bright_red = "#ff8373"
+bright_yellow = "#ffd8a8"
+bright_green = "#ffb340"
+bright_cyan = "#cdeefa"
+bright_blue = "#b5d0ea"
+bright_magenta = "#ffb3c1"
+
+# T3 Agents roles: colors from or near this palette that keep Claude, OpenAI, Grok,
+# "needs you" and the warning apart. See docs/themes.md.
+claude = "#ff8fa3"
+openai = "#a0e7e5"
+grok   = "#a0b4e2"

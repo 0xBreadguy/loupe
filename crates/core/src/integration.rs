@@ -12,9 +12,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const MAX_FILE: u64 = 1 << 20;
+pub(crate) const MAX_FILE: u64 = 1 << 20;
 
-fn read_bounded(path: &Path, max: u64) -> io::Result<String> {
+pub(crate) fn read_bounded(path: &Path, max: u64) -> io::Result<String> {
     let file = File::open(path)?;
     if !file.metadata()?.is_file() || file.metadata()?.len() > max {
         return Err(io::Error::new(
@@ -138,9 +138,44 @@ fn dimmest(fg: u32, bg: u32, target: f64, surfaces: &[u32]) -> u32 {
     terminal::mix(fg, bg, lo)
 }
 
+/// The dashboard's own keys a theme may add to an Omarchy `colors.toml`, each pinning one role
+/// that is otherwise derived: `hot` (needs you), `warn` (a limit is near, a run stalled) and the
+/// four provider colors. `derive_palette` ignores them, as the original does.
+pub const ROLE_KEYS: [&str; 6] = ["hot", "warn", "claude", "openai", "grok", "other"];
+
+/// Role colors a theme pins. `None` leaves the role to the derivation.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Roles {
+    pub hot: Option<u32>,
+    pub warn: Option<u32>,
+    pub claude: Option<u32>,
+    pub openai: Option<u32>,
+    pub grok: Option<u32>,
+    pub other: Option<u32>,
+}
+
+impl Roles {
+    pub fn from_vars(vars: &[(&str, &str)]) -> Self {
+        let color = |name| hex(vars.iter().find(|pair| pair.0 == name).map(|pair| pair.1));
+        Self {
+            hot: color("hot"),
+            warn: color("warn"),
+            claude: color("claude"),
+            openai: color("openai"),
+            grok: color("grok"),
+            other: color("other"),
+        }
+    }
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 /// The same intentionally small TOML subset as `parseColorsToml`, preserving
 /// insertion order for ties in the accent selection. No extra TOML dependency.
-pub fn derive_palette(text: &str) -> Palette {
+/// A key that appears again keeps its first place and takes the later value, so a file
+/// appended to another overrides it key by key.
+pub fn parse_vars(text: &str) -> Vec<(&str, &str)> {
     let mut vars: Vec<(&str, &str)> = Vec::new();
     for line in text.lines() {
         let line = line.trim_start();
@@ -163,6 +198,29 @@ pub fn derive_palette(text: &str) -> Palette {
             vars.push((key, value));
         }
     }
+    vars
+}
+
+/// The original's palette from a `colors.toml`. Role keys are ignored, as the original ignores
+/// every key it does not know.
+pub fn derive_palette(text: &str) -> Palette {
+    derive_from(&parse_vars(text), None)
+}
+
+/// [`derive_palette`], with the theme's role keys pinning their roles. For a file without role
+/// keys the two are the same palette, number for number.
+pub fn derive_themed(text: &str) -> Palette {
+    let vars = parse_vars(text);
+    let roles = Roles::from_vars(&vars);
+    derive_from(&vars, Some(&roles))
+}
+
+/// `roles` is `None` for the original's derivation. With roles, a pinned `hot` or `warn` replaces
+/// the color the derivation would pick and still goes through the contrast guard (it is drawn as
+/// text); pinned provider colors are used as written, in light themes too; and role values never
+/// stand in as the most chromatic color of the theme.
+fn derive_from(vars: &[(&str, &str)], roles: Option<&Roles>) -> Palette {
+    let pins = roles.copied().unwrap_or_default();
     let value = |name| vars.iter().find(|pair| pair.0 == name).map(|pair| pair.1);
     let color = |name| hex(value(name));
     let bg = color("background").unwrap_or(0x101315);
@@ -178,21 +236,28 @@ pub fn derive_palette(text: &str) -> Palette {
         accent = terminal::mix(accent, fg, 0.5);
     }
     accent = reach(accent, fg, 4.5, &page);
-    let hot = most_chromatic([color("bright_red"), color("red")]);
-    let hot = if hot.is_none_or(|c| chroma(c) < 70) {
-        most_chromatic(vars.iter().map(|pair| hex(Some(pair.1))))
-            .filter(|c| chroma(*c) >= 70)
-            .unwrap_or(0xde6145)
-    } else {
-        hot.unwrap()
-    };
+    let hot = pins.hot.unwrap_or_else(|| {
+        let hot = most_chromatic([color("bright_red"), color("red")]);
+        if hot.is_none_or(|c| chroma(c) < 70) {
+            let palette = vars
+                .iter()
+                .filter(|pair| roles.is_none() || !ROLE_KEYS.contains(&pair.0));
+            most_chromatic(palette.map(|pair| hex(Some(pair.1))))
+                .filter(|c| chroma(*c) >= 70)
+                .unwrap_or(0xde6145)
+        } else {
+            hot.unwrap()
+        }
+    });
     let hot = reach(hot, ink, 4.5, &page);
-    let warn = most_chromatic([color("yellow"), color("bright_yellow")]);
-    let warn = if warn.is_none_or(|c| chroma(c) < 60) {
-        terminal::mix(hot, fg, 0.5)
-    } else {
-        warn.unwrap()
-    };
+    let warn = pins.warn.unwrap_or_else(|| {
+        let warn = most_chromatic([color("yellow"), color("bright_yellow")]);
+        if warn.is_none_or(|c| chroma(c) < 60) {
+            terminal::mix(hot, fg, 0.5)
+        } else {
+            warn.unwrap()
+        }
+    });
     let warn = reach(warn, ink, 4.5, &page);
     let mut sel = color("selection").unwrap_or_else(|| terminal::mix(bg, fg, 0.14));
     if contrast(sel, bg) < 1.25 {
@@ -229,10 +294,10 @@ pub fn derive_palette(text: &str) -> Palette {
         busy: terminal::mix(bg, accent, 0.16),
         floor: 0.,
         providers: [
-            shade(base[0]),
-            shade(base[1]),
-            shade(base[2]),
-            terminal::mix(fg, bg, 0.52),
+            pins.claude.unwrap_or_else(|| shade(base[0])),
+            pins.openai.unwrap_or_else(|| shade(base[1])),
+            pins.grok.unwrap_or_else(|| shade(base[2])),
+            pins.other.unwrap_or_else(|| terminal::mix(fg, bg, 0.52)),
         ],
     };
     let tracks = [track, terminal::mix(track, sel, 0.4)];

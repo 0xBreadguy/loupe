@@ -27,6 +27,7 @@ it's already open with its app id, which foot always sets and
 | `p` / `r` | pause updates / refresh now |
 | `m` | calm mode: nothing animates (on by default when Omarchy's animations are off) |
 | `x` | CRT effects, purely for fun (off in calm mode) |
+| `c` / `C` | next / previous theme, saved for next time ([themes](themes.md)) |
 | `?` / `h` | help and legend (scroll it with `↑` `↓` / `j` `k` or the wheel) |
 | `Esc` | close the help, or quit |
 | `q` | quit |
@@ -46,7 +47,7 @@ Home, End and Page Up/Down act like the main keys.
 | `14:02╷` `╷14:12` | on the lane axis: when the selected agent's latest run started and ended |
 | `┄` N earlier | subagents folded away: finished over 3 hours ago, or before the latest 3. `→`, `Enter` or a click lists them |
 | `✓` `✗` `⊘` | done, failed, interrupted |
-| `●` | provider. On grayscale themes: plum Claude, teal GPT / Codex, blue Grok, gray other. Colorful themes use their own colors |
+| `●` | provider: each theme gives Claude, GPT / Codex, Grok and the rest their own colors |
 | `▎` and a band | the thread open in T3 and its subagents |
 | `×` in a lane | a failed tool call |
 
@@ -61,6 +62,9 @@ Options:
 | `--demo` | made-up agents and usage instead of yours |
 | `--interval SECONDS` | how often the dashboard rereads T3, 0.5 or more (default 2) |
 | `--calm` | start in calm mode; on by default when Omarchy's animations are off |
+| `--theme NAME` | a [theme](themes.md): a built-in, a file, `omarchy`, or `dark:NAME,light:NAME` |
+| `--themes` | list the themes and say which one is in use |
+| `--theme-check NAME` | a theme's colors, contrast and colorblind separation |
 | `--help` | list the options |
 
 By default it reads `~/.t3/userdata/statev2.sqlite`. If your T3 data lives

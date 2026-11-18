@@ -8,7 +8,7 @@ use crate::{
     clock, demo, integration,
     model::{self, Agent, Snapshot, State},
     source::{self, SourceError},
-    status, terminal,
+    status, terminal, theme,
 };
 use std::{
     ffi::OsStr,
@@ -30,6 +30,25 @@ pub const USAGE: &str = "Usage: t3-agents [--window] [--once | --status [--watch
   --calm            start in calm mode: nothing animates (on by default when Omarchy's
                     animations are off; m toggles it)
 ";
+
+/// What `--help` adds to [`USAGE`] where the product's themes are on (not with
+/// `T3_AGENTS_NO_THEMES`, the original's behavior, which the parity checks compare).
+pub const THEME_USAGE: &str = "  --theme NAME      color theme: a built-in, a theme file, omarchy (follow
+                    Omarchy's live theme), or dark:NAME,light:NAME to follow
+                    light and dark mode; c and C step through them while it runs
+  --themes          list the themes and say which one is in use
+  --theme-check NAME
+                    a theme's colors, contrast and colorblind separation
+";
+
+/// `--help`: the original's text, and the theme options where themes are on.
+pub fn usage(themes: bool) -> String {
+    if themes {
+        format!("{USAGE}{THEME_USAGE}")
+    } else {
+        USAGE.to_owned()
+    }
+}
 
 /// The original's message when the interactive dashboard has no terminal to draw on.
 pub const NOT_A_TERMINAL: &str = "Run in a terminal, or use --once for a plain-text snapshot.\n";
@@ -55,7 +74,11 @@ pub enum Command {
     Help,
     Status { database: Database, watch: bool, now: Option<f64> },
     Once { database: Database, now: Option<f64> },
-    Interactive { database: Database, interval: f64, calm: bool },
+    Interactive { database: Database, interval: f64, calm: bool, theme: Option<String> },
+    /// `--themes`.
+    Themes { theme: Option<String> },
+    /// `--theme-check NAME`.
+    ThemeCheck { name: String },
 }
 
 /// A usage error: `message`, a blank line, then [`USAGE`] on stderr, exiting 2.
@@ -77,6 +100,8 @@ pub struct Environment {
     /// Omarchy's `animationsOff()`. `None` detects it only when an interactive command is
     /// built, so `--once` and `--status` never look at the user's state directory.
     pub animations_off: Option<bool>,
+    /// The product's themes, and their options, are on: not under `T3_AGENTS_NO_THEMES`.
+    pub themes: bool,
 }
 
 impl Environment {
@@ -85,6 +110,7 @@ impl Environment {
             t3code_home: std::env::var_os("T3CODE_HOME"),
             home: crate::platform::home_dir(),
             animations_off: None,
+            themes: !theme::disabled(),
         }
     }
 }
@@ -232,6 +258,7 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
     let mut now_ms: Option<f64> = None;
     let (mut once, mut help, mut status, mut watch, mut demo, mut calm) =
         (false, false, false, false, false, false);
+    let (mut theme, mut check, mut themes) = (None::<String>, None::<String>, false);
     let mut i = 0;
     while i < args.len() {
         let arg = &args[i];
@@ -256,6 +283,9 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
                 "--demo" => boolean(&mut demo)?,
                 "--calm" => boolean(&mut calm)?,
                 "--db" => db = Some(string_value(args, &mut i, flag, value)?),
+                "--theme" if env.themes => theme = Some(string_value(args, &mut i, flag, value)?),
+                "--theme-check" if env.themes => check = Some(string_value(args, &mut i, flag, value)?),
+                "--themes" if env.themes => boolean(&mut themes)?,
                 "--interval" => interval_raw = string_value(args, &mut i, flag, value)?,
                 "--now-ms" => {
                     let raw = string_value(args, &mut i, flag, value)?;
@@ -283,6 +313,12 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
     }
     if help {
         return Ok(Command::Help);
+    }
+    if let Some(name) = check {
+        return Ok(Command::ThemeCheck { name });
+    }
+    if themes {
+        return Ok(Command::Themes { theme });
     }
     let database = if demo {
         Database::Demo
@@ -322,6 +358,7 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
                 || env
                     .animations_off
                     .unwrap_or_else(integration::animations_off),
+            theme,
         })
     }
 }
@@ -416,17 +453,49 @@ pub fn headless() -> Result<bool, Box<dyn std::error::Error>> {
     let command = match parse_in(&args, &env) {
         Ok(command) => command,
         Err(error) => {
-            let _ = io::stderr().write_all(format!("{error}\n\n{USAGE}").as_bytes());
+            let usage = usage(env.themes);
+            let _ = io::stderr().write_all(format!("{error}\n\n{usage}").as_bytes());
             std::process::exit(2);
         }
     };
     match command {
         Command::Help => {
             let mut out = io::stdout().lock();
-            out.write_all(USAGE.as_bytes())?;
+            out.write_all(usage(env.themes).as_bytes())?;
             out.flush()?;
             Ok(true)
         }
+        Command::Themes { theme } => {
+            let paths = theme::Paths::current();
+            let env_theme = std::env::var("T3_AGENTS_THEME").ok();
+            let (setting, skipped) = match theme::setting(theme.as_deref(), env_theme.as_deref(), &paths) {
+                Ok(found) => found,
+                Err(e) => {
+                    let _ = io::stderr().write_all(format!("{e}\n").as_bytes());
+                    std::process::exit(2);
+                }
+            };
+            for line in skipped {
+                let _ = io::stderr().write_all(format!("skipped {line}\n").as_bytes());
+            }
+            let themes = theme::Themes::new(setting, paths.clone());
+            let mut out = io::stdout().lock();
+            out.write_all(theme::list(Some(&themes), &paths).as_bytes())?;
+            out.flush()?;
+            Ok(true)
+        }
+        Command::ThemeCheck { name } => match theme::check(&name, &theme::Paths::current()) {
+            Ok(report) => {
+                let mut out = io::stdout().lock();
+                out.write_all(report.as_bytes())?;
+                out.flush()?;
+                Ok(true)
+            }
+            Err(e) => {
+                let _ = io::stderr().write_all(format!("{e}\n").as_bytes());
+                std::process::exit(1);
+            }
+        },
         Command::Status {
             database,
             watch,
@@ -748,6 +817,7 @@ mod tests {
             t3code_home: t3code_home.map(Into::into),
             home: Some(home.into()),
             animations_off: Some(false),
+            themes: false,
         }
     }
 
@@ -760,6 +830,31 @@ mod tests {
             Command::Interactive { interval, .. } => interval,
             other => panic!("expected interactive, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn theme_options_are_the_products_and_the_original_rejects_them() {
+        let themed = Environment { themes: true, ..env("/tmp/home", None) };
+        match parse_in(&args(&["--demo", "--theme", "dark:frontier,light:paper"]), &themed).unwrap() {
+            Command::Interactive { theme, .. } => assert_eq!(theme.as_deref(), Some("dark:frontier,light:paper")),
+            other => panic!("expected interactive, got {other:?}"),
+        }
+        assert_eq!(parse_in(&args(&["--themes"]), &themed).unwrap(), Command::Themes { theme: None });
+        assert_eq!(
+            parse_in(&args(&["--theme-check=paper"]), &themed).unwrap(),
+            Command::ThemeCheck { name: "paper".into() }
+        );
+        assert_eq!(parse_in(&args(&["--themes", "--help"]), &themed).unwrap(), Command::Help);
+        // The theme is a screen setting: --once and --status take it and draw no color.
+        assert!(matches!(parse_in(&args(&["--once", "--theme", "paper"]), &themed).unwrap(), Command::Once { .. }));
+        assert!(parse_in(&args(&["--theme"]), &themed).is_err());
+        // The original's command line, which the parity checks compare, knows none of them.
+        for flag in ["--theme=paper", "--themes", "--theme-check=paper"] {
+            assert_eq!(parse_in(&args(&[flag]), &env("/tmp/home", None)), Err(UsageError(format!("Unknown option '{flag}'"))));
+        }
+        assert_eq!(usage(false), USAGE);
+        assert_eq!(usage(true), format!("{USAGE}{THEME_USAGE}"));
+        assert!(THEME_USAGE.lines().all(|l| l.chars().count() <= 80));
     }
 
     #[test]

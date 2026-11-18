@@ -193,7 +193,10 @@ impl Tmux {
             .env("HOME", &self.work_home)
             .env("LANG", "C.UTF-8")
             .env("TZ", "UTC")
-            .env("T3CODE_HOME", &self.t3home);
+            .env("T3CODE_HOME", &self.t3home)
+            // The original's theme behavior, which the recording holds; the product's themes are
+            // a deliberate difference, tested in pty.rs.
+            .env("T3_AGENTS_NO_THEMES", "1");
         command
     }
 
@@ -287,6 +290,7 @@ fn base_exports(work: &Work, term: &str, colorterm: Option<&str>) -> Vec<String>
         "export LANG=C.UTF-8".into(),
         format!("export PATH={}", quote(&format!("{}:{path}", work.stub.display()))),
         format!("export T3_FIXED_NOW={}", quote(NOW)),
+        "export T3_AGENTS_NO_THEMES=1".into(),
         format!("export TERM={}", quote(term)),
         "unset HYPRLAND_INSTANCE_SIGNATURE NO_COLOR FORCE_COLOR COLORTERM".into(),
     ];
@@ -1126,6 +1130,7 @@ fn not_a_terminal_matches_the_recording() {
         .env("XDG_RUNTIME_DIR", &work.runtime)
         .env("TZ", "UTC")
         .env("T3_FIXED_NOW", NOW)
+        .env("T3_AGENTS_NO_THEMES", "1")
         .stdin(Stdio::null())
         .output()
         .unwrap();

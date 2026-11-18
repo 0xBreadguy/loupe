@@ -1,0 +1,41 @@
+# Phosphor, a T3 Agents theme: an amber CRT, made for the x key's scanlines. Providers
+# glow at different brightness; only "needs you" breaks the amber.
+name = "Phosphor"
+mode = "dark"
+
+accent = "#ffb000"
+selection = "#3a2808"
+muted = "#4a3410"
+
+background = "#110b03"
+dark_background = "#0c0802"
+darker_background = "#080501"
+lighter_background = "#1c1306"
+
+foreground = "#f5c26b"
+dark_foreground = "#8a6a33"
+light_foreground = "#ffd27a"
+bright_foreground = "#fff0cc"
+
+red = "#fb6ca0"
+yellow = "#eef392"
+orange = "#f3b01d"
+green = "#d8e07a"
+cyan = "#f0dca8"
+blue = "#c47d04"
+magenta = "#ff8fbf"
+brown = "#a14301"
+
+bright_red = "#ff8fb6"
+bright_yellow = "#f7f9b8"
+bright_green = "#e6ec9c"
+bright_cyan = "#f8ead0"
+bright_blue = "#e09a1e"
+bright_magenta = "#ffb3d2"
+
+# T3 Agents roles. Providers separate by brightness: Claude bright, OpenAI mid, Grok dim.
+hot    = "#fb6ca0"
+warn   = "#eef392"
+claude = "#f3b01d"
+openai = "#c47d04"
+grok   = "#a14301"

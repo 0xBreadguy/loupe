@@ -156,6 +156,8 @@ fn command_line_matches_frozen_oracle() {
             .env("PATH", "/usr/bin:/bin")
             .env("LANG", "C.UTF-8")
             .env("HOME", &home)
+            // The original's command line; the product's theme options are a deliberate addition.
+            .env("T3_AGENTS_NO_THEMES", "1")
             .envs(extra.iter().map(|(k, v)| (*k, *v)))
             .output()
             .unwrap_or_else(|e| panic!("{label}: run: {e}"));

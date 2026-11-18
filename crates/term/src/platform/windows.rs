@@ -55,6 +55,8 @@ pub fn enter_raw() -> io::Result<Restorer> {
 
 pub fn restore_grapheme_mode_on_exit() {}
 
+pub fn restore_theme_mode_on_exit() {}
+
 pub fn window_size() -> io::Result<(usize, usize)> {
     Err(not_supported("reading the console size"))
 }

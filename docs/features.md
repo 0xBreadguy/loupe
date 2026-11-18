@@ -4,6 +4,14 @@ The short list is in the [README](../README.md). This is the long one.
 
 ## The dashboard
 
+- **Themes:** 27 built in, including all 23 of Omarchy's, plus Frontier, Paper,
+  Phosphor and Dracula. On Omarchy it follows the live theme; elsewhere it
+  follows the terminal between Frontier and Paper. `c` and `C` step through
+  them and remember the choice. Every built-in keeps the provider colors,
+  "needs you" and the warning apart for colorblind readers. A theme of your own
+  is an Omarchy `colors.toml` plus a few optional keys, and `--theme-check`
+  says how it reads. See [themes](themes.md).
+
 - **Big numbers up top:** active agents, agents waiting on you, tool calls per
   minute, peak context, tokens today, failed calls. Only numbers worth a look
   are big: zeros stay small and dim, and a missing value is a small `—` with the

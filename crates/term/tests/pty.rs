@@ -45,6 +45,13 @@ struct Pty {
 
 impl Pty {
     fn spawn(cols: u16, rows: u16, extra_env: &[(&str, &str)]) -> Self {
+        let fixture = fixture();
+        let args = ["--snapshot", fixture.to_str().unwrap()];
+        Self::spawn_args(cols, rows, &args, extra_env, &[])
+    }
+
+    /// Any command line, with variables set and others taken out of the child's environment.
+    fn spawn_args(cols: u16, rows: u16, args: &[&str], extra_env: &[(&str, &str)], remove: &[&str]) -> Self {
         let mut master = 0;
         let mut slave = 0;
         let mut size = libc::winsize {
@@ -77,8 +84,7 @@ impl Pty {
         }
         unsafe { libc::fcntl(master, libc::F_SETFL, libc::O_NONBLOCK) };
         let mut cmd = Command::new(term_bin());
-        cmd.arg("--snapshot")
-            .arg(fixture())
+        cmd.args(args)
             .stdin(Stdio::from(dup_file(slave)))
             .stdout(Stdio::from(dup_file(slave)))
             .stderr(Stdio::from(dup_file(slave)))
@@ -86,6 +92,9 @@ impl Pty {
             .env_remove("T3_EXPERIMENT_INTERACTION")
             .env_remove("T3_EXPERIMENT_METRICS")
             .env_remove("T3_PRESENT_TRACE");
+        for key in remove {
+            cmd.env_remove(key);
+        }
         for (key, value) in extra_env {
             cmd.env(key, value);
         }
@@ -161,6 +170,26 @@ impl Pty {
         panic!(
             "timed out waiting for {n} frames (have {}), child {status:?}, output:\n{}",
             sync_ends(&self.buf),
+            String::from_utf8_lossy(&self.buf)
+        );
+    }
+
+    /// Reads until `needle` has appeared `count` times in everything read so far.
+    fn wait_for(&mut self, needle: &[u8], count: usize) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while Instant::now() < deadline {
+            let eof = self.pump();
+            if self.buf.windows(needle.len()).filter(|w| *w == needle).count() >= count {
+                return;
+            }
+            if eof {
+                break;
+            }
+            select_fd(self.master, false, 30);
+        }
+        panic!(
+            "timed out waiting for {count} of {:?}, output:\n{}",
+            String::from_utf8_lossy(needle),
             String::from_utf8_lossy(&self.buf)
         );
     }
@@ -706,4 +735,79 @@ fn an_idle_presenter_sleeps_instead_of_spinning() {
         "{idle:?} of idling cost {:?} more CPU than quitting at once ({baseline:?} -> {idled:?})",
         idled.saturating_sub(baseline)
     );
+}
+
+/// A folder for one test's home, removed when dropped.
+struct Home(PathBuf);
+impl Home {
+    fn new(tag: &str) -> Self {
+        let path = std::env::temp_dir().join(format!("t3-agents-pty-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(path.join("t3")).unwrap();
+        Self(path)
+    }
+}
+impl Drop for Home {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+/// The variables that could lead the child to a real theme or config file.
+const OUTSIDE: &[&str] = &["XDG_CONFIG_HOME", "OMARCHY_PATH", "T3_AGENTS_THEME", "T3_AGENTS_NO_THEMES", "TMUX", "STY"];
+
+fn background(rgb: u32) -> Vec<u8> {
+    format!("48;2;{};{};{}", rgb >> 16, (rgb >> 8) & 255, rgb & 255).into_bytes()
+}
+
+/// With no Omarchy and nothing chosen, the dashboard asks the terminal for its background and
+/// draws Paper on a light one and Frontier on a dark one, and follows a color scheme change. This
+/// is a deliberate difference from the original, which draws its gray fallback here; under
+/// `T3_AGENTS_NO_THEMES` it asks nothing (below).
+#[test]
+fn the_default_theme_follows_the_terminals_light_or_dark_background() {
+    let home = Home::new("mode");
+    let h = home.0.to_str().unwrap();
+    let t3 = home.0.join("t3");
+    let env = [("HOME", h), ("T3CODE_HOME", t3.to_str().unwrap()), ("TERM", "xterm-256color"), ("COLORTERM", "truecolor"), ("TZ", "UTC")];
+    let mut pty = Pty::spawn_args(160, 45, &["--demo", "--calm"], &env, OUTSIDE);
+    pty.wait_for(b"\x1b[?2031h\x1b]11;?\x07", 1);
+    pty.send(b"\x1b]11;rgb:fafa/fafa/fafa\x1b\\\x1b[?62;22c");
+    let paper = 0xf4f1e8;
+    pty.wait_for(&background(paper), 1);
+    // The terminal says its scheme changed: the dashboard asks again and follows the answer.
+    pty.send(b"\x1b[?997;1n");
+    pty.wait_for(b"\x1b]11;?\x07", 2);
+    pty.send(b"\x1b]11;rgb:1a1a/1b1b/2626\x07");
+    pty.wait_for(&background(0x0a0a0b), 1);
+    // c steps to the next theme for this mode, and remembers it.
+    pty.send(b"c");
+    pty.wait_for(b"Dark theme: Paper", 1);
+    pty.send(b"q");
+    let status = pty.wait();
+    assert!(status.success(), "{status:?}");
+    assert!(pty.buf.windows(8).any(|w| w == b"\x1b[?2031l"), "color scheme reports are switched off on the way out");
+    let config = std::fs::read_to_string(home.0.join(".config/t3-agents/config.toml")).unwrap();
+    assert_eq!(config, "theme = \"dark:paper,light:paper\"\n");
+}
+
+/// The original's behavior, which the parity checks compare: no background query, no theme key.
+#[test]
+fn without_themes_nothing_is_asked_and_c_is_not_a_key() {
+    let home = Home::new("off");
+    let h = home.0.to_str().unwrap();
+    let t3 = home.0.join("t3");
+    let env = [("HOME", h), ("T3CODE_HOME", t3.to_str().unwrap()), ("TERM", "xterm-256color"), ("COLORTERM", "truecolor"), ("T3_AGENTS_NO_THEMES", "1")];
+    let mut pty = Pty::spawn_args(160, 45, &["--demo", "--calm"], &env, &OUTSIDE[..3]);
+    pty.wait_for(b"\x1b[c", 1);
+    pty.send(b"\x1b[?62;22c");
+    pty.wait_for(b"T3 Agents", 1);
+    pty.send(b"c");
+    pty.send(b"q");
+    let status = pty.wait();
+    assert!(status.success(), "{status:?}");
+    let out = String::from_utf8_lossy(&pty.buf);
+    assert!(!out.contains("\x1b[?2031h") && !out.contains("\x1b]11;?"), "{out}");
+    assert!(!out.contains("theme:"), "{out}");
+    assert!(!home.0.join(".config/t3-agents").exists());
 }

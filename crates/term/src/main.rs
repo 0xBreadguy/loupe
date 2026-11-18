@@ -16,11 +16,12 @@ use t3_agents_core::{
     integration,
     model::{Snapshot, State},
     product::{self, Command, Database},
-    source, terminal,
+    source, terminal, theme,
 };
 use t3_agents_term::platform::{self, Wake, Waker};
 use t3_agents_term::{
-    Encoder, Event, GRAPHEME_ON, Parser, Probe, compose, probe_wanted, startup_probe,
+    BACKGROUND_QUERY, Encoder, Event, GRAPHEME_ON, Parser, Probe, Report, compose, probe_wanted,
+    startup_probe_for,
 };
 
 struct TermClock {
@@ -54,7 +55,10 @@ fn timeout(wake: Option<Instant>, esc: Option<Instant>) -> Option<Duration> {
 }
 
 fn setup(s: &mut State, h: &mut Host, wake: Waker) {
-    if let Some(path) = &h.theme {
+    if let Some(themes) = &h.themes {
+        s.palette = themes.palette();
+        s.themes = true;
+    } else if let Some(path) = &h.theme {
         s.palette = integration::palette(path).unwrap_or_else(|_| terminal::Palette::fallback());
     }
     if let Some(path) = &h.usage {
@@ -99,9 +103,19 @@ fn setup(s: &mut State, h: &mut Host, wake: Waker) {
     host::start_live(h, s.interval, move || wake.wake());
 }
 
-fn on_key(s: &mut State, host: &Host, clock: &mut TermClock, name: &str, replay: bool) -> bool {
+fn on_key(s: &mut State, host: &mut Host, clock: &mut TermClock, name: &str, replay: bool) -> bool {
     if name == "q" || (name == "escape" && !s.help) {
         return true;
+    }
+    if matches!(name, "c" | "C") {
+        // The product's theme keys. Without its themes `c` is not a key, as in the original.
+        if host.themes.is_some() {
+            clock.instant();
+            let now = host::input_now(s, host);
+            host::cycle_theme(s, host, name == "C", now);
+            clock.wake_after(Duration::ZERO);
+        }
+        return false;
     }
     clock.instant();
     let before = s
@@ -133,7 +147,7 @@ fn on_key(s: &mut State, host: &Host, clock: &mut TermClock, name: &str, replay:
     false
 }
 
-fn on_press(s: &mut State, host: &Host, clock: &mut TermClock, x: i32, y: i32, replay: bool) {
+fn on_press(s: &mut State, host: &mut Host, clock: &mut TermClock, x: i32, y: i32, replay: bool) {
     let frame = s.surface.borrow().clone();
     if s.help {
         on_key(s, host, clock, "escape", replay);
@@ -234,11 +248,17 @@ fn paint(
 
 fn present(wake: &Wake, launch: (State, Host)) -> Result<(), Box<dyn std::error::Error>> {
     let _restore = platform::enter_raw()?;
+    let (mut state, mut host) = launch;
     // Ask the terminal what it can do before anything slow, and never wait for the answer: it
-    // arrives while the first frame is being composed. See `caps.rs`.
+    // arrives while the first frame is being composed. See `caps.rs`. A theme that follows the
+    // terminal's light or dark mode also asks for its background and for color scheme reports.
     let probing = probe_wanted(std::env::var("TERM").ok().as_deref());
+    let theme_mode = probing && host.themes.as_ref().is_some_and(theme::Themes::follows_terminal);
+    if theme_mode {
+        platform::restore_theme_mode_on_exit();
+    }
     if probing {
-        platform::write_stdout(&startup_probe())?;
+        platform::write_stdout(&startup_probe_for(theme_mode))?;
     }
     if std::env::var_os("T3_TERM_PANIC").is_some() {
         panic!("t3-agents-term: test panic");
@@ -246,7 +266,6 @@ fn present(wake: &Wake, launch: (State, Host)) -> Result<(), Box<dyn std::error:
     let replay = cli::option("--replay")
         .map(|path| host::load_replay(std::path::Path::new(&path)))
         .transpose()?;
-    let (mut state, mut host) = launch;
     setup(&mut state, &mut host, wake.waker());
     let mut clock = TermClock {
         now: 0.,
@@ -257,6 +276,9 @@ fn present(wake: &Wake, launch: (State, Host)) -> Result<(), Box<dyn std::error:
     let mut encoder = Encoder::for_terminal(t3_agents_core::cluster::TermEnv::from_process());
     encoder.process_color_environment();
     let mut palette_queried = false;
+    // When the background was last asked for after a color scheme report (OpenTUI asks once per
+    // 250 ms at most: `RendererThemeMode.QUERY_TIMEOUT_MS` in `src/renderer.ts`).
+    let mut background_asked: Option<Instant> = None;
     let mut full = true;
     // The wait for answers counts from here, where the first can be read, not from the write: setup
     // is not the terminal's delay.
@@ -294,6 +316,22 @@ fn present(wake: &Wake, launch: (State, Host)) -> Result<(), Box<dyn std::error:
             events.extend(parser.push(&bytes, Instant::now()));
         } else if parser.deadline().is_some_and(|d| Instant::now() >= d) {
             events.extend(parser.timed_out(Instant::now()));
+        }
+        // The terminal's background, and word that its color scheme changed: OpenTUI answers a
+        // `CSI ? 997 ; n n` by asking for the colors again and takes the mode from the background.
+        for event in &events {
+            match event {
+                Event::Report(Report::Background(rgb)) => {
+                    host::terminal_background(&mut state, &mut host, *rgb);
+                }
+                Event::Report(Report::ColorScheme { .. }) if theme_mode => {
+                    if background_asked.is_none_or(|at| at.elapsed() >= Duration::from_millis(250)) {
+                        platform::write_stdout(BACKGROUND_QUERY)?;
+                        background_asked = Some(Instant::now());
+                    }
+                }
+                _ => {}
+            }
         }
         // The terminal's answers to the probe change how the next frame is written.
         for event in &events {
@@ -362,9 +400,9 @@ fn present(wake: &Wake, launch: (State, Host)) -> Result<(), Box<dyn std::error:
         for event in events {
             let stop = match event {
                 Event::Quit => true,
-                Event::Key(name) => on_key(&mut state, &host, &mut clock, name, replay.is_some()),
+                Event::Key(name) => on_key(&mut state, &mut host, &mut clock, name, replay.is_some()),
                 Event::Press { x, y } => {
-                    on_press(&mut state, &host, &mut clock, x, y, replay.is_some());
+                    on_press(&mut state, &mut host, &mut clock, x, y, replay.is_some());
                     false
                 }
                 Event::Wheel { x, y, down } => {
@@ -485,7 +523,12 @@ fn json_string(text: &str) -> String {
 }
 
 /// The product's interactive start: T3's database or the demo, as `main.ts` builds its app.
-fn product_launch(database: Database, interval: f64, calm: bool) -> (State, Host) {
+fn product_launch(
+    database: Database,
+    interval: f64,
+    calm: bool,
+    themes: Option<theme::Themes>,
+) -> (State, Host) {
     let now = clock::wall_now();
     let (mut state, host) = match database {
         Database::Demo => {
@@ -513,6 +556,11 @@ fn product_launch(database: Database, interval: f64, calm: bool) -> (State, Host
     };
     state.calm = calm;
     state.interval = interval;
+    let mut host = host;
+    if themes.is_some() {
+        host.theme = None;
+        host.themes = themes;
+    }
     (state, host)
 }
 
@@ -550,12 +598,30 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             database,
             interval,
             calm,
+            theme: flag,
         }) = product::parse(&args)
         else {
             unreachable!("product::headless answers every other command");
         };
         product::ensure_terminal();
-        product_launch(database, interval, calm)
+        // The theme is settled before the screen is taken, so a bad --theme is said plainly.
+        let themes = if theme::disabled() {
+            None
+        } else {
+            match theme::Themes::from_environment(flag.as_deref()) {
+                Ok((themes, skipped)) => {
+                    for line in skipped {
+                        eprintln!("t3-agents: skipped {line}");
+                    }
+                    Some(themes)
+                }
+                Err(e) => {
+                    eprintln!("t3-agents: {e}");
+                    std::process::exit(2);
+                }
+            }
+        };
+        product_launch(database, interval, calm, themes)
     };
     let wake = Wake::new()?;
     platform::install_signals(wake.waker())?;

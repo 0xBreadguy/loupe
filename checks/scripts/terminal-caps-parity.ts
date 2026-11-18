@@ -565,6 +565,8 @@ async function runProgram(side: Side, profileName: string, keys: string[], input
     TZ: "UTC",
     LANG: "C.UTF-8",
     T3_FIXED_NOW: String(NOW),
+    // The original's theme behavior; the product's themes are tested in crates/term/tests/pty.rs.
+    T3_AGENTS_NO_THEMES: "1",
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
     COLUMNS: String(COLS),
@@ -969,6 +971,8 @@ async function runPaste(side: "node" | "rust", c: PasteCase): Promise<Run & { al
     TZ: "UTC",
     LANG: "C.UTF-8",
     T3_FIXED_NOW: String(NOW),
+    // The original's theme behavior; the product's themes are tested in crates/term/tests/pty.rs.
+    T3_AGENTS_NO_THEMES: "1",
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
     COLUMNS: String(COLS),

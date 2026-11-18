@@ -4,7 +4,7 @@
 //! (30 fps while something tweens, 10 fps while something moves, 2 fps idle, and no
 //! wake at all for a fixed snapshot in calm mode). A presenter supplies the clock;
 //! the Rune window's `Tx` and the terminal front door both implement [`Clock`].
-use crate::{clock, demo, integration, live, model, model::State, overview, source, terminal};
+use crate::{clock, demo, integration, live, model, model::State, overview, source, terminal, theme};
 use std::{path::PathBuf, sync::mpsc, time::Duration};
 
 /// What the host loop needs from a presenter. `instant` snaps the presenter's own
@@ -19,7 +19,10 @@ pub trait Clock {
 pub struct Host {
     pub db: Option<PathBuf>,
     pub usage: Option<PathBuf>,
+    /// The original's theme: one `colors.toml`, re-read every second.
     pub theme: Option<PathBuf>,
+    /// The product's themes ([`theme`]). When set, `theme` is unused.
+    pub themes: Option<theme::Themes>,
     pub fixed: bool,
     pub epoch: f64,
     pub last_poll: f64,
@@ -47,6 +50,7 @@ impl Host {
             db,
             usage,
             theme,
+            themes: None,
             fixed,
             epoch,
             last_poll: -1e9,
@@ -236,6 +240,31 @@ pub fn after_key(
     }
 }
 
+/// `c` and `C`: the next or previous theme, saved, with a notice saying which. Nothing without
+/// the product's themes.
+pub fn cycle_theme(s: &mut State, h: &mut Host, back: bool, at: f64) -> bool {
+    let Some(themes) = h.themes.as_mut() else {
+        return false;
+    };
+    let notice = themes.cycle(back);
+    s.palette = themes.palette();
+    s.note(&notice, false, at);
+    true
+}
+
+/// The terminal's background color, as it answered `OSC 11`. A dark/light pair follows it.
+/// Returns whether the palette changed.
+pub fn terminal_background(s: &mut State, h: &mut Host, rgb: u32) -> bool {
+    let Some(themes) = h.themes.as_mut() else {
+        return false;
+    };
+    themes.set_terminal_dark(!theme::light_background(rgb));
+    let palette = themes.palette();
+    let changed = palette != s.palette;
+    s.palette = palette;
+    changed
+}
+
 /// Match the retained window title against the current snapshot on every poll.
 /// Following reveals its ancestors, preserves an existing family selection, and
 /// viewing the linked thread acknowledges requests anywhere in its family.
@@ -347,7 +376,15 @@ pub fn poll_host(s: &mut State, time: f64, clock: &mut impl Clock, h: &mut Host)
     }
     if time - h.last_config >= 1. {
         h.last_config = time;
-        if let Some(path) = &h.theme {
+        // A theme file edited while the dashboard runs shows within a second, as an Omarchy theme
+        // switch always has.
+        if let Some(themes) = &h.themes {
+            let palette = themes.palette();
+            if palette != s.palette {
+                s.palette = palette;
+                changed = true;
+            }
+        } else if let Some(path) = &h.theme {
             let palette =
                 integration::palette(path).unwrap_or_else(|_| terminal::Palette::fallback());
             if palette != s.palette {
@@ -414,6 +451,7 @@ mod tests {
             db: None,
             usage: None,
             theme: None,
+            themes: None,
             fixed: true,
             epoch: s.snap.at,
             last_poll: -1e9,

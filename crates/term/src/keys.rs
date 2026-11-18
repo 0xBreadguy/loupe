@@ -54,6 +54,11 @@ pub enum Report {
     Version(String),
     Truecolor,
     Palette { index: u8, rgb: u32 },
+    /// `OSC 11 ; color ST`, the answer to `OSC 11 ; ?`: the terminal's background.
+    Background(u32),
+    /// `CSI ? 997 ; 1 n` (dark) or `; 2 n` (light): the terminal's color scheme changed, reported
+    /// while mode 2031 is on.
+    ColorScheme { dark: bool },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -367,6 +372,8 @@ fn allowed_char(c: char) -> Option<&'static str> {
         'm' => "m",
         'x' => "x",
         'f' => "f",
+        'c' => "c",
+        'C' => "C",
         _ => return None,
     })
 }
@@ -399,7 +406,12 @@ fn classify(buf: &[u8], replies: bool) -> Class {
             let end = buf[2..].iter().position(|b| *b == 7).map(|n| (n,1))
                 .or_else(|| find(&buf[2..], b"\x1b\\").map(|n| (n,2)));
             match end {
-                Some((n,t)) => Class::Done { len: n+2+t, event: crate::color::osc_palette(&buf[2..2+n]).map(|(index,rgb)| Event::Report(Report::Palette {index,rgb})) },
+                Some((n,t)) => {
+                    let body = &buf[2..2+n];
+                    let event = crate::color::osc_palette(body).map(|(index,rgb)| Event::Report(Report::Palette {index,rgb}))
+                        .or_else(|| crate::color::osc_background(body).map(|rgb| Event::Report(Report::Background(rgb))));
+                    Class::Done { len: n+2+t, event }
+                }
                 None if buf.len() > 512 => Class::Done {len: buf.len(), event: None},
                 None => Class::Wait,
             }
@@ -526,6 +538,11 @@ fn parse_report(body: &[u8], final_b: u8) -> Option<Report> {
             [row, col] => Some(Report::Cursor { row, col }),
             _ => None,
         },
+        (Some(b'?'), b'n') => match numbers(&body[1..])[..] {
+            [997, 1] => Some(Report::ColorScheme { dark: true }),
+            [997, 2] => Some(Report::ColorScheme { dark: false }),
+            _ => None,
+        },
         _ => None,
     }
 }
@@ -583,6 +600,15 @@ mod tests {
         let mut p = Parser::new();
         let now = Instant::now();
         p.push(bytes, now)
+    }
+
+    #[test]
+    fn background_and_color_scheme_answers_are_reports_and_c_is_a_key() {
+        assert_eq!(parse(b"\x1b]11;rgb:fafa/fafa/fafa\x1b\\"), vec![Event::Report(Report::Background(0xfafafa))]);
+        assert_eq!(parse(b"\x1b]11;rgb:1a1a/1b1b/2626\x07"), vec![Event::Report(Report::Background(0x1a1b26))]);
+        assert_eq!(parse(b"\x1b[?997;1n"), vec![Event::Report(Report::ColorScheme { dark: true })]);
+        assert_eq!(parse(b"\x1b[?997;2n"), vec![Event::Report(Report::ColorScheme { dark: false })]);
+        assert_eq!(parse(b"cC"), vec![Event::Key("c"), Event::Key("C")]);
     }
 
     #[test]

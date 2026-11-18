@@ -20,6 +20,7 @@ pub mod product;
 pub mod source;
 pub mod status;
 pub mod terminal;
+pub mod theme;
 pub mod ui;
 
 pub mod live;

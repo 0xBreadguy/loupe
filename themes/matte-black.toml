@@ -1,0 +1,41 @@
+# Matte Black, from Omarchy: themes/matte-black/colors.toml in github.com/omacom/omarchy
+# (MIT, commit 3f974d011). Omarchy's file is copied unchanged down to the roles below.
+
+mode = "dark"
+
+accent = "#e68e0d"
+selection = "#2a2a2a"
+muted = "#333333"
+
+background = "#121212"
+dark_background = "#0d0d0d"
+darker_background = "#090909"
+lighter_background = "#1e1e1e"
+
+foreground = "#bebebe"
+dark_foreground = "#555555"
+light_foreground = "#8a8a8d"
+bright_foreground = "#bebebe"
+
+red = "#D35F5F"
+yellow = "#b91c1c"
+orange = "#c63d3d"
+green = "#FFC107"
+cyan = "#bebebe"
+blue = "#e68e0d"
+magenta = "#D35F5F"
+brown = "#631e1e"
+
+bright_red = "#B91C1C"
+bright_yellow = "#b90a0a"
+bright_green = "#FFC107"
+bright_cyan = "#eaeaea"
+bright_blue = "#f59e0b"
+bright_magenta = "#B91C1C"
+
+# T3 Agents roles: colors from or near this palette that keep Claude, OpenAI, Grok,
+# "needs you" and the warning apart. See docs/themes.md.
+warn   = "#e68e0d"   # the yellow the dashboard would pick sits too close to its red
+claude = "#dbc63f"
+openai = "#b6e5c1"
+grok   = "#9881ae"

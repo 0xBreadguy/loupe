@@ -81,21 +81,25 @@ removing are all in [docs/install.md](docs/install.md).
 - **Long threads stay short.** Old subagents fold into one row.
 - **Three scopes:** everything, active only, or what's in T3's sidebar.
 - **Follows T3.** On Hyprland it selects the thread you have open in T3.
-- **Usage-limit meters and your live theme** on Omarchy.
+- **Usage-limit meters** from Omarchy's usage records.
+- **27 themes,** Omarchy's own among them. It follows your live Omarchy theme,
+  or your terminal between light and dark. `c` steps through them, and your
+  own theme is one small file.
 - **Calm mode,** for when you want nothing moving.
 - **A bar widget** on Omarchy: a count in the bar, and a card of who's doing
   what when you click it.
 
 ![The bar widget's card on stock Omarchy, with demo data](docs/bar-widget.png)
 
-It's one small Rust program. It only reads, never writes, and makes no network
-connections. On Linux it sits at about 0.6% of a CPU core and 14 MB on the
+It's one small Rust program. It only reads T3's data, never writes it, and
+makes no network connections. On Linux it sits at about 0.6% of a CPU core and 14 MB on the
 demo.
 
 ## Docs
 
 - [Install, update and remove](docs/install.md)
 - [Keys, marks and options](docs/usage.md)
+- [Themes, and making your own](docs/themes.md)
 - [Features, in detail](docs/features.md)
 - [How it works, and what it touches](docs/how-it-works.md)
 - [Contributing](CONTRIBUTING.md), and [notes for coding agents](AGENTS.md)

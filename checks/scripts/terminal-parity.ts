@@ -122,6 +122,9 @@ function baseExports(term: string, colorterm: string | undefined, now: number): 
     `export LANG=C.UTF-8`,
     `export PATH=${quote(`${stub}:${process.env.PATH ?? "/usr/bin"}`)}`,
     `export T3_FIXED_NOW=${quote(String(now))}`,
+    // The original's theme behavior (the live Omarchy theme, else its gray fallback). The product's
+    // themes are a deliberate difference, tested in crates/term/tests/pty.rs.
+    `export T3_AGENTS_NO_THEMES=1`,
     `export TERM=${quote(term)}`,
     "unset HYPRLAND_INSTANCE_SIGNATURE NO_COLOR FORCE_COLOR COLORTERM",
   ]
@@ -886,6 +889,7 @@ function nonTTY() {
     XDG_RUNTIME_DIR: runtime,
     TZ: "UTC",
     T3_FIXED_NOW: String(NOW),
+    T3_AGENTS_NO_THEMES: "1",
     PATH: `${stub}:${process.env.PATH ?? ""}`,
   }
   delete env.HYPRLAND_INSTANCE_SIGNATURE

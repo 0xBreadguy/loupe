@@ -35,6 +35,14 @@ writes to it, and it makes no network connections.
   That's the only process it starts, and it only asks T3 to show a thread.
 - **Usage limits:** read from Omarchy's agent usage records in
   `~/.local/state/omarchy/agents/usage/`, if they exist.
+- **Themes:** it reads the theme it's told to use, once a second so edits
+  show: its own files in `~/.config/t3-agents/themes/`, and on Omarchy the live
+  theme in `~/.local/state/omarchy/current/theme/` (`colors.toml`,
+  `t3-agents.toml` and `theme.name` beside it) and installed theme folders. The
+  one file it writes is its own `~/.config/t3-agents/config.toml`, and only
+  its `theme` line, when you press `c`. With a dark and light pair away from
+  Omarchy it asks the terminal for its background color and for color scheme
+  reports, and switches those reports off when it quits.
 - **Network:** none. The bar widget runs one `t3-agents --status --watch`
   process that checks the database's modification time every two seconds, reads
   what changed after T3 writes and again every 30 seconds (so the failed-call
@@ -80,7 +88,8 @@ in `checks/bench/`.
   original, pixel for pixel, in foot, kitty, Alacritty, Ghostty, WezTerm and a
   VTE terminal, and inside tmux. Other terminals and real SSH sessions should
   work and haven't been tried yet.
-- Optional: Omarchy for the bar widget, its usage records and the live theme;
+- Optional: Omarchy for the bar widget, its usage records and the live theme
+  (the built-in themes work anywhere);
   Hyprland to follow the open T3 thread and to focus an open dashboard; foot,
   `xdg-terminal-exec` or `$TERMINAL` for `--window`.
 - Tested on one Omarchy laptop (Hyprland 0.56). Other setups are untested so

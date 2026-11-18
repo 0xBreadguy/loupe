@@ -768,6 +768,8 @@ pub struct State {
     pub demo: bool,
     pub interval: f64,
     pub fx: bool,
+    /// The product's themes are on: the help lists `c`. Off in the original's behavior.
+    pub themes: bool,
     pub acked: HashSet<String>,
     pub follow: bool,
     pub t3_link: bool,
@@ -822,6 +824,7 @@ impl State {
             demo: true,
             interval: 2.,
             fx: false,
+            themes: false,
             acked: HashSet::new(),
             follow: true,
             t3_link: false,

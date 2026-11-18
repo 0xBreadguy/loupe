@@ -4,7 +4,7 @@
 //! previous frame and writes colors at the depth the terminal reports.
 mod caps;
 mod color;
-pub use color::startup_probe;
+pub use color::{BACKGROUND_QUERY, THEME_MODE_OFF, startup_probe, startup_probe_for};
 mod encode;
 mod keys;
 pub mod platform;

@@ -46,7 +46,9 @@ interface Run {
 }
 
 function environment(options: Options): Env {
-  const env: Env = { ...process.env, HOME: baseHome, TZ: "UTC", T3_FIXED_NOW: String(options.now ?? EPOCH) }
+  // T3_AGENTS_NO_THEMES: the original's command line. The product adds --theme, --themes and
+  // --theme-check, and their lines in --help (THEME_USAGE in crates/core/src/product.rs), on purpose.
+  const env: Env = { ...process.env, HOME: baseHome, TZ: "UTC", T3_FIXED_NOW: String(options.now ?? EPOCH), T3_AGENTS_NO_THEMES: "1" }
   delete env.T3CODE_HOME
   delete env.XDG_STATE_HOME
   for (const [key, value] of Object.entries(options.env ?? {})) {

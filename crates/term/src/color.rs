@@ -147,8 +147,47 @@ pub fn osc_palette(body: &[u8]) -> Option<(u8, u32)> {
     Some((index, rgb))
 }
 
+/// The terminal's background from its answer to `OSC 11 ; ?`: `11;rgb:R/G/B` with one to four
+/// hex digits a channel, or `11;#rrggbb`. Each channel scales to 0..255 and rounds, as OpenTUI
+/// 0.8.3 does (`src/renderer.ts`, `OSC_THEME_RESPONSE` and `scaleOscThemeComponent`).
+pub fn osc_background(body: &[u8]) -> Option<u32> {
+    let value = std::str::from_utf8(body).ok()?.strip_prefix("11;")?;
+    if let Some(hex) = value.strip_prefix('#') {
+        return (hex.len() == 6 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then(|| u32::from_str_radix(hex, 16).ok())
+            .flatten();
+    }
+    let parts: Vec<_> = value.strip_prefix("rgb:")?.split('/').collect();
+    if parts.len() != 3 {
+        return None;
+    }
+    let mut rgb = 0;
+    for c in parts {
+        if c.is_empty() || c.len() > 4 || !c.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let n = u32::from_str_radix(c, 16).ok()? as f64;
+        let max = ((1u32 << (c.len() * 4)) - 1) as f64;
+        rgb = (rgb << 8) | (n / max * 255.).round() as u32;
+    }
+    Some(rgb)
+}
+
+/// Ask for the background and for color scheme reports (mode 2031), as OpenTUI 0.8.3's
+/// `RendererThemeMode` does when something follows the terminal's mode (`src/renderer.ts`).
+pub const THEME_MODE_ON: &[u8] = b"\x1b[?2031h";
+pub const THEME_MODE_OFF: &[u8] = b"\x1b[?2031l";
+pub const BACKGROUND_QUERY: &[u8] = b"\x1b]11;?\x07";
+
 /// Put color queries before the final reply sentinel. Screen prints DCS bodies, so never ask it.
 pub fn startup_probe() -> Vec<u8> {
+    startup_probe_for(false)
+}
+
+/// [`startup_probe`], also asking for the background and for color scheme reports when the theme
+/// follows the terminal's light or dark mode. Asked before `CSI c`, the background's answer comes
+/// before the last one, so the first frame is already drawn in the right mode.
+pub fn startup_probe_for(theme_mode: bool) -> Vec<u8> {
     let colors = Colors::from_process();
     let mut out = crate::caps::PROBE[..crate::caps::PROBE.len() - 3].to_vec();
     if !cfg!(windows) && !colors.rgb && !colors.screen {
@@ -157,6 +196,10 @@ pub fn startup_probe() -> Vec<u8> {
     if colors.indexed() {
         out.extend_from_slice(b"\x1b]4;0;?\x07");
     }
+    if theme_mode {
+        out.extend_from_slice(THEME_MODE_ON);
+        out.extend_from_slice(BACKGROUND_QUERY);
+    }
     out.extend_from_slice(b"\x1b[c");
     out
 }
@@ -164,6 +207,24 @@ pub fn startup_probe() -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn background_answers_scale_like_opentuis() {
+        assert_eq!(osc_background(b"11;rgb:fafa/fafa/fafa"), Some(0xfafafa));
+        assert_eq!(osc_background(b"11;rgb:1a1a/1b1b/2626"), Some(0x1a1b26));
+        assert_eq!(osc_background(b"11;rgb:f/8/0"), Some(0xff8800));
+        assert_eq!(osc_background(b"11;#F4F1E8"), Some(0xf4f1e8));
+        assert_eq!(osc_background(b"10;rgb:ffff/ffff/ffff"), None);
+        assert_eq!(osc_background(b"11;rgb:ff/ff"), None);
+        assert_eq!(osc_background(b"11;rgb:fffff/0/0"), None);
+    }
+    #[test]
+    fn the_theme_queries_come_before_the_last_question() {
+        let plain = startup_probe_for(false);
+        let themed = startup_probe_for(true);
+        assert!(!plain.windows(THEME_MODE_ON.len()).any(|w| w == THEME_MODE_ON));
+        assert!(themed.ends_with(b"\x1b[?2031h\x1b]11;?\x07\x1b[c"));
+        assert_eq!(&themed[..themed.len() - THEME_MODE_ON.len() - BACKGROUND_QUERY.len() - 3], &plain[..plain.len() - 3]);
+    }
     #[test]
     fn capability_rules_and_palette_ties() {
         let mut c = Colors::from_env(|k| (k == "TERM").then(|| "XTERM-256color".into()));

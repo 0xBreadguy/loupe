@@ -59,6 +59,7 @@ Things not to do while installing:
 crates/core/    the product without a screen: model, read-only T3 reader, demo, status line,
                 command line, and the dashboard composed into a grid of cells
 crates/term/    the terminal presenter; this is the installed program
+themes/         the built-in color themes, compiled in (crates/core/src/theme.rs reads them)
 oracle/         the original TypeScript app, kept as the reference. Do not edit it to make
                 a check pass
 checks/         the comparisons against the reference, benchmarks and fixtures

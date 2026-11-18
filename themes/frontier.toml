@@ -1,0 +1,41 @@
+# Frontier, a T3 Agents theme: near-black and graphite, with color only where it means
+# something. The context ramp is gray, so a color on screen is a provider or an alert.
+name = "Frontier"
+mode = "dark"
+
+accent = "#d4d4d8"
+selection = "#26262b"
+muted = "#3a3a40"
+
+background = "#0a0a0b"
+dark_background = "#070708"
+darker_background = "#040405"
+lighter_background = "#161618"
+
+foreground = "#ededed"
+dark_foreground = "#6e6e73"
+light_foreground = "#d4d4d8"
+bright_foreground = "#ffffff"
+
+red = "#ef5f6b"
+yellow = "#f2bb25"
+orange = "#d97757"
+green = "#7cc79c"
+cyan = "#91dfd2"
+blue = "#9ea4ff"
+magenta = "#d05bb8"
+brown = "#8a5a44"
+
+bright_red = "#ff7a85"
+bright_yellow = "#ffd257"
+bright_green = "#9be0b4"
+bright_cyan = "#b4ece3"
+bright_blue = "#bdc1ff"
+bright_magenta = "#e07fcc"
+
+# T3 Agents roles. Claude wears Anthropic's clay, so "needs you" moves to fuchsia.
+hot    = "#bf3ca4"
+warn   = "#f2bb25"
+claude = "#d97757"
+openai = "#91dfd2"
+grok   = "#9ea4ff"
