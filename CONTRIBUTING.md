@@ -16,6 +16,7 @@ oracle/               The original TypeScript app. The reference. Do not edit it
                       check pass.
 checks/scripts/       The comparisons, and the generators for their inputs
 checks/bench/         Measurement harnesses
+checks/asks-count/    The asks-count harness: the corpus against the product
 checks/fixtures/      Synthetic inputs and recorded results, tracked
 checks/generated/     Scratch output, ignored
 themes/               The built-in color themes, compiled into the program
@@ -45,7 +46,7 @@ If you add a dependency, build once without `--locked`, commit `Cargo.lock`, and
 checks/scripts/ci.sh
 ```
 
-This is everything CI runs, in 30 steps, and takes about 25 minutes. It installs the reference app's packages, builds the workspace, generates the inputs and runs every comparison. It needs Node.js 26.4 or later with `npm`, Python 3, and `tmux`.
+This is the Linux workspace and parity suite. It installs the reference app’s packages, builds the workspace, generates synthetic inputs and runs the comparisons. It also checks the report readers, the two reports sharing one cache, ask counts and privacy, and the Linux storage inventory. It needs Node.js 26.4 or later with `npm`, Python 3, and `tmux`.
 
 What it compares, each on the same input for both programs:
 
@@ -54,6 +55,7 @@ What it compares, each on the same input for both programs:
 - both programs inside tmux, and against stand-in terminals on a pty that answer the way real terminals do;
 - the grapheme-cluster layout against the reference renderer's own buffer;
 - the reader against the reference on synthetic databases, at several versions of T3 Code's schema;
+- Recap command-line behavior on the built program;
 - the installer in a sandbox.
 
 Faster loops while you work:
@@ -71,6 +73,20 @@ Two checks are not part of `ci.sh` because they need more than a build machine:
 
 - `checks/scripts/window-parity.sh` runs both programs in a real terminal emulator inside an isolated desktop ([omabox](https://github.com/diogochaves/omabox)) and compares the windows pixel by pixel. Its header has the options.
 - `checks/bench/` holds the measurement harnesses. Report a measurement as the median and range of at least five alternating trials, on built binaries that do not change during the run.
+
+The scale generator's legacy `--tier real` name selects a synthetic stress workload.
+It combines a few large histories with many small ones, large item payloads, recent
+and older activity, remote delegation, and a pruned event log. Regenerate cached
+bases before measuring this workload, and rebuild the dense copy with
+`checks/bench/full-read.py build`. Pass `real` to `checks/scripts/status-live-parity.ts`
+to check that tier's watcher and cross-machine writes.
+
+The asks count has its own harness. `checks/scripts/asks-count.sh` runs
+`t3_agents_core::asks::count_asks` over the made-up messages in
+`checks/fixtures/asks-counts.json`, whose expected numbers came from the
+`asks/questions.py` prototype. `python3 checks/scripts/asks-corpus.py --check` holds
+the corpus together with no prototype and no Node; naming the prototype with
+`--reference PATH` re-runs it, or compares it with the harness's `--json` output. CI checks the corpus and runs the synthetic privacy gate.
 
 ## Themes
 
@@ -98,7 +114,13 @@ The widget lives at the repository root (`manifest.json`, `Service.qml`, `BarWid
 
 **Synthetic data only.** No check, test or benchmark may open a real T3 Code database. Pass `--demo` or `--db` with a database the check built, and set `T3CODE_HOME` to a new empty folder as well, so a default path can never reach a real one. The scripts here already do both.
 
-**The program reads, and reads little.** It opens T3's database read-only and takes only the fields the dashboard shows. It never reads authentication tables, prompts, message bodies, results or reasoning. A change that reads a new field needs to say why in the pull request.
+**The T3 reader is read-only and field-scoped.** It opens the database with `query_only`. Dashboard queries project the fields used for status, activity and thread navigation, including existing labels, file names and todo steps. For command activity on a row or in its details, the dashboard reads at most the first 240 characters of the input and displays the first line with terminal controls stripped. The status JSON’s `now` field carries only the activity category. The live reader also uses routing keys, event headers, projection positions and a migration row count to decide what to refresh. Keep authentication tables, prompts, subagent results, tool output, message bodies and reasoning text out of query results.
+
+- Open asks uses request state and message provenance and timing. Only `t3_ask_count` may inspect eligible assistant message text, and it returns a count.
+- Recap projects only inputs to its aggregates, including times, categories, numeric counts and identifiers needed for grouping and deduplication. Trace reads the metadata needed to draw one task, including titles, tool names and timing. Tools reads call metadata and integer command exit codes. Trace and Tools pass command input through the SQLite program classifier and return only allowlisted program names. The report skims may receive item records inside SQLite and return only the fields their report uses.
+- The opt-in report cache keeps derived run facts, hashed keys and structural validation data in its own file. Source validation uses schema, run state, file and WAL metadata, and item membership and page locations. Keep raw item content out of the cache. Keep filesystem inventory to directory entries and metadata.
+
+Document the purpose of any new source field in the pull request. Check the executed SQL and its query plan on the supported schema paths when changing item reads.
 
 **Do not run the installer against your own account to test it.** `checks/scripts/install-parity.mjs` runs it in a sandbox and fails if a real install changed while it ran. If you must run it by hand, use `env -i HOME=/some/scratch/folder PATH=/usr/bin:/bin ./install.sh ...`. A stand-in `HOME` alone is not enough: desktop sessions often export `XDG_DATA_HOME` and `XDG_CACHE_HOME` as absolute paths into the real account, and the installer honors them. It refuses that combination, but do not rely on the refusal.
 
@@ -106,7 +128,7 @@ The widget lives at the repository root (`manifest.json`, `Service.qml`, `BarWid
 
 **Match the reference from its source, not from a guess.** Where the terminal behavior comes from OpenTUI, read OpenTUI's source for the rule and cite the file in the code comment. Rules inferred from a few screens have been wrong before.
 
-**Do not edit generated files by hand.** `crates/core/src/cluster_tables.rs` comes from `checks/scripts/generate-clusters.ts`; the recorded results under `checks/fixtures/golden/` come from the `export-*` scripts; the schema fixtures come from `checks/scripts/schema-extract.py`.
+**Do not edit generated files by hand.** `crates/core/src/cluster_tables.rs` comes from `checks/scripts/generate-clusters.ts`; the recorded results under `checks/fixtures/golden/` come from the `export-*` scripts; `checks/fixtures/asks-counts.json` comes from `checks/scripts/asks-corpus.py --write`; the schema fixtures come from `checks/scripts/schema-extract.py`.
 
 ## Pull requests
 

@@ -382,3 +382,142 @@ fn structural_observation_arc_multiplicity() {
         compare(&cached, &reference, 100, 40, step);
     }
 }
+
+#[test]
+fn asks_keep_exact_and_estimated_counts_separate_across_refreshes() {
+    use std::sync::Arc;
+    use t3_agents_core::model::{Agent, AskCards, OpenAsks};
+
+    let at = t3_agents_core::model::ms(Some("2026-11-18T18:00:00Z")).unwrap();
+    let agents = (0..5)
+        .map(|i| {
+            Arc::new(Agent {
+                id: format!("t{i}"),
+                title: format!("Thread {i}"),
+                status: if i == 0 { "running" } else { "completed" }.into(),
+                updated: Some("2026-11-18T18:00:00Z".into()),
+                ..Agent::default()
+            })
+        })
+        .collect();
+    let snap = Snapshot {
+        at,
+        agents,
+        ..Snapshot::default()
+    };
+    let text = |line: &[t3_agents_core::terminal::Cell]| -> String {
+        line.iter().map(|cell| cell.ch).collect()
+    };
+    let mut state = State::new(snap.clone());
+    state.usage.clear();
+    state.pick_at("t0", at);
+    let mut next = snap.clone();
+    next.agent_mut(0).estimated_asks = 2;
+    state.apply(next.clone(), &Changed::Agents(vec!["t0".into()]));
+    state.action("n");
+    assert_eq!(state.notice.as_deref(), Some("Nobody is waiting on you"));
+    state.notice = None;
+    assert!(state.waits.is_empty());
+    for (w, h) in [(60, 20), (80, 24), (120, 40)] {
+        let (estimated, surface) = ui::draw_grid(&state, w, h, &state.palette);
+        let mut healthy = state.clone();
+        healthy.replace(snap.clone());
+        let (healthy, _) = ui::draw_grid(&healthy, w, h, &state.palette);
+        let top = surface.list.y as usize * w;
+        assert_eq!(estimated.cells[..top], healthy.cells[..top], "tiles at {w}");
+        assert_eq!(
+            estimated.cells[(h - 1) * w..],
+            healthy.cells[(h - 1) * w..],
+            "footer at {w}"
+        );
+    }
+
+    next.agent_mut(0).open_asks = OpenAsks {
+        nonblocking: 1,
+        cards: AskCards { link: 1, secret: 0 },
+        ..OpenAsks::default()
+    };
+    next.agent_mut(1).open_asks.blocking = 1;
+    next.agent_mut(1).asked = Some("2026-11-18T17:58:00Z".into());
+    next.agent_mut(2).open_asks.cards.secret = 1;
+    next.agent_mut(2).asked = Some("2026-11-18T17:57:00Z".into());
+    state.replace(next.clone());
+    state.pick_at("t4", at);
+    for expected in ["t2", "t1", "t0", "t2"] {
+        state.action("n");
+        assert_eq!(state.selected.as_deref(), Some(expected));
+    }
+    state.pick_at("t4", at);
+    let (overflow, _) = ui::draw_grid(&state, 60, 14, &state.palette);
+    assert!(
+        overflow
+            .cells
+            .chunks_exact(60)
+            .map(text)
+            .any(|line| line.contains("more") && line.contains("◇1"))
+    );
+    state.pick_at("t0", at);
+    for (w, h, per) in [(60, 20, 1), (80, 24, 2), (120, 40, 2)] {
+        let (grid, surface) = ui::draw_grid(&state, w, h, &state.palette);
+        let hit = surface.hits.iter().find(|hit| hit.id == "t0").unwrap();
+        assert_eq!(hit.rect.h, per);
+        let row = &grid.cells[hit.rect.y as usize * w..][..w];
+        assert_eq!(row[2].ch, '◉');
+        assert_ne!(row[0].fg, state.palette.hot);
+        let row_text = text(row);
+        assert!(row_text.contains("~2"), "{row_text}");
+        assert!(
+            row_text.contains("◇1") || row_text.contains("◇ 1 question open"),
+            "{row_text}"
+        );
+        assert!(
+            row_text.contains("◇link") || row_text.contains("◇ link"),
+            "{row_text}"
+        );
+        assert!(
+            text(&grid.cells[surface.detail.y as usize * w..])
+                .contains("~2 asks in an agent reply")
+        );
+        let rows = grid.cells.chunks_exact(w).map(text).collect::<Vec<_>>();
+        assert!(rows.iter().any(|line| line.contains("◇2 working")));
+        assert!(rows.iter().any(|line| line.contains("◇ a link to open in T3")));
+        let (reference, reference_surface) = ui::draw_grid_reference(&state, w, h, &state.palette);
+        assert_eq!(surface, reference_surface);
+        assert_eq!(grid.cells, reference.cells);
+    }
+
+    // Same ids, order, time and attention membership. A count/type-only change
+    // must invalidate the cached tiles and update the row without a structural refresh.
+    next.agent_mut(0).open_asks = OpenAsks {
+        blocking: 3,
+        nonblocking: 4,
+        cards: AskCards { link: 5, secret: 6 },
+    };
+    state.apply(next.clone(), &Changed::Agents(vec!["t0".into()]));
+    let (grid, surface) = ui::draw_grid(&state, 60, 20, &state.palette);
+    let hit = surface.hits.iter().find(|hit| hit.id == "t0").unwrap();
+    let row = &grid.cells[hit.rect.y as usize * 60..][..60];
+    assert_eq!(row[2].ch, '◆');
+    assert_eq!(row[0].fg, state.palette.hot);
+    assert!(text(row).contains("◆18 ~2"), "{}", text(row));
+    let (reference, _) = ui::draw_grid_reference(&state, 60, 20, &state.palette);
+    assert_eq!(grid.cells, reference.cells);
+    let (detail, frame) = ui::draw_grid(&state, 120, 40, &state.palette);
+    let lines = text(&detail.cells[frame.detail.y as usize * 120..]);
+    for expected in [
+        "3 blocking questions",
+        "6 secrets to enter",
+        "◆ 5 links to open",
+        "4 questions open",
+        "~2 asks in an agent reply",
+    ] {
+        assert!(lines.contains(expected), "{expected}");
+    }
+
+    state.apply(
+        snap,
+        &Changed::Agents(vec!["t0".into(), "t1".into(), "t2".into()]),
+    );
+    state.action("n");
+    assert_eq!(state.notice.as_deref(), Some("Nobody is waiting on you"));
+}

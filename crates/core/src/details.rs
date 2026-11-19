@@ -187,11 +187,17 @@ fn short_duration(sec: Option<f64>) -> String {
         .unwrap_or_else(|| "--".into())
 }
 fn doing(a: &Agent, pc: Option<&Pace>, s: &State, w: i32, p: &Palette) -> Option<(String, u32)> {
+    if model::needs_you(a) && a.open_asks.total() > 0 && !model::shows_blocking_now(a) {
+        return None;
+    }
+    if model::shows_blocking_now(a) && a.now.as_ref().is_none_or(|i| i.kind != "user_input_request") {
+        return Some((fit("◆ user input request", w), p.dim));
+    }
     let (lead, label, tail, color) = if let Some(pc) = pc.filter(|p| p.quiet) {
         let last = a
             .items
             .iter()
-            .find(|i| !matches!(i.kind.as_str(), "reasoning" | "assistant_message"));
+            .find(|i| model::shows_recent_activity(a, i));
         (
             format!(
                 "◌ {} {}",
@@ -251,6 +257,115 @@ fn doing(a: &Agent, pc: Option<&Pace>, s: &State, w: i32, p: &Palette) -> Option
     Some((text, color))
 }
 
+fn card_time(a: &Agent, kind: &str) -> Option<f64> {
+    let item = a
+        .items
+        .iter()
+        .find(|i| i.kind == kind && i.status == "waiting")?;
+    model::ms(item.started_at.as_deref()).or_else(|| model::ms(Some(&item.updated_at)))
+}
+
+fn draw_asks(c: &mut Canvas, r: Rect, mut y: i32, a: &Agent, s: &State, p: &Palette) -> i32 {
+    let asks = &a.open_asks;
+    let age = |at: f64| terminal::short_duration((s.now - at).max(0.) / 1000.);
+    let question_age = |n| {
+        if asks.blocking + asks.nonblocking != n || model::pending_count(a) > asks.total() {
+            return String::new();
+        }
+        model::ms(a.asked.as_deref())
+            .map(|at| format!(" · {}", age(at)))
+            .unwrap_or_default()
+    };
+    let keeps_going = if model::running(a) {
+        " · the run keeps going"
+    } else {
+        ""
+    };
+    let mut line = |glyph, text: String, tail: String, estimated| {
+        c.text(r.x + 2, y, "ask", p.dim);
+        let tone = if estimated { p.text2 } else { p.hot };
+        let mut x = r.x + 7 + c.text_with(r.x + 7, y, glyph, tone, None, glyph == "◆ ", usize::MAX);
+        let room = r.right() - x;
+        x += c.text(
+            x,
+            y,
+            &fit(&text, room),
+            if estimated { p.text2 } else { p.fg },
+        );
+        if width(&text) + width(&tail) <= room {
+            c.text(x, y, &tail, p.dim);
+        }
+        y += 1;
+    };
+    if asks.blocking > 0 && !model::shows_blocking_now(a) {
+        let n = asks.blocking;
+        line(
+            "◆ ",
+            format!("{n} blocking question{}", crate::ui::plural(n)),
+            question_age(n),
+            false,
+        );
+    }
+    if asks.cards.secret > 0 {
+        let n = asks.cards.secret;
+        let text = if n == 1 {
+            "a secret to enter in T3".into()
+        } else {
+            format!("{n} secrets to enter in T3")
+        };
+        let tail = card_time(a, "secret_request")
+            .filter(|_| n == 1)
+            .map(|at| format!(" · asked {} ago", age(at)))
+            .unwrap_or_default();
+        line("◆ ", text, tail, false);
+    }
+    if asks.cards.link > 0 {
+        let n = asks.cards.link;
+        let text = if n == 1 {
+            "a link to open in T3".into()
+        } else {
+            format!("{n} links to open in T3")
+        };
+        let tail = if model::running(a) {
+            keeps_going.into()
+        } else if n == 1 && !model::live(a) && card_time(a, "link_request").is_some() {
+            model::ms(a.ended.as_deref())
+                .map(|at| format!(" · waiting {}, since the run ended", age(at)))
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let mark = if model::running(a) { "◇ " } else { "◆ " };
+        line(mark, text, tail, false);
+    }
+    if asks.nonblocking > 0 {
+        let n = asks.nonblocking;
+        line(
+            "◇ ",
+            format!("{n} question{} open", crate::ui::plural(n)),
+            question_age(n) + keeps_going,
+            false,
+        );
+    }
+    if a.estimated_asks > 0 {
+        let n = a.estimated_asks;
+        let plural = crate::ui::plural(n);
+        let text = format!("{n} ask{plural} in an agent reply");
+        let tail = " · estimated from the text";
+        if 8 + width(&text) + width(tail) <= r.w {
+            line("~", text, tail.into(), true);
+        } else {
+            line(
+                "~",
+                format!("{n} estimated ask{plural} in agent prose"),
+                String::new(),
+                true,
+            );
+        }
+    }
+    y
+}
+
 fn title(c: &mut Canvas, r: Rect, a: &Agent, s: &State, p: &Palette, pc: Option<&Pace>) -> i32 {
     let mut y = r.y;
     let (mark, status, tone) = status(a, s.now, pc, s.calm, s.acked.contains(&a.id), p);
@@ -274,14 +389,44 @@ fn title(c: &mut Canvas, r: Rect, a: &Agent, s: &State, p: &Palette, pc: Option<
     c.text(r.x + 2, y, &fit(&meta.join(" · "), r.w - 2), p.dim);
     y += 1;
     let mut x = r.x + c.text_bold(r.x, y, &format!("{mark} {status}"), tone);
-    let start = model::ms(a.started.as_deref());
+    // A single blocking runtime question already has a reference presentation.
+    // Its status clock measures the run. The attention tile reports the wait.
+    let wait_start = if a.open_asks.blocking > 0
+        && a.open_asks.nonblocking == 0
+        && !model::shows_blocking_now(a)
+    {
+        model::ms(a.asked.as_deref())
+    } else if a.open_asks.cards.secret == 1 {
+        card_time(a, "secret_request")
+    } else if a.open_asks.cards.link == 1
+        && !model::live(a)
+        && card_time(a, "link_request").is_some()
+    {
+        model::ms(a.ended.as_deref())
+    } else {
+        None
+    };
+    let start = wait_start.or_else(|| model::ms(a.started.as_deref()));
     let end = model::ms(a.ended.as_deref());
     let counting = model::live(a) || model::needs_you(a);
     let stop = if counting { Some(s.now) } else { end };
-    let asked = if a.requests.is_empty() {
-        String::new()
+    let asked = if !a.requests.is_empty() || a.open_asks.blocking > 0 {
+        let mut kinds = Vec::new();
+        for kind in &a.requests {
+            if a.open_asks.blocking == 0 || kind != "user_input" || !kinds.contains(&"user_input") {
+                kinds.push(kind.as_str());
+            }
+        }
+        if a.open_asks.blocking > 0 && !kinds.contains(&"user_input") {
+            kinds.push("user_input");
+        }
+        format!("  · {}", kinds.join(", ").replace('_', " "))
+    } else if a.open_asks.cards.secret > 0 {
+        "  · secret".into()
+    } else if !model::live(a) && a.open_asks.cards.link > 0 {
+        "  · link".into()
     } else {
-        format!("  · {}", a.requests.join(", ").replace('_', " "))
+        String::new()
     };
     let mut parts = Vec::new();
     if let Some(start) = start {
@@ -327,6 +472,7 @@ fn title(c: &mut Canvas, r: Rect, a: &Agent, s: &State, p: &Palette, pc: Option<
         c.text(x, y, &fit(&asked, r.x + r.w - x), p.hot);
     }
     y += 1;
+    y = draw_asks(c, r, y, a, s, p);
     if model::live(a) || model::needs_you(a) {
         if let Some((body, tone)) = doing(a, pc, s, r.w - 7, p) {
             c.text(
@@ -1272,11 +1418,20 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
         ("m", "calm mode: nothing moves"),
         ("mouse", "click selects, wheel scrolls"),
         ("c C", "theme: next · back"),
+        ("w", "trace: the agent's task on a clock"),
+        ("s", "storage: disk use by project and thread"),
         ("q Esc", "quit (Esc closes help)"),
     ];
     // `c` is the product's; the original's help, which the parity checks compare, has no theme key.
-    let keys: Vec<_> = all_keys.into_iter().filter(|k| s.themes || k.0 != "c C").collect();
-    let legend = [
+    let keys: Vec<_> = all_keys
+        .into_iter()
+        .filter(|k| match k.0 {
+            "c C" | "w" => s.themes,
+            "s" => s.storage_key_in_help,
+            _ => true,
+        })
+        .collect();
+    let mut legend = vec![
         (
             "⠹ ◆ ✓ ✗ ⊘",
             "running · needs you (blinks until seen) · done · failed · interrupted",
@@ -1306,6 +1461,16 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
         ("◔  ◉", "queued, not started yet · running, in calm mode"),
         ("❯ · △ 6m", "a tool call's run time; △ slow past 5m"),
     ];
+    if s.themes || s.snap.agents.iter().any(|a| {
+        a.estimated_asks > 0 || (a.open_asks.total() > 0 && !model::shows_blocking_now(a))
+    }) {
+        legend.extend([
+            ("◆2", "pending formal asks on this thread"),
+            ("◇2", "questions open without blocking the run"),
+            ("cards", "secret and link cards waiting for you in T3 Code"),
+            ("~N", "estimated asks in agent replies"),
+        ]);
+    }
     let w = c.w as i32;
     let h = c.h as i32;
     if w < 6 || h < 6 {

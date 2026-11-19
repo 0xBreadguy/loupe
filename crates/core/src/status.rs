@@ -1,6 +1,7 @@
 //! `--status`: the Omarchy bar widget's one-line JSON.
 //!
-//! Byte-for-byte port of `oracle/src/status.ts` (the frozen oracle). The line is built
+//! Legacy fields match `oracle/src/status.ts` (the frozen oracle) byte for byte;
+//! `openAsks` and `estimatedAsks` are additive product fields. The line is built
 //! by hand rather than through `serde_json` because three details have to match exactly:
 //! key order, `JSON.stringify` number formatting (`1`, `0.5`, `0.07`, `null`), and
 //! `JSON.stringify` string escaping after JavaScript's UTF-16 `.slice()`.
@@ -100,9 +101,19 @@ pub fn status(snap: &Snapshot, now: f64) -> String {
             Some(item) => push_js(&mut out, model::category(&item.kind, item.tool.as_deref())),
             None => out.push_str("null"),
         }
+        out.push_str(",\"openAsks\":");
+        out.push_str(&open_asks(a).to_string());
+        out.push_str(",\"estimatedAsks\":");
+        out.push_str(&a.estimated_asks.to_string());
         out.push('}');
     }
-    out.push_str("]}");
+    out.push_str("],\"openAsks\":");
+    out.push_str(&snap.agents.iter().map(|a| open_asks(a)).sum::<u64>().to_string());
+    out.push_str(",\"estimatedAsks\":");
+    let mut owners = std::collections::HashSet::new();
+    let estimated: u64 = snap.agents.iter().filter(|a| a.kind == "thread" && owners.insert(&a.thread_id)).map(|a| a.estimated_asks).sum();
+    out.push_str(&estimated.to_string());
+    out.push('}');
     out
 }
 
@@ -131,8 +142,12 @@ fn error_line(err: &SourceError) -> String {
     let mut out = String::with_capacity(message.len() + 96);
     out.push_str("{\"v\":1,\"running\":0,\"waiting\":0,\"failed\":0,\"agents\":[],\"error\":");
     push_js(&mut out, &message);
-    out.push('}');
+    out.push_str(",\"openAsks\":0,\"estimatedAsks\":0}");
     out
+}
+
+fn open_asks(a: &Agent) -> u64 {
+    a.open_asks.blocking + a.open_asks.nonblocking + a.open_asks.cards.secret + a.open_asks.cards.link
 }
 
 /// `source.ts`'s `tilde`: the home folder shortened the way people type it.
@@ -655,6 +670,23 @@ mod tests {
     use rusqlite::Connection;
     use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 
+    #[test]
+    fn counts_all_asks_and_only_thread_estimates() {
+        let mut thread = Agent { kind: "thread".into(), status: "running".into(), estimated_asks: 3, ..Default::default() };
+        thread.open_asks = model::OpenAsks { blocking: 1, nonblocking: 2, cards: model::AskCards { secret: 3, link: 4 } };
+        thread.requests.push("approval".into());
+        let child = Agent { kind: "subagent".into(), status: "running".into(), estimated_asks: 3, ..Default::default() };
+        let snap = Snapshot { agents: vec![thread.into(), child.into()], ..Default::default() };
+        let value: serde_json::Value = serde_json::from_str(&status(&snap, 0.0)).unwrap();
+        assert_eq!(value["openAsks"], 10);
+        assert_eq!(value["estimatedAsks"], 3);
+        assert_eq!(value["agents"][0]["openAsks"], 10);
+        assert_eq!(value["agents"][0]["estimatedAsks"], 3);
+        let empty: serde_json::Value = serde_json::from_str(&status(&Snapshot::default(), 0.0)).unwrap();
+        assert_eq!(empty["openAsks"], 0);
+        assert_eq!(empty["estimatedAsks"], 0);
+    }
+
     fn temp_path(name: &str) -> PathBuf {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         std::env::temp_dir().join(format!(
@@ -754,6 +786,28 @@ mod tests {
                 .unwrap()
                 .contains("\"title\":\"Second\"")
         );
+        drop(watcher);
+        std::fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn status_watcher_emits_changed_ask_count() {
+        let file = temp_path("ask-watch");
+        database(&file, "First");
+        let now = 1_794_484_800_000.0;
+        let mut watcher = Watcher::new(&file);
+        let mut out = Vec::new();
+        assert!(matches!(watcher.tick(now, &mut out), Ok(Step::Wrote)));
+        let db = Connection::open(&file).unwrap();
+        db.execute("INSERT INTO orchestration_v2_projection_runtime_requests VALUES('t',NULL,'user_input','pending',NULL)", []).unwrap();
+        drop(db);
+        // Force the normal periodic refresh, independent of filesystem timestamp resolution.
+        assert!(matches!(watcher.tick(now + 30_000.0, &mut out), Ok(Step::Wrote)));
+        let text = String::from_utf8(out).unwrap();
+        let lines: Vec<_> = text.lines().collect();
+        let last: serde_json::Value = serde_json::from_str(lines.last().unwrap()).unwrap();
+        assert_eq!(last["openAsks"], 1);
+        drop(watcher);
         std::fs::remove_file(file).unwrap();
     }
 
@@ -764,6 +818,7 @@ mod tests {
         let mut watcher = Watcher::new(&file);
         let mut closed = Closed;
         assert!(watcher.tick(1_794_484_800_000.0, &mut closed).is_err());
+        drop(watcher);
         std::fs::remove_file(file).unwrap();
     }
 
@@ -787,6 +842,7 @@ mod tests {
             Ok(Step::Idle)
         ));
         assert_eq!(out.len(), before);
+        drop(watcher);
         std::fs::remove_file(file).unwrap();
     }
 

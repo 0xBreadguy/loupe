@@ -171,7 +171,10 @@ fn command_line_matches_frozen_oracle() {
         if output.status.code().map(i64::from) != Some(recorded_status) {
             problems.push(format!("exit {:?}, recorded {recorded_status}", output.status.code()));
         }
-        if output.stdout != recorded_out {
+        let actual_out = if args.contains(&"--status") {
+            support::legacy_status(std::str::from_utf8(&output.stdout).unwrap()).into_bytes()
+        } else { output.stdout.clone() };
+        if actual_out != recorded_out {
             problems.push(format!("stdout\n  recorded: {}\n  rust:     {}", show(&recorded_out), show(&output.stdout)));
         }
         if actual_err != recorded_err {

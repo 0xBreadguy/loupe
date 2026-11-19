@@ -37,12 +37,13 @@
 // invented filler fields of realistic size (command output, reasoning text,
 // message bodies the reader never selects).
 //
-// Tiers by agent count (agents = threads + subagents, history in proportion):
+// Uniform tiers by agent count (agents = threads + subagents, history in proportion):
 //   s    25 agents:    6 threads /   19 subs, 2 runs/thread,  30 items/run
 //   m   256 agents:   64 threads /  192 subs, 3 runs/thread,  40 items/run
 //   l  1000 agents:  250 threads /  750 subs, 4 runs/thread,  50 items/run
 //   xl 4000 agents: 1000 threads / 3000 subs, 5 runs/thread,  60 items/run
 //   xxl 16000 agents: 4000 threads / 12000 subs, 5 runs/thread, 45 items/run
+//   real  skewed stress workload, T3 schema only (legacy tier name)
 // Measured row counts per tier are printed by --stats.
 import { DatabaseSync, type SQLInputValue, type StatementSync } from "node:sqlite"
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readSync, rmSync, statSync, writeFileSync, writeSync } from "node:fs"
@@ -54,7 +55,7 @@ const HOUR = 3_600_000
 const DAY = 24 * HOUR
 const WINDOW = 3 * HOUR // source.ts MAX_WINDOW_MS
 const ENVIRONMENT = "6f1c2a9e-3b7d-4e58-9a10-d4c7e2b8f531" // demo.ts environment id
-// The other machine the real-shaped tier delegates to and from. Every remote
+// The other machine the skewed tier delegates to and from. Every remote
 // ref uses this id so a delegatedFrom parent can coincide with a remoteChild.
 const REMOTE_ENV = "7d3f9a1c-5e2b-48c6-a4d9-1f6e8b2c7d50"
 
@@ -78,8 +79,8 @@ CREATE TABLE scale_meta (key TEXT PRIMARY KEY, value TEXT);
 
 // T3 Code's real schema, extracted from the program bundle (never a database).
 const T3_SCHEMA = readFileSync(new URL("../fixtures/t3-schema.sql", import.meta.url), "utf8")
-// Rows in T3's migration ledger (effect_sql_migrations) on the one real database checked.
-const LEDGER_ROWS = 83
+// A nonempty synthetic ledger lets the reader detect an added migration.
+const LEDGER_ROWS = 64
 
 type Schema = "t3" | "demo"
 
@@ -372,7 +373,7 @@ class T3Sink {
     this.versions.set(key, version)
     return version
   }
-  /** Append one version-2 event. An explicit sequence is for the real tier's pruned tail. */
+  /** Append one version-2 event. An explicit sequence is for the skewed tier's pruned tail. */
   private writeEvent(kind: string, stream: string, type: string, at: string, payload: string, sequence?: number): number {
     const version = this.nextVersion(kind, stream)
     if (sequence != null) {
@@ -403,9 +404,8 @@ class T3Sink {
     this.end()
   }
   /**
-   * T3's migration ledger as a database that has run T3's migrations holds it: one row per
-   * migration (83 on the one real database checked). Ids and names are the lab's own. Does
-   * not draw from the row PRNG.
+   * Model T3's migration ledger with one row per migration. The lab supplies its own
+   * IDs and names without advancing the row PRNG.
    */
   ledger(count: number, at: string) {
     this.begin()
@@ -767,602 +767,145 @@ function generate(path: string, shape: Shape, schema: Schema) {
   writeFileSync(join(dirname(path), "environment-id"), ENVIRONMENT + "\n")
 }
 
-// ── Real-shaped tier ────────────────────────────────────────────────────────
-//
-// One real installation (counts only; content here is filler) is nothing like
-// the uniform tiers: a long tail of nodes and items, payloads of tens of
-// kilobytes, and a pruned orchestration_events log whose cursor sits near
-// 174000. `--tier real` builds that shape. Percentiles are nearest-rank.
-// Some residuals against the recorded install remain. The subagent vector sums to 217 rows
-// (216 subagent nodes) with a max of 88 per thread rather than 99. Every
-// subagent row with a provider thread points at a provider thread ON ITS CHILD
-// thread, never at the host's own conversation; 65 rows are remote children on
-// another machine (remoteChild payload, no local rows); 19 independent threads
-// carry delegatedFrom/linkOrigin from that machine. command_execution is 10890
-// so the listed types sum to 30893. Reasoning payloads sit on the median (1783
-// bytes) rather than 1843, because every slot above the median belongs to a
-// heavier type. dynamic_tool averages a little under 37.6KB so the item
-// payloads still total 207 MiB. The file is smaller than 718MB because this
-// schema has only the tables the reader opens.
+// ── Skewed stress tier (--tier real) ─────────────────────────────────────────
 
-const REAL_THREADS = 209
-const REAL_ITEMS = 30_893
-const REAL_NODES = 27_912
-const REAL_RUNS = 589
-// Subagent rows per host thread (the 14 fattest threads). Sums to 217, the
-// lead's row count; the earlier pass recorded 216. 216 subagent nodes (one
-// row has no local node), 146 distinct child threads, 65 remote rows.
-const REAL_SUBS = [1, 1, 2, 2, 2, 3, 3, 3, 6, 10, 16, 29, 51, 88] // sum 217, 14 threads
-const REAL_SUB_ROWS = 217
-const REAL_SUB_NODES = 216
-const REAL_CHILD_THREADS = 146
-const REAL_REMOTE_SUBS = 65
-const REAL_DELEGATED = 19
-const REAL_EVENT_TIP = 174_000
-const REAL_EVENT_ROWS = 41_899
-const REAL_PRUNE_FLOOR = REAL_EVENT_TIP - REAL_EVENT_ROWS // 132101; first kept sequence is floor+1
-const REAL_ITEM_BYTES = 207 * 1024 * 1024
+const STRESS_SEED = 0x51e55
+const STRESS_PRUNE_FLOOR = 2 ** 18
+const STRESS_EVENT_ROWS = 2 ** 15
 
-function realRank(n: number, p: number): number {
-  return Math.ceil((p / 100) * n) - 1
+interface StressSubagent {
+  child: string | null
+  providerThread: string | null
+  origin: "app_owned" | "provider_native"
+  remoteId: string | null
+  hasNode: boolean
+  status: "completed" | "failed" | "interrupted"
 }
 
-/** Nondecreasing integers. Pins stay put; the rest move until the sum matches. */
-function realFit(n: number, pins: { index: number; value: number }[], sum: number, floor: number): number[] {
-  const knots = [...pins].sort((a, b) => a.index - b.index)
-  if (knots[0]?.index !== 0) knots.unshift({ index: 0, value: floor })
-  if (knots[knots.length - 1]?.index !== n - 1) throw new Error("realFit needs a pin on the last index")
-  const out = new Array<number>(n).fill(floor)
-  for (let k = 0; k < knots.length - 1; k++) {
-    const a = knots[k]
-    const b = knots[k + 1]
-    out[a.index] = a.value
-    out[b.index] = b.value
-    for (let i = a.index + 1; i < b.index; i++) {
-      const t = (i - a.index) / (b.index - a.index)
-      const lo = Math.log(Math.max(1, a.value))
-      const hi = Math.log(Math.max(1, b.value))
-      const value = Math.round(Math.exp(lo + (hi - lo) * t))
-      out[i] = Math.max(a.value, Math.min(b.value, value))
-    }
-  }
-  for (let k = 0; k < knots.length - 1; k++) {
-    const a = knots[k]
-    const b = knots[k + 1]
-    for (let i = a.index + 1; i < b.index; i++) out[i] = Math.max(out[i - 1], Math.min(out[i], b.value))
-  }
-  const frozen = new Set(knots.map((k) => k.index))
-  const total = () => out.reduce((a, b) => a + b, 0)
-  let guard = 0
-  while (total() !== sum && guard++ < n * 80) {
-    const dir = total() < sum ? 1 : -1
-    let best = -1
-    if (dir > 0) {
-      for (let i = 0; i < n; i++) {
-        if (frozen.has(i) || (i + 1 < n && out[i] + 1 > out[i + 1])) continue
-        best = i
-        break
-      }
-    } else {
-      for (let i = n - 1; i >= 0; i--) {
-        if (frozen.has(i) || out[i] - 1 < floor || (i > 0 && out[i] - 1 < out[i - 1])) continue
-        best = i
-        break
-      }
-    }
-    if (best < 0) break
-    out[best] += dir
-  }
-  if (total() !== sum) throw new Error(`realFit could not reach ${sum} (landed on ${total()})`)
-  return out
-}
-
-function realPercentile(sorted: number[], p: number): number {
-  return sorted[realRank(sorted.length, p)]
-}
-
-/** Split a thread's items across its runs so the global run percentiles land. */
-function realRunItems(itemCounts: number[], runCounts: number[]): number[][] {
-  // 1-run threads are fixed. The other 454 runs are budgeted into ≤17, 18–109
-  // and ≥109 so nearest-rank p50/p90/max match the recorded install.
-  const FLOOR = { A: 1, B: 18, C: 109 }
-  const CAP = { A: 17, B: 109, C: 1103 }
-  const multi = itemCounts.map((items, i) => ({ i, items, runs: runCounts[i] })).filter((t) => t.runs > 1)
-    .sort((a, b) => b.items / b.runs - a.items / a.runs)
-  const buckets = new Map<number, { A: number; B: number; C: number }>()
-  let leftA = 221
-  let leftB = 174
-  let leftC = 59
-  for (const t of multi) buckets.set(t.i, { A: 0, B: 0, C: 0 })
-  for (const t of multi) {
-    const affordable = Math.max(0, Math.floor((t.items - t.runs) / (FLOOR.C - 1)))
-    const give = Math.min(leftC, t.runs, affordable)
-    buckets.get(t.i)!.C = give
-    leftC -= give
-  }
-  if (leftC !== 0) throw new Error(`real tier could not place ${leftC} large runs`)
-  for (const t of multi) {
-    const b = buckets.get(t.i)!
-    const slots = t.runs - b.C
-    const maxA = slots * (CAP.A - 1)
-    const extra = t.items - (b.C * FLOOR.C + slots)
-    let needB = 0
-    if (extra > maxA) {
-      for (let mid = 0; mid <= slots; mid++) {
-        const cap = b.C * CAP.C + mid * CAP.B + (slots - mid) * CAP.A
-        if (cap >= t.items) { needB = mid; break }
-      }
-    }
-    b.B = needB
-    b.A = slots - needB
-    leftB -= needB
-    leftA -= b.A
-  }
-  // The required B runs undershoot the budget by a handful; move A runs up.
-  if (leftB > 0) {
-    for (const t of multi) {
-      if (leftB <= 0) break
-      const b = buckets.get(t.i)!
-      const move = Math.min(leftB, b.A)
-      b.A -= move
-      b.B += move
-      leftB -= move
-      leftA += move
-    }
-  }
-  if (leftB !== 0 || leftA !== 0) throw new Error(`run buckets left A=${leftA} B=${leftB}`)
-  const fill = (count: number, floor: number, cap: number, budget: number): number[] => {
-    if (count === 0) return []
-    const out = new Array<number>(count).fill(floor)
-    let rest = budget - count * floor
-    if (rest < 0) throw new Error("run fill below its floor")
-    for (let i = count - 1; i >= 0 && rest > 0; i--) {
-      const add = Math.min(rest, cap - out[i])
-      out[i] += add
-      rest -= add
-    }
-    if (rest > 0) throw new Error("run fill above its cap")
-    return out
-  }
-  const per = itemCounts.map((items, i) => (runCounts[i] === 1 ? [items] : []))
-  for (const t of itemCounts.map((items, i) => ({ i, items })).filter((t) => runCounts[t.i] > 1)) {
-    const b = buckets.get(t.i)!
-    const remain0 = t.items - (b.A * FLOOR.A + b.B * FLOOR.B + b.C * FLOOR.C)
-    if (remain0 < 0) throw new Error(`thread ${t.i} items sit below the run floors`)
-    let remain = remain0
-    const room = { C: b.C * (CAP.C - FLOOR.C), B: b.B * (CAP.B - FLOOR.B), A: b.A * (CAP.A - FLOOR.A) }
-    const extra = { A: 0, B: 0, C: 0 }
-    for (const key of ["C", "B", "A"] as const) {
-      extra[key] = Math.min(remain, room[key])
-      remain -= extra[key]
-    }
-    if (remain !== 0) throw new Error(`thread ${t.i} could not place ${remain} items`)
-    per[t.i] = [
-      ...fill(b.A, FLOOR.A, CAP.A, b.A * FLOOR.A + extra.A),
-      ...fill(b.B, FLOOR.B, CAP.B, b.B * FLOOR.B + extra.B),
-      ...fill(b.C, FLOOR.C, CAP.C, b.C * FLOOR.C + extra.C),
-    ]
-  }
-  return per
-}
-
-function realScale(parts: number[], target: number, cap: number): number[] {
-  if (parts.length === 1) return [target]
-  const sum = parts.reduce((a, b) => a + b, 0)
-  const out = parts.map((p) => Math.max(1, Math.min(cap, Math.round((p / sum) * target))))
-  let drift = out.reduce((a, b) => a + b, 0) - target
-  let guard = 0
-  while (drift !== 0 && guard++ < target + out.length * 2) {
-    if (drift > 0) {
-      const i = out.findIndex((v) => v > 1)
-      if (i < 0) break
-      out[i]--
-      drift--
-    } else {
-      let i = -1
-      for (let k = out.length - 1; k >= 0; k--) if (out[k] < cap) { i = k; break }
-      if (i < 0) break
-      out[i]++
-      drift++
-    }
-  }
-  if (out.reduce((a, b) => a + b, 0) !== target) throw new Error(`could not scale ${parts.length} parts to ${target}`)
-  return out
-}
-
-const REAL_TYPES: { type: string; count: number; mean: number }[] = [
-  // command_execution is 11022 on the recorded install; 132 moved off it so the
-  // listed types sum to the 30893 item total (the install's status total is a
-  // slightly different number). Means are the recorded per-type averages.
-  { type: "command_execution", count: 10_890, mean: 6.7 * 1024 },
-  { type: "reasoning", count: 9_836, mean: 1.8 * 1024 },
-  { type: "assistant_message", count: 3_278, mean: 1.7 * 1024 },
-  { type: "dynamic_tool", count: 2_873, mean: 37.6 * 1024 },
-  { type: "file_change", count: 1_565, mean: 4.0 * 1024 },
-  { type: "checkpoint", count: 577, mean: 900 },
-  { type: "file_search", count: 554, mean: 900 },
-  { type: "user_message", count: 553, mean: 700 },
-  { type: "web_search", count: 350, mean: 1200 },
-  { type: "subagent", count: 216, mean: 6.9 * 1024 },
-  { type: "notification", count: 138, mean: 600 },
-  { type: "todo_list", count: 63, mean: 800 },
-]
-
-function realApportion(weights: number[], total: number, caps: number[]): number[] {
-  const sum = weights.reduce((a, b) => a + b, 0)
-  if (sum <= 0) throw new Error("apportion needs weight")
-  const out = weights.map((w, i) => Math.min(caps[i], Math.floor((w / sum) * total)))
-  let drift = total - out.reduce((a, b) => a + b, 0)
-  let guard = 0
-  while (drift > 0 && guard++ < total + out.length) {
-    let placed = false
-    for (let i = 0; i < out.length && drift > 0; i++) {
-      if (out[i] < caps[i]) { out[i]++; drift--; placed = true }
-    }
-    if (!placed) break
-  }
-  if (drift !== 0) throw new Error(`could not apportion ${total} across caps ${caps.join(",")}`)
-  return out
-}
-
-interface RealThread {
-  index: number
+interface StressThread {
   id: string
-  items: number
-  nodes: number
-  runs: number
-  subRows: number
-  role: "child" | "independent" | "parent"
-  parent: number | null // index of the host thread, for child threads
+  runs: number[] // item counts in run order
+  activity: "hot" | "warm" | "cold"
+  subagents: StressSubagent[]
+  parent: string | null
+  remoteParent: string | null
 }
 
-/** One subagent row in the real-shaped tier, classified like the recorded install. */
-interface RealSub {
-  kind: "app" | "native" | "noprovider" | "remote"
-  status: string // completed / failed / interrupted; the install had no running subagents
-  child: string | null // local child thread; set unless remote
-  provider: string | null // a provider thread ON the child thread; null for noprovider/remote
-  origin: string // app_owned / provider_native
-  remoteId: string | null // remoteChild thread id on REMOTE_ENV
-  node: boolean // 216 subagent nodes over 217 rows: one row has no local node
-}
-
-interface RealPlan {
-  threads: RealThread[]
-  runItems: number[][]
-  runNodes: number[][]
-  recent3h: Map<number, number>
-  recent24h: Map<number, number>
-  running: number[]
-  subPlan: Map<number, RealSub[]> // host thread index -> its subagent rows
-  delegated: Map<number, string> // independent thread index -> remote parent thread id
-}
-
-function realPlan(): RealPlan {
-  const pins = (pairs: [number, number][]) => pairs.map(([p, value]) => ({ index: p === 100 ? REAL_THREADS - 1 : realRank(REAL_THREADS, p), value }))
-  const runCounts = realFit(REAL_THREADS, pins([[50, 1], [75, 2], [90, 7], [99, 50], [100, 74]]), REAL_RUNS, 1)
-  const itemCounts = realFit(REAL_THREADS, pins([[50, 57], [75, 127], [90, 281], [99, 1486], [100, 5732]]), REAL_ITEMS, 1)
-  const nodeCounts = realFit(REAL_THREADS, pins([[50, 52], [75, 114], [90, 276], [99, 1104], [100, 5624]]), REAL_NODES, 1)
-  const runItems = realRunItems(itemCounts, runCounts)
-  const flatItems = runItems.flat()
-  const sortedItems = [...flatItems].sort((a, b) => a - b)
-  if (sortedItems.length !== REAL_RUNS) throw new Error(`run rows ${sortedItems.length}`)
-  if (realPercentile(sortedItems, 50) !== 17 || realPercentile(sortedItems, 90) !== 109 || sortedItems[sortedItems.length - 1] !== 1103) {
-    throw new Error(`item/run percentiles ${realPercentile(sortedItems, 50)}/${realPercentile(sortedItems, 90)}/${sortedItems.at(-1)}`)
-  }
-  // The 14 fattest threads host the subagent rows. Child threads are the 146
-  // smallest, so a child id never collides with a subagent id and the host is
-  // always a heavier thread. Rows and nodes differ by one: the install has 217
-  // subagent rows but 216 subagent nodes, so one row (the last) has no node.
-  const subRowAt = new Array<number>(REAL_THREADS).fill(0)
-  const subNodeAt = new Array<number>(REAL_THREADS).fill(0)
-  for (let i = 0; i < REAL_SUBS.length; i++) {
-    subRowAt[REAL_THREADS - REAL_SUBS.length + i] = REAL_SUBS[i]
-    subNodeAt[REAL_THREADS - REAL_SUBS.length + i] = REAL_SUBS[i] - (i === REAL_SUBS.length - 1 ? 1 : 0)
-  }
-  const runNodes = itemCounts.map((_, i) => {
-    const parts = realScale(runItems[i], nodeCounts[i] - subNodeAt[i], 1101)
-    // Subagent nodes share the latest run. Keep that run's total ≤ the recorded max.
-    const latest = parts.length - 1
-    const room = Math.max(1, 1101 - subNodeAt[i])
-    if (parts[latest] > room) {
-      let extra = parts[latest] - room
-      parts[latest] = room
-      for (let k = latest - 1; k >= 0 && extra > 0; k--) {
-        const add = Math.min(extra, 1101 - parts[k])
-        parts[k] += add
-        extra -= add
-      }
-      if (extra > 0) throw new Error(`thread ${i} cannot place ${extra} nodes under the per-run cap`)
-    }
-    return parts
-  })
-  const threads: RealThread[] = itemCounts.map((items, index) => ({
-    index,
-    id: `t-${String(index).padStart(5, "0")}`,
-    items,
-    nodes: nodeCounts[index],
-    runs: runCounts[index],
-    subRows: subRowAt[index],
-    role: index >= REAL_THREADS - REAL_SUBS.length ? "parent" : index < REAL_CHILD_THREADS ? "child" : "independent",
-    parent: null,
-  }))
-  // 217 subagent rows, classified as they were counted on a real install:
-  // 104 app-owned with a provider thread on the child thread, 44 provider-
-  // native with one, 4 provider-native with no provider thread yet, and 65
-  // remote rows carrying a remoteChild and no local rows. The 152 child-linked
-  // rows name 146 distinct child threads: six are second rows naming the same
-  // child again (app-started retries). No row points at its host's own
-  // provider thread; a provider turn never sits under a different thread than
-  // its provider thread. Statuses: 212 completed, 3 failed, 2 interrupted.
-  const kinds: RealSub["kind"][] = [
-    ...Array<RealSub["kind"]>(104).fill("app"),
-    ...Array<RealSub["kind"]>(44).fill("native"),
-    ...Array<RealSub["kind"]>(4).fill("noprovider"),
-    ...Array<RealSub["kind"]>(REAL_REMOTE_SUBS).fill("remote"),
+function stressThreads(rng: () => number): StressThread[] {
+  // Short tasks dominate the list, but a small set of long-running projects
+  // dominates the scan. Each band draws its own run and item counts.
+  const bands = [
+    { threads: 192, minRuns: 1, runSpread: 2, minItems: 4, itemSpread: 28 },
+    { threads: 48, minRuns: 3, runSpread: 4, minItems: 40, itemSpread: 120 },
+    { threads: 16, minRuns: 8, runSpread: 5, minItems: 160, itemSpread: 320 },
   ]
-  const statuses = [...Array<string>(212).fill("completed"), ...Array<string>(3).fill("failed"), ...Array<string>(2).fill("interrupted")]
-  const shuffle = mulberry32(0x5eed) // own stream; the lab stream stays put
-  for (const list of [kinds, statuses]) {
-    for (let i = list.length - 1; i > 0; i--) {
-      const j = Math.floor(shuffle() * (i + 1))
-      const swap = list[i]!
-      list[i] = list[j]!
-      list[j] = swap
-    }
-  }
-  const subPlan = new Map<number, RealSub[]>()
-  let at = 0
-  let childCursor = 0
-  let remoteCursor = 0
-  const assignedChildren: string[] = []
-  for (const host of threads) {
-    if (host.subRows === 0) continue
-    const rows: RealSub[] = []
-    const ownChildren: string[] = []
-    let ownReuse = 0
-    for (let s = 0; s < host.subRows; s++) {
-      const kind = kinds[at]
-      const status = statuses[at]
-      const last = at === REAL_SUB_ROWS - 1
-      at++
-      let child: string | null = null
-      if (kind !== "remote") {
-        if (childCursor < REAL_CHILD_THREADS) {
-          child = threads[childCursor].id
-          threads[childCursor].parent = host.index
-          childCursor++
-          ownChildren.push(child)
-          assignedChildren.push(child)
-        } else if (ownChildren.length) {
-          // A retry row naming one of this host's child threads again.
-          child = ownChildren[ownReuse++ % ownChildren.length]
-        } else {
-          child = assignedChildren[assignedChildren.length - 1 - (ownReuse++ % assignedChildren.length)]
-        }
+  const [short, busy, heavy] = bands.map((band, group) =>
+    Array.from({ length: band.threads }, (_, index): StressThread => ({
+      id: `t-${group}-${String(index).padStart(3, "0")}`,
+      runs: Array.from({ length: band.minRuns + Math.floor(rng() * band.runSpread) },
+        () => band.minItems + Math.floor(rng() * band.itemSpread)),
+      activity: group === 1 && index < 16 ? "hot" : group === 1 && index < 32 ? "warm" : "cold",
+      subagents: [],
+      parent: null,
+      remoteParent: null,
+    })))
+  // A few especially long runs stress reader caps and per-run scans.
+  let nextChild = 0
+  heavy.forEach((host, index) => {
+    host.runs[0] *= 4
+    let lastChild: StressThread | undefined
+    // Mix local ownership, incomplete provider linkage, retries, and
+    // remote-only children. Each local retry points to a child of this host.
+    const count = 8 + (index % 4) * 4
+    for (let slot = 0; slot < count; slot++) {
+      const kind = slot % 8
+      const remote = kind === 0 || kind === 4
+      const native = kind === 2 || kind === 3 || kind === 6
+      const remoteId = remote ? `remote-${index}-${slot}` : null
+      const child = remote ? null : kind === 7 ? lastChild! : short[nextChild++]
+      if (child) {
+        child.parent = host.id
+        lastChild = child
       }
-      rows.push({
-        kind,
-        status,
-        child,
-        provider: kind === "app" || kind === "native" ? `pt-${child}` : null,
-        origin: kind === "native" || kind === "noprovider" ? "provider_native" : "app_owned",
-        remoteId: kind === "remote" ? `rmt-${String(remoteCursor++).padStart(3, "0")}` : null,
-        node: !last,
+      host.subagents.push({
+        child: child?.id ?? null,
+        providerThread: child && kind !== 3 ? `pt-${child.id}` : null,
+        origin: native ? "provider_native" : "app_owned",
+        remoteId,
+        hasNode: kind !== 3,
+        status: kind === 5 ? "failed" : kind === 7 ? "interrupted" : "completed",
       })
+      // A remote child can itself delegate back to this machine.
+      if (slot === 0) busy[index * 2].remoteParent = remoteId
     }
-    subPlan.set(host.index, rows)
-  }
-  if (at !== REAL_SUB_ROWS) throw new Error(`dealt ${at} subagent rows, wanted ${REAL_SUB_ROWS}`)
-  if (childCursor !== REAL_CHILD_THREADS) throw new Error(`attached ${childCursor} child threads, wanted ${REAL_CHILD_THREADS}`)
-  if (remoteCursor !== REAL_REMOTE_SUBS) throw new Error(`dealt ${remoteCursor} remote rows, wanted ${REAL_REMOTE_SUBS}`)
-  // 19 threads delegated in from the other machine. None is a local subagent
-  // child; the parent is not in this database. Each parent ref coincides with
-  // one remoteChild ref, the way a retried remote delegation appears twice, so
-  // the readers keep the recorded 274 agents instead of inventing placeholders.
-  const delegated = new Map<number, string>()
-  const independents = threads.filter((t) => t.role === "independent")
-  for (let i = 0; i < REAL_DELEGATED; i++) delegated.set(independents[i].index, `rmt-${String(i).padStart(3, "0")}`)
-  // Recent activity sits on 14 threads large enough to hold it, chosen nearest
-  // the recorded "one thread changed" reread (~786 rows) so an incremental
-  // poll of a live thread is the same kind of read. The long tail stays cold:
-  // it still dominates the full scan.
-  const band = threads
-    .map((t) => ({ t, rows: 1 + t.runs + t.nodes + t.items }))
-    .filter((x) => x.t.items >= 320 && x.t.items <= 1100 && x.t.runs <= 16)
-    .sort((a, b) => Math.abs(a.rows - 786) - Math.abs(b.rows - 786))
-  if (band.length < 14) throw new Error(`recent band has ${band.length} threads`)
-  const recent = band.slice(0, 14).map((x) => x.t).sort((a, b) => a.items - b.items)
-  const hot = recent.slice(-7)
-  const warm = recent.slice(0, 7)
-  const three = realApportion(hot.map((t) => t.items), 888, hot.map((t) => t.items))
-  const extraCaps = [...warm.map((t) => t.items), ...hot.map((t, i) => t.items - three[i])]
-  const extra = realApportion([...warm.map((t) => t.items), ...hot.map((t) => t.items)], 3593 - 888, extraCaps)
-  const recent3h = new Map<number, number>()
-  const recent24h = new Map<number, number>()
-  warm.forEach((t, i) => recent24h.set(t.index, extra[i]))
-  hot.forEach((t, i) => {
-    recent3h.set(t.index, three[i])
-    recent24h.set(t.index, three[i] + extra[warm.length + i])
   })
-  const running = [...hot.map((t) => t.index), ...warm.slice(0, 5).map((t) => t.index)]
-  return { threads, runItems, runNodes, recent3h, recent24h, running, subPlan, delegated }
+  return [...short, ...busy, ...heavy]
 }
 
 const PAD_UNIT = `${WORDS.join(" ")} `
-const PAD = PAD_UNIT.repeat(Math.ceil(1_100_000 / PAD_UNIT.length))
-function padTo(n: number): string {
-  if (n <= 0) return ""
-  return n <= PAD.length ? PAD.slice(0, n) : PAD.repeat(Math.ceil(n / PAD.length)).slice(0, n)
-}
+const PAD = PAD_UNIT.repeat(Math.ceil((512 * 1024) / PAD_UNIT.length))
+
 function sized(fields: Record<string, unknown>, bytes: number): Record<string, unknown> {
-  const clean: Record<string, unknown> = {}
-  for (const [k, v] of Object.entries(fields)) if (v !== undefined) clean[k] = v
-  const base = JSON.stringify({ ...clean, pad: "" }).length
-  return { ...clean, pad: padTo(bytes - base) }
+  const payload = { ...fields, pad: "" }
+  payload.pad = PAD.slice(0, Math.max(0, bytes - JSON.stringify(payload).length))
+  return payload
 }
 
-function realItemSizes(): { type: string; bytes: number }[] {
-  // Sorted payload sizes, pinned at the recorded percentiles, summing to 207 MiB.
-  // A geometric curve through those pins overshoots the byte total by tens of
-  // megabytes and cannot be pulled back without moving a pin, so the sizes are
-  // built in slices instead. The top decile is 3,089 items at or above 10,749
-  // bytes and dynamic_tool only has 2,873 of them, so 216 commands sit on that
-  // shoulder. Reasoning then has nowhere to go above the median, and stays at
-  // 1783 rather than its recorded 1843. dynamic_tool absorbs the leftover so
-  // the total is exact, which puts its mean about 1.3% under 37.6KB.
-  const n = REAL_ITEMS
-  const i50 = realRank(n, 50)
-  const i90 = realRank(n, 90)
-  const i99 = realRank(n, 99)
-  const bytes = new Array<number>(n)
-  const types = new Array<string>(n)
-  let cursor = 0
-  const take = (count: number, type: string, value: number) => {
-    for (let i = 0; i < count; i++) {
-      bytes[cursor] = value
-      types[cursor] = type
-      cursor++
-    }
-  }
-  take(138, "notification", 600)
-  take(553, "user_message", 700)
-  take(63, "todo_list", 800)
-  take(577, "checkpoint", 900)
-  take(554, "file_search", 900)
-  take(350, "web_search", 1200)
-  take(3278, "assistant_message", 1741)
-  take(9836, "reasoning", 1783)
-  take(98, "command_execution", 1783)
-  if (cursor !== i50 + 1 || bytes[i50] !== 1783) throw new Error("item median pin missed")
-  // 2,000×2500 + 2,847×5500 + 5,728×9000, plus the p90 pin, the 216 shoulder
-  // and the 98 median commands, averages the recorded 6.7KB.
-  take(2000, "command_execution", 2500)
-  take(1565, "file_change", 4096)
-  take(2847, "command_execution", 5500)
-  take(216, "subagent", 7066)
-  take(5728, "command_execution", 9000)
-  take(1, "command_execution", 10_749)
-  if (cursor !== i90 + 1 || bytes[i90] !== 10_749) throw new Error("item p90 pin missed")
-  take(216, "command_execution", 10_749)
-  const dynStart = cursor
-  if (n - dynStart !== 2873) throw new Error(`dynamic slice is ${n - dynStart}`)
-  let used = 0
-  for (let i = 0; i < dynStart; i++) used += bytes[i]
-  const bodyN = i99 - dynStart
-  const tailN = n - i99 - 2
-  const bodyBudget = REAL_ITEM_BYTES - used - (90_658 + tailN * 90_658 + 1_090_972)
-  const bodyLo = Math.max(10_749, Math.round((2 * bodyBudget) / bodyN - 90_658))
-  for (let i = 0; i < bodyN; i++) {
-    const t = i / (bodyN - 1)
-    bytes[dynStart + i] = Math.round(bodyLo + (90_658 - bodyLo) * t)
-    types[dynStart + i] = "dynamic_tool"
-  }
-  bytes[i99] = 90_658
-  types[i99] = "dynamic_tool"
-  for (let i = 0; i < tailN; i++) {
-    bytes[i99 + 1 + i] = 90_658
-    types[i99 + 1 + i] = "dynamic_tool"
-  }
-  bytes[n - 1] = 1_090_972
-  types[n - 1] = "dynamic_tool"
-  let bodySum = 0
-  for (let i = 0; i < bodyN; i++) bodySum += bytes[dynStart + i]
-  let drift = bodyBudget - bodySum
-  if (drift > 0) {
-    for (let i = bodyN - 1; i >= 0 && drift > 0; i--) {
-      const ceiling = i + 1 === bodyN ? 90_658 : bytes[dynStart + i + 1]
-      const add = Math.min(drift, ceiling - bytes[dynStart + i])
-      bytes[dynStart + i] += add
-      drift -= add
-    }
-  } else if (drift < 0) {
-    for (let i = 0; i < bodyN && drift < 0; i++) {
-      const floor = i === 0 ? 10_749 : bytes[dynStart + i - 1]
-      const sub = Math.min(-drift, bytes[dynStart + i] - floor)
-      bytes[dynStart + i] -= sub
-      drift += sub
-    }
-  }
-  if (drift !== 0) throw new Error(`dynamic body missed its budget by ${drift}`)
-  if (bytes.reduce((a, b) => a + b, 0) !== REAL_ITEM_BYTES) throw new Error("item payload bytes missed 207 MiB")
-  if (bytes[i99] !== 90_658 || bytes[n - 1] !== 1_090_972) throw new Error("item p99 pin missed")
-  for (let i = 1; i < n; i++) if (bytes[i] < bytes[i - 1]) throw new Error(`payload sizes decreased at ${i}`)
-  const out = types.map((type, i) => ({ type, bytes: bytes[i] }))
-  // Spread the slices across threads. todo_list is pulled back out by the writer
-  // so every plan row lands on a latest run.
-  const rng = mulberry32(42)
-  for (let i = out.length - 1; i > 0; i--) {
-    const j = Math.floor(rng() * (i + 1))
-    const swap = out[i]!
-    out[i] = out[j]!
-    out[j] = swap
-  }
-  return out
+// Mix small messages with larger command and tool output, plus rare oversized
+// results. Sizes vary within each family without pinning a total or percentile.
+const STRESS_ITEMS = [
+  ["command_execution", 4, 16], ["command_execution", 2, 8],
+  ["dynamic_tool", 12, 48], ["reasoning", 1, 4],
+  ["reasoning", 1, 2], ["assistant_message", 1, 2],
+  ["file_change", 2, 8], ["user_message", 1, 2],
+  ["checkpoint", 1, 2], ["file_search", 2, 4],
+  ["web_search", 2, 6], ["subagent", 2, 6],
+  ["notification", 1, 2],
+] as const
+
+function stressItem(rng: () => number, ordinal: number, todo: boolean) {
+  if (todo) return { type: "todo_list", bytes: 1024 }
+  if (ordinal % 512 === 0) return { type: "dynamic_tool", bytes: 512 * 1024 }
+  const [type, min, max] = STRESS_ITEMS[Math.floor(rng() * STRESS_ITEMS.length)]
+  return { type, bytes: 1024 * (min + Math.floor(rng() * (max - min + 1))) }
 }
 
-function realProjects(): { id: string; title: string; root: string }[] {
-  return Array.from({ length: 24 }, (_, i) => ({
+function stressProjects() {
+  return Array.from({ length: 16 }, (_, i) => ({
     id: `p${String(i).padStart(2, "0")}`,
     title: `lab-${WORDS[i % WORDS.length]}`,
     root: `/home/user/projects/lab-${WORDS[i % WORDS.length]}-${i}`,
   }))
 }
 
-function realEvents(threadIds: string[], hot: string[]): { sequence: number; kind: string; stream: string; type: string; at: string }[] {
-  const threadTypes: string[] = []
-  for (let i = 0; i < 26_396; i++) threadTypes.push("turn-item.updated")
-  for (let i = 0; i < 10_475; i++) threadTypes.push("node.updated")
-  const other = ["thread.updated", "run.updated", "provider-turn.updated", "subagent.updated"]
-  for (let i = 0; i < 5_004; i++) threadTypes.push(other[i % other.length])
-  if (threadTypes.length !== REAL_EVENT_ROWS - 24) throw new Error(`thread events ${threadTypes.length}`)
-  const cold = threadIds.filter((id) => !hot.includes(id))
-  const projectAt = new Set<number>()
-  for (let i = 0; i < 24; i++) projectAt.add(500 + i * 1700)
-  const rows: { sequence: number; kind: string; stream: string; type: string; at: string }[] = []
-  let thread = 0
-  let hotN = 0
-  let coldN = 0
-  for (let i = 0; i < REAL_EVENT_ROWS; i++) {
-    const sequence = REAL_PRUNE_FLOOR + 1 + i
-    const at = iso(EPOCH - (REAL_EVENT_ROWS - i) * 1000)!
-    if (projectAt.has(i)) {
-      rows.push({ sequence, kind: "project", stream: `p${String(rows.filter((r) => r.kind === "project").length).padStart(2, "0")}`, type: "project.updated", at })
-      continue
+function stressEvents(threads: StressThread[], projects: ReturnType<typeof stressProjects>) {
+  const active = threads.filter((thread) => thread.activity !== "cold")
+  const cold = threads.filter((thread) => thread.activity === "cold")
+  const kinds = ["turn-item.updated", "node.updated", "turn-item.updated", "run.updated", "provider-turn.updated", "subagent.updated"]
+  const projectInterval = STRESS_EVENT_ROWS / projects.length
+  let activeIndex = 0
+  let coldIndex = 0
+  return Array.from({ length: STRESS_EVENT_ROWS }, (_, i) => {
+    const sequence = STRESS_PRUNE_FLOOR + 1 + i
+    const at = iso(EPOCH - (STRESS_EVENT_ROWS - i) * 1000)!
+    if (i % projectInterval === 0) {
+      return { sequence, kind: "project", stream: projects[i / projectInterval].id, type: "project.updated", at }
     }
-    // Four of every five thread events name one of the 14 hot streams.
-    const stream = thread % 5 === 4 ? cold[coldN++ % cold.length] : hot[hotN++ % hot.length]
-    rows.push({ sequence, kind: "thread", stream, type: threadTypes[thread++], at })
-  }
-  if (rows[rows.length - 1].kind !== "thread" || rows[rows.length - 1].sequence !== REAL_EVENT_TIP) {
-    throw new Error("real event tail does not end on the recorded cursor")
-  }
-  if (rows.filter((r) => r.kind === "project").length !== 24) throw new Error("project event count")
-  return rows
+    const thread = i % 4 === 0 ? cold[coldIndex++ % cold.length] : active[activeIndex++ % active.length]
+    return { sequence, kind: "thread", stream: thread.id, type: kinds[i % kinds.length], at }
+  })
 }
 
-function generateReal(path: string) {
-  const plan = realPlan()
-  const projects = realProjects()
-  const sizes = realItemSizes()
-  const todos = sizes.filter((s) => s.type === "todo_list")
-  const rest = sizes.filter((s) => s.type !== "todo_list")
-  // Statuses scaled from the recorded totals onto the item count. Running
-  // items are placed in the 3-hour window.
-  const statusOf = new Array<string>(REAL_ITEMS).fill("completed")
-  const statusPlan: [string, number][] = [["failed", 681], ["running", 65], ["interrupted", 10], ["cancelled", 10]]
-  const statusScale = REAL_ITEMS / (30_349 + 681 + 65 + 10 + 10)
-  let cursor = 0
-  for (const [name, count] of statusPlan) {
-    const n = Math.round(count * statusScale)
-    for (let i = 0; i < n; i++) statusOf[cursor++] = name
-  }
+function generateStress(path: string) {
+  const rng = mulberry32(STRESS_SEED)
+  const threads = stressThreads(rng)
+  const projects = stressProjects()
   rmSync(path, { force: true })
   rmSync(path + "-wal", { force: true })
   rmSync(path + "-shm", { force: true })
   mkdirSync(dirname(path), { recursive: true })
   const db = new DatabaseSync(path)
-  const lab = new Lab({ ...TIERS.s, seed: 42 })
+  const lab = new Lab({ ...TIERS.s, seed: STRESS_SEED })
   try {
     db.exec("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-200000")
     db.exec(T3_SCHEMA)
@@ -1370,9 +913,9 @@ function generateReal(path: string) {
     const w = new T3Sink(db, lab)
     w.hold()
     const opened = iso(EPOCH - 21 * DAY)!
-    w.raw("INSERT INTO scale_meta (key, value) VALUES ('seed', '42')")
+    w.raw("INSERT INTO scale_meta (key, value) VALUES ('seed', ?)", String(STRESS_SEED))
     w.raw("INSERT INTO scale_meta (key, value) VALUES ('schema', 't3')")
-    w.raw("INSERT INTO scale_meta (key, value) VALUES ('shape', ?)", JSON.stringify({ tier: "real", seed: 42 }))
+    w.raw("INSERT INTO scale_meta (key, value) VALUES ('shape', ?)", JSON.stringify({ tier: "real", workload: "skewed-v1", seed: STRESS_SEED }))
     w.raw("INSERT INTO scale_meta (key, value) VALUES ('mutations', '0')")
     w.raw("INSERT INTO orchestration_v2_projection_metadata (projection_name, schema_version, last_sequence, updated_at) VALUES ('thread-projections', 1, 0, ?)", opened)
     w.ledger(LEDGER_ROWS, opened)
@@ -1383,177 +926,117 @@ function generateReal(path: string) {
         favicon_path: null, auto_pull: 0, project_icon_json: null, pinned_at: null, archived_at: null,
       })
     }
-    const running = new Set(plan.running)
+    const running = threads.filter((thread) => thread.activity === "hot")
+    const nodeKinds = ["tool_call", "reasoning", "tool_call", "assistant_message"]
     let itemNo = 0
     let nodeNo = 0
-    let extraRoots = 73 // 589 run roots + 73 = the recorded 662 root_turn nodes
-    let todoNodes = 63
-    // Remaining node kinds, scaled from the recorded mix onto the nodes left
-    // after root_turn, subagent and todo_list.
-    const kindLeft: Record<string, number> = { tool_call: 16_140, reasoning: 7_588, assistant_message: 3_243 }
-    const kindCycle = ["tool_call", "reasoning", "assistant_message"]
-    let kindCursor = 0
-    const nextKind = () => {
-      for (let hop = 0; hop < kindCycle.length; hop++) {
-        const kind = kindCycle[(kindCursor + hop) % kindCycle.length]
-        if (kindLeft[kind] > 0) {
-          kindLeft[kind]--
-          kindCursor = (kindCursor + hop + 1) % kindCycle.length
-          return kind
-        }
-      }
-      return "tool_call"
-    }
-    let subRowsWritten = 0
-    let subNodesWritten = 0
-    // Item types in plan order, with todo_list reserved for latest runs so the
-    // plans query (latest run ids) sees all 63.
-    let restAt = 0
-    const nextType = (todo: boolean) => (todo ? todos[todos.length - 1] : rest[restAt++])
-    let statusAt = 0
-    const takeStatus = (preferRunning: boolean) => {
-      if (preferRunning) {
-        const i = statusOf.indexOf("running", statusAt)
-        if (i >= 0) {
-          statusOf[i] = statusOf[statusAt]
-          statusOf[statusAt] = "running"
-        }
-      }
-      return statusOf[statusAt++]
-    }
-    // Nearest-rank p99 needs the top slice, not a modulo: 3 of 209 threads,
-    // 6 of 589 runs, 3 of 216 subagents, 7 of 650 turns. Node payloads use the
-    // same cut (the top 1%, plus every subagent node, which is past it).
-    const nodeBytes = (i: number) => (i >= Math.floor(REAL_NODES * 0.99) ? 1741 : 1035)
-    const threadBytes = (i: number) => (i >= REAL_THREADS - 3 ? 2648 : 1613)
-    let runSerial = 0
-    const runPayload = () => (runSerial++ >= REAL_RUNS - 6 ? 2147 : 1106)
-    const subBytes = (i: number) => (i >= 213 ? 24_668 : 5152)
-    let subSerial = 0
-    let turnSerial = 0
-    const turnPayload = () => (turnSerial++ >= 643 ? 1900 : 1092)
-    for (const t of plan.threads) {
-      const project = projects[t.index % projects.length]
-      const model = MODELS[t.index % MODELS.length][0]
-      const max = MODELS[t.index % MODELS.length][1]
+    for (const [index, t] of threads.entries()) {
+      const project = projects[index % projects.length]
+      const model = MODELS[index % MODELS.length][0]
+      const max = MODELS[index % MODELS.length][1]
       const provider = providerOf(model)
       const pt = `pt-${t.id}`
-      const live = running.has(t.index)
-      const latestRun = `r-${t.id}-${t.runs}`
-      const created = iso(EPOCH - 21 * DAY + t.index * 1000)!
+      const live = t.activity === "hot"
+      const latestRun = `r-${t.id}-${t.runs.length}`
+      const created = iso(EPOCH - 21 * DAY + index * 1000)!
       w.upsertRow(`${PREFIX}provider_threads`, {
         provider_thread_id: pt, thread_id: t.id, owner_node_id: null, provider, provider_session_id: null,
-        status: live ? "active" : "closed", first_run_ordinal: 1, last_run_ordinal: t.runs, updated_at: iso(EPOCH),
+        status: live ? "active" : "closed", first_run_ordinal: 1, last_run_ordinal: t.runs.length, updated_at: iso(EPOCH),
         driver: null, provider_instance_id: null,
         payload_json: sized({ id: pt, contextUsage: { usedTokens: Math.round(max * 0.4), maxTokens: max, inputTokens: Math.round(max * 0.3), cachedInputTokens: Math.round(max * 0.2), outputTokens: Math.round(max * 0.05), reasoningOutputTokens: Math.round(max * 0.02), updatedAt: iso(EPOCH) } }, 1400),
       })
-      const in3 = plan.recent3h.get(t.index) ?? 0
-      const in24 = plan.recent24h.get(t.index) ?? 0
-      const tags: string[] = []
-      for (const count of plan.runItems[t.index]) for (let i = 0; i < count; i++) tags.push("old")
-      for (let n = 0; n < in3; n++) tags[tags.length - 1 - n] = "3h"
-      for (let n = 0; n < in24 - in3; n++) tags[tags.length - 1 - in3 - n] = "24h"
-      let tagAt = 0
-      let threadItems = 0
-      for (let k = 1; k <= t.runs; k++) {
+      const latestAt = EPOCH - (live ? 2 * HOUR : t.activity === "warm" ? 12 * HOUR : 2 * DAY)
+      const updated = iso(live ? latestAt + HOUR : latestAt + 2 * HOUR)
+      for (const [runIndex, nItems] of t.runs.entries()) {
+        const k = runIndex + 1
         const run = `r-${t.id}-${k}`
-        const latest = k === t.runs
-        const nItems = plan.runItems[t.index][k - 1]
-        const nNodes = plan.runNodes[t.index][k - 1]
+        const latest = k === t.runs.length
         const root = `root-${run}`
         const runLive = live && latest
-        const requested = EPOCH - 20 * DAY + k * HOUR
+        const requested = latestAt - (t.runs.length - k) * DAY
+        const completed = runLive ? null : iso(requested + 2 * HOUR)
+        const nNodes = 1 + Math.floor(nItems * 0.75)
+        const reserveTodo = latest && index % 4 === 0
         w.upsertRow(`${PREFIX}runs`, {
           run_id: run, thread_id: t.id, ordinal: k, provider, provider_thread_id: pt,
           status: runLive ? "running" : "completed", requested_at: iso(requested),
-          completed_at: runLive ? null : iso(EPOCH - (latest ? HOUR : DAY)), provider_instance_id: null,
+          completed_at: completed, provider_instance_id: null,
           payload_json: sized({
             id: run, threadId: t.id, status: runLive ? "running" : "completed", providerThreadId: pt,
             requestedAt: iso(requested), startedAt: iso(requested + 1000),
-            completedAt: runLive ? null : iso(EPOCH - (latest ? HOUR : DAY)),
+            completedAt: completed,
             modelSelection: { model, options: [{ id: "effort", value: "medium" }] },
-          }, runPayload()),
+          }, nItems >= 160 ? 2048 : 768),
         })
         for (let n = 0; n < nNodes; n++) {
           const id = n === 0 ? root : `nd-${nodeNo}`
-          let kind = "tool_call"
-          if (n === 0) kind = "root_turn"
-          else if (extraRoots > 0) { kind = "root_turn"; extraRoots-- }
-          else if (todoNodes > 0 && latest) { kind = "todo_list"; todoNodes-- }
-          else kind = nextKind()
+          const kind = n === 0 ? "root_turn" : reserveTodo && n === 1 ? "todo_list" : nodeKinds[n % nodeKinds.length]
           nodeNo++
           w.upsertRow(`${PREFIX}nodes`, {
             node_id: id, thread_id: t.id, run_id: run, parent_node_id: n === 0 ? null : root, root_node_id: root,
             kind, status: runLive ? "running" : "completed", provider_thread_id: pt, provider_turn_id: null,
             runtime_request_id: null, checkpoint_scope_id: null, started_at: iso(requested),
-            completed_at: runLive ? null : iso(EPOCH - HOUR), payload_json: sized({ node: id }, nodeBytes(nodeNo)),
+            completed_at: completed, payload_json: sized({ node: id }, kind === "root_turn" ? 2048 : 768),
           })
         }
-        const reserveTodo = latest && t.index < 63
         for (let j = 0; j < nItems; j++) {
-          const tag = tags[tagAt++]
-          const spec = reserveTodo && j === nItems - 1 ? nextType(true) : nextType(false)
-          const status = takeStatus(tag === "3h")
-          const when = tag === "3h" ? EPOCH - WINDOW + 1000 * (threadItems + 1)
-            : tag === "24h" ? EPOCH - DAY + 1000 * (threadItems + 1)
-            : EPOCH - 10 * DAY - t.index * 1000 - j
+          const spec = stressItem(rng, itemNo, reserveTodo && j === 0)
+          const status = runLive && j === nItems - 1 ? "running"
+            : j % 97 === 11 ? "failed" : j % 97 === 35 ? "interrupted"
+            : j % 97 === 62 ? "cancelled" : "completed"
+          const when = requested + Math.floor((j + 1) * HOUR / nItems)
           const id = `i-${itemNo}`
           w.upsertRow(`${PREFIX}turn_items`, {
             turn_item_id: id, thread_id: t.id, run_id: run, node_id: root, provider_thread_id: pt,
             provider_turn_id: null, parent_item_id: null, ordinal: itemNo, type: spec.type, status,
-            updated_at: iso(Math.min(when, EPOCH)), payload_json: sized({
-              startedAt: iso(Math.min(when, EPOCH) - 1000), status, schema: 2,
+            updated_at: iso(when), payload_json: sized({
+              startedAt: iso(when - 1000), status, schema: 2,
               toolName: spec.type === "dynamic_tool" ? "Read" : undefined,
               input: spec.type === "command_execution" ? "cargo check" : undefined,
               fileName: spec.type === "file_change" ? "src/lib.rs" : undefined,
-              exitCode: spec.type === "command_execution" ? 0 : undefined,
+              exitCode: spec.type === "command_execution" && status !== "running" ? (status === "failed" ? 1 : 0) : undefined,
+              steps: spec.type === "todo_list" ? [{ text: "Check synthetic output", status: "in_progress" }] : undefined,
               title: spec.type,
             }, spec.bytes),
           })
           itemNo++
-          threadItems++
         }
       }
-      // Two or three turns. Running threads keep the newest one open.
-      const turns = t.index < 23 ? 4 : 3 // 23×4 + 186×3 = 650 provider turns
+      // Running threads keep the newest turn open.
+      const turns = Math.min(t.runs.length, 4)
       for (let k = 1; k <= turns; k++) {
         const open = live && k === turns
-        const start = EPOCH - (turns - k + 1) * HOUR
+        const start = latestAt - (turns - k) * HOUR
         w.upsertRow(`${PREFIX}provider_turns`, {
           provider_turn_id: `turn-${pt}-${k}`, thread_id: t.id, provider_thread_id: pt, node_id: `root-${latestRun}`,
           run_attempt_id: null, ordinal: k, status: open ? "running" : "completed",
           started_at: iso(start), completed_at: open ? null : iso(start + 30 * 60_000),
           payload_json: sized({
             providerThreadId: pt, model, status: open ? "running" : "completed",
-            tokenUsage: { usedTokens: 40_000 + t.index * 10, maxTokens: max, inputTokens: 20_000, cachedInputTokens: 15_000, outputTokens: 4_000, reasoningOutputTokens: 2_000, updatedAt: iso(start) },
-          }, turnPayload()),
+            tokenUsage: { usedTokens: 40_000 + index * 10, maxTokens: max, inputTokens: 20_000, cachedInputTokens: 15_000, outputTokens: 4_000, reasoningOutputTokens: 2_000, updatedAt: iso(start) },
+          }, open ? 2048 : 1024),
         })
       }
-      const specs = plan.subPlan.get(t.index) ?? []
-      for (const [s, spec] of specs.entries()) {
+      for (const [s, spec] of t.subagents.entries()) {
         const sid = `s-${t.id}-${String(s).padStart(3, "0")}`
         const root = `root-${latestRun}`
-        const ended = iso(EPOCH - DAY)!
-        if (spec.node) {
-          subNodesWritten++
+        const ended = updated
+        if (spec.hasNode) {
           w.upsertRow(`${PREFIX}nodes`, {
             node_id: sid, thread_id: t.id, run_id: latestRun, parent_node_id: root, root_node_id: root,
-            kind: "subagent", status: "completed", provider_thread_id: pt, provider_turn_id: null,
+            kind: "subagent", status: spec.status, provider_thread_id: pt, provider_turn_id: null,
             runtime_request_id: null, checkpoint_scope_id: null, started_at: opened, completed_at: ended,
-            payload_json: sized({ node: sid }, nodeBytes(REAL_NODES - 1)),
+            payload_json: sized({ node: sid }, 2048),
           })
         }
-        subRowsWritten++
         w.upsertRow(`${PREFIX}subagents`, {
           subagent_id: sid, thread_id: t.id, run_id: latestRun, parent_node_id: root, provider,
-          provider_thread_id: spec.provider, child_thread_id: spec.child, origin: spec.origin,
+          provider_thread_id: spec.providerThread, child_thread_id: spec.child, origin: spec.origin,
           status: spec.status, started_at: opened, completed_at: ended,
           updated_at: ended, driver: null, provider_instance_id: null, completion_delivery_state: null,
-          // The key set counted on real subagent payloads; the fields
-          // the dashboard does not read are filler or left out (prompt, result).
           payload_json: sized({
             id: sid, threadId: t.id, parentNodeId: root, runId: latestRun,
-            providerThreadId: spec.provider, childThreadId: spec.child, origin: spec.origin,
+            providerThreadId: spec.providerThread, childThreadId: spec.child, origin: spec.origin,
             status: spec.status, title: `${WORDS[s % WORDS.length]} ${WORDS[(s + 3) % WORDS.length]}`,
             model, startedAt: opened, completedAt: ended, updatedAt: ended,
             createdBy: spec.origin === "app_owned" ? "app" : "user",
@@ -1561,65 +1044,44 @@ function generateReal(path: string) {
             nativeTaskRef: null, cancelledRunId: null, completionDelivery: null, completionWake: null,
             progress: spec.status === "completed" ? null : "synthetic progress note",
             ...(spec.remoteId ? { remoteChild: { environmentId: REMOTE_ENV, threadId: spec.remoteId, label: `${WORDS[s % WORDS.length]} sandbox` } } : {}),
-          }, subBytes(subSerial++)),
+          }, spec.remoteId ? 8192 : 2048),
         })
       }
-      const remoteParent = plan.delegated.get(t.index)
-      const lineage = t.parent == null ? undefined : { relationshipToParent: "subagent", parentThreadId: plan.threads[t.parent].id }
+      const remoteParent = t.remoteParent
+      const lineage = t.parent == null ? undefined : { relationshipToParent: "subagent", parentThreadId: t.parent }
       w.upsertRow(`${PREFIX}threads`, {
-        thread_id: t.id, project_id: project.id, title: `${WORDS[t.index % WORDS.length]} ${WORDS[(t.index * 3) % WORDS.length]} ${t.index}`,
+        thread_id: t.id, project_id: project.id, title: `${WORDS[index % WORDS.length]} ${WORDS[(index * 3) % WORDS.length]} ${index}`,
         default_provider: provider, runtime_mode: "auto", interaction_mode: "default", active_provider_thread_id: pt,
-        created_at: created, updated_at: iso(EPOCH - (in3 > 0 ? 0 : DAY)), archived_at: null, deleted_at: null, provider_instance_id: null,
+        created_at: created, updated_at: updated, archived_at: null, deleted_at: null, provider_instance_id: null,
         payload_json: sized({
-          id: t.id, projectId: project.id, title: `${WORDS[t.index % WORDS.length]} work ${t.index}`,
-          branch: t.index % 3 === 0 ? null : `scale/${WORDS[t.index % WORDS.length]}-${t.index}`,
+          id: t.id, projectId: project.id, title: `${WORDS[index % WORDS.length]} work ${index}`,
+          branch: index % 3 === 0 ? null : `scale/${WORDS[index % WORDS.length]}-${index}`,
           activeProviderThreadId: pt, worktreePath: project.root, modelSelection: { model, options: [] },
-          updatedAt: iso(EPOCH), settledOverride: null, snoozedUntil: null, lineage,
+          updatedAt: updated, settledOverride: null, snoozedUntil: null, lineage,
           // Child threads carry the fork pointer back to the host; unread filler.
-          ...(t.parent != null ? { forkedFrom: plan.threads[t.parent].id } : {}),
+          ...(t.parent != null ? { forkedFrom: t.parent } : {}),
           // Delegated-in threads name their remote parent (not in this
           // database) and carry the link marker. linkOrigin's shape is invented.
           ...(remoteParent
-            ? { delegatedFrom: { environmentId: REMOTE_ENV, threadId: remoteParent, title: `remote ${WORDS[t.index % WORDS.length]} ${t.index}` }, linkOrigin: "delegation" }
+            ? { delegatedFrom: { environmentId: REMOTE_ENV, threadId: remoteParent, title: `remote ${WORDS[index % WORDS.length]} ${index}` }, linkOrigin: "delegation" }
             : {}),
-        }, threadBytes(t.index)),
+        }, t.subagents.length ? 3072 : 1024),
       })
     }
-    // Eleven extra provider threads, so the table matches the recorded 220.
-    for (let i = 0; i < 11; i++) {
-      const host = plan.threads[REAL_THREADS - 1 - i]
-      const id = `pt-${host.id}-x`
-      const model = MODELS[i % MODELS.length][0]
-      w.upsertRow(`${PREFIX}provider_threads`, {
-        provider_thread_id: id, thread_id: host.id, owner_node_id: null, provider: providerOf(model),
-        provider_session_id: null, status: "closed", first_run_ordinal: 1, last_run_ordinal: host.runs,
-        updated_at: iso(EPOCH), driver: null, provider_instance_id: null,
-        payload_json: sized({ id, contextUsage: { usedTokens: 1000, maxTokens: 200_000, updatedAt: iso(EPOCH) } }, 1400),
-      })
-    }
-    // 6 open requests on running threads, 20 resolved elsewhere.
-    for (let i = 0; i < 26; i++) {
-      const host = plan.threads[plan.running[i % plan.running.length]]
-      const open = i < 6
-      const rid = open ? `q-${host.id}` : `q-${host.id}-old-${i}`
-      const at = open ? EPOCH - 20 * 60_000 : EPOCH - 2 * DAY
+    // Pending and resolved requests coexist on active threads.
+    for (const [i, host] of running.entries()) {
+      const open = i % 2 === 0
+      const rid = `q-${host.id}`
+      const at = EPOCH - (open ? HOUR / 2 : HOUR)
       w.upsertRow(`${PREFIX}runtime_requests`, {
-        runtime_request_id: rid, thread_id: host.id, node_id: `root-r-${host.id}-${host.runs}`, provider_turn_id: null,
+        runtime_request_id: rid, thread_id: host.id, node_id: `root-r-${host.id}-${host.runs.length}`, provider_turn_id: null,
         kind: "user_input", status: open ? "pending" : "resolved", created_at: iso(at),
         resolved_at: open ? null : iso(at + 60_000),
         payload_json: { kind: "user_input", question: "continue with the synthetic check" },
       })
     }
-    if (itemNo !== REAL_ITEMS) throw new Error(`wrote ${itemNo} items`)
-    if (subRowsWritten !== REAL_SUB_ROWS) throw new Error(`wrote ${subRowsWritten} subagent rows`)
-    if (subNodesWritten !== REAL_SUB_NODES) throw new Error(`wrote ${subNodesWritten} subagent nodes`)
-    if (extraRoots !== 0 || todoNodes !== 0) throw new Error(`unplaced nodes roots=${extraRoots} todos=${todoNodes}`)
-    if (kindLeft.tool_call !== 0 || kindLeft.reasoning !== 0 || kindLeft.assistant_message !== 0) {
-      throw new Error(`node kinds left ${JSON.stringify(kindLeft)}`)
-    }
-    const hotIds = [...plan.recent24h.keys()].map((i) => plan.threads[i].id)
-    w.tail(realEvents(plan.threads.map((t) => t.id), hotIds))
-    w.prune(REAL_PRUNE_FLOOR, iso(EPOCH)!)
+    w.tail(stressEvents(threads, projects))
+    w.prune(STRESS_PRUNE_FLOOR, iso(EPOCH)!)
     w.release()
     w.close()
     db.exec("PRAGMA wal_checkpoint(TRUNCATE)")
@@ -1674,7 +1136,7 @@ function openMutation(path: string, step: number): MutateInfo {
  * upsert the thread row's updated_at/updatedAt, the way T3's projection bumps
  * thread recency on activity — without that, no ordinary write ever touches
  * the threads table and a graph poll never runs. Shapes 8 and 9 exercise the
- * cross-machine structure of the real-shaped tier (activity on a delegated-in
+ * cross-machine structure of the skewed tier (activity on a delegated-in
  * thread, progress on a remote child); on databases without those rows they
  * fall back to the append-items and flip-item shapes.
  */
@@ -2024,8 +1486,8 @@ function mutateT3(info: MutateInfo, touch: number) {
       break
     }
     case 8: {
-      // Activity on a thread delegated in from another machine (the
-      // real-shaped tier has 19): an appended item plus the recency bump. The
+      // Activity on a thread delegated in from another machine: append an
+      // item and bump the thread recency. The
       // delegatedFrom on that thread sends the poll down the full structural
       // walk. Without delegated threads, fall back to append-items.
       const delegated = (db.prepare(`SELECT thread_id FROM ${PREFIX}threads WHERE archived_at IS NULL AND deleted_at IS NULL AND json_extract(payload_json,'$.delegatedFrom.environmentId') IS NOT NULL ORDER BY thread_id`).all() as { thread_id: string }[])
@@ -3482,7 +2944,7 @@ if (has("--stream")) {
   console.log(JSON.stringify({ path: dbPath, ...stats(dbPath) }))
 } else if (arg("--tier", "s") === "real") {
   if (schema !== "t3") throw new Error("--tier real needs --schema t3")
-  generateReal(dbPath)
+  generateStress(dbPath)
   console.log(JSON.stringify({ tier: "real", schema, path: dbPath, epoch: EPOCH, ...stats(dbPath) }))
 } else {
   const tier = arg("--tier", "s")

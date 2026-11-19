@@ -1,0 +1,1124 @@
+{
+ "period": "week",
+ "from": "2026-11-09",
+ "to": "2026-11-15",
+ "so_far": false,
+ "days": 7,
+ "days_elapsed": 7,
+ "days_recorded": 7,
+ "calls": 40,
+ "ms": 419010.0,
+ "busy_ms": 419010.0,
+ "failed": 0,
+ "open": 0,
+ "closed_together": 8,
+ "threads": 2,
+ "without_run": 0,
+ "commands": {
+  "calls": 31,
+  "ms": 414520.0,
+  "failed": 0,
+  "named": 29,
+  "unnamed": 2,
+  "unnamed_ms": 62000.0,
+  "chained": 0,
+  "listed": 75,
+  "exits": {
+   "known": 22,
+   "failed_known": 0,
+   "zero": 0,
+   "one": 0,
+   "two": 0,
+   "timed_out": 0,
+   "not_runnable": 0,
+   "not_found": 0,
+   "signal": 0,
+   "other": 0,
+   "passed_nonzero": 0
+  }
+ },
+ "kinds": [
+  {
+   "kind": "shell",
+   "name": null,
+   "calls": 31,
+   "ms": 414520.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 8,
+   "longest_ms": 250000.0,
+   "median_ms": 540.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 15,
+     "ms": 5520.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 2,
+     "ms": 12000.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 5,
+     "ms": 147000.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 1,
+     "ms": 250000.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 22,
+     "ms": 164520.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "openrouter-qwen3-coder-480b",
+     "calls": 9,
+     "ms": 250000.0,
+     "failed": 0,
+     "closed_together": 8
+    }
+   ],
+   "exits": {
+    "known": 22,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "edit",
+   "name": null,
+   "calls": 4,
+   "ms": 3960.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 1080.0,
+   "median_ms": 990.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 2,
+     "ms": 1860.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 2,
+     "ms": 2100.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 4,
+     "ms": 3960.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "read",
+   "name": null,
+   "calls": 3,
+   "ms": 360.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 120.0,
+   "median_ms": 120.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 3,
+     "ms": 360.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "openrouter-qwen3-coder-480b",
+     "calls": 3,
+     "ms": 360.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": null,
+   "calls": 2,
+   "ms": 170.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 90.0,
+   "median_ms": 85.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 2,
+     "ms": 170.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2,
+     "ms": 170.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "programs": [
+  {
+   "kind": "shell",
+   "name": "npm",
+   "calls": 3,
+   "ms": 323000.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 250000.0,
+   "median_ms": 48000.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 73000.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 1,
+     "ms": 250000.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 3,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2,
+     "ms": 73000.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "openrouter-qwen3-coder-480b",
+     "calls": 1,
+     "ms": 250000.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 2,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": null,
+   "calls": 2,
+   "ms": 62000.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 32000.0,
+   "median_ms": 31000.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 62000.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2,
+     "ms": 62000.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 2,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "python3",
+   "calls": 3,
+   "ms": 24000.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 12000.0,
+   "median_ms": 8000.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 2,
+     "ms": 12000.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 12000.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 3,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 3,
+     "ms": 24000.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 3,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "git",
+   "calls": 6,
+   "ms": 3600.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 900.0,
+   "median_ms": 600.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 6,
+     "ms": 3600.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 6,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 6,
+     "ms": 3600.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 6,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "rg",
+   "calls": 4,
+   "ms": 1020.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 300.0,
+   "median_ms": 255.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 4,
+     "ms": 1020.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 4,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 4,
+     "ms": 1020.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 4,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "sed",
+   "calls": 5,
+   "ms": 900.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 220.0,
+   "median_ms": 180.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 5,
+     "ms": 900.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 5,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 5,
+     "ms": 900.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 5,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "cargo",
+   "calls": 8,
+   "ms": 0.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 8,
+   "longest_ms": 0.0,
+   "median_ms": null,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 8,
+   "by_provider": [
+    {
+     "provider": "openrouter-qwen3-coder-480b",
+     "calls": 8,
+     "ms": 0.0,
+     "failed": 0,
+     "closed_together": 8
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "tools": [
+  {
+   "kind": "edit",
+   "name": null,
+   "calls": 4,
+   "ms": 3960.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 1080.0,
+   "median_ms": 990.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 2,
+     "ms": 1860.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 2,
+     "ms": 2100.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 4,
+     "ms": 3960.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "read",
+   "name": "read",
+   "calls": 3,
+   "ms": 360.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 120.0,
+   "median_ms": 120.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 3,
+     "ms": 360.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "openrouter-qwen3-coder-480b",
+     "calls": 3,
+     "ms": 360.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "update_plan",
+   "calls": 2,
+   "ms": 170.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 90.0,
+   "median_ms": 85.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 2,
+     "ms": 170.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2,
+     "ms": 170.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "lengths": [
+  {
+   "label": "under 1s",
+   "calls": 22,
+   "ms": 7910.0
+  },
+  {
+   "label": "1-10s",
+   "calls": 4,
+   "ms": 14100.0
+  },
+  {
+   "label": "10-60s",
+   "calls": 5,
+   "ms": 147000.0
+  },
+  {
+   "label": "1-10min",
+   "calls": 1,
+   "ms": 250000.0
+  },
+  {
+   "label": "over 10min",
+   "calls": 0,
+   "ms": 0.0
+  }
+ ],
+ "providers": [
+  {
+   "provider": "codex",
+   "calls": 28,
+   "ms": 168650.0,
+   "failed": 0,
+   "closed_together": 0,
+   "commands": 22,
+   "commands_failed": 0,
+   "exits": {
+    "known": 22,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "provider": "openrouter-qwen3-coder-480b",
+   "calls": 12,
+   "ms": 250360.0,
+   "failed": 0,
+   "closed_together": 8,
+   "commands": 9,
+   "commands_failed": 0,
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "longest": [
+  {
+   "kind": "shell",
+   "name": "npm",
+   "ms": 250000.0,
+   "failed": false,
+   "provider": "openrouter-qwen3-coder-480b",
+   "thread": "e0b94a27-5c18-4f0d-a3e6-91c2d7f8b05a",
+   "run": "run-94a275c18f0d",
+   "started": 1794409200000.0,
+   "when": "Wed 15:00",
+   "exit": null
+  },
+  {
+   "kind": "shell",
+   "name": "npm",
+   "ms": 48000.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "7d3f0c51-9a2e-4b6d-8c17-2e5f9a0b4d63",
+   "run": "run-0c51a9e2d7f3",
+   "started": 1794388433520.0,
+   "when": "Wed 09:13",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": null,
+   "ms": 32000.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "7d3f0c51-9a2e-4b6d-8c17-2e5f9a0b4d63",
+   "run": "run-0c51a9e2d7f3",
+   "started": 1794388593520.0,
+   "when": "Wed 09:16",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": null,
+   "ms": 30000.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "7d3f0c51-9a2e-4b6d-8c17-2e5f9a0b4d63",
+   "run": "run-0c51a9e2d7f3",
+   "started": 1794388522520.0,
+   "when": "Wed 09:15",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": "npm",
+   "ms": 25000.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "7d3f0c51-9a2e-4b6d-8c17-2e5f9a0b4d63",
+   "run": "run-0c51a9e2d7f3",
+   "started": 1794388367520.0,
+   "when": "Wed 09:12",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": "python3",
+   "ms": 12000.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "7d3f0c51-9a2e-4b6d-8c17-2e5f9a0b4d63",
+   "run": "run-0c51a9e2d7f3",
+   "started": 1794388314520.0,
+   "when": "Wed 09:11",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": "python3",
+   "ms": 8000.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "7d3f0c51-9a2e-4b6d-8c17-2e5f9a0b4d63",
+   "run": "run-0c51a9e2d7f3",
+   "started": 1794388265520.0,
+   "when": "Wed 09:11",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": "python3",
+   "ms": 4000.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "7d3f0c51-9a2e-4b6d-8c17-2e5f9a0b4d63",
+   "run": "run-0c51a9e2d7f3",
+   "started": 1794388220520.0,
+   "when": "Wed 09:10",
+   "exit": 0
+  },
+  {
+   "kind": "edit",
+   "name": null,
+   "ms": 1080.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "7d3f0c51-9a2e-4b6d-8c17-2e5f9a0b4d63",
+   "run": "run-0c51a9e2d7f3",
+   "started": 1794388756520.0,
+   "when": "Wed 09:19",
+   "exit": null
+  },
+  {
+   "kind": "edit",
+   "name": null,
+   "ms": 1020.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "7d3f0c51-9a2e-4b6d-8c17-2e5f9a0b4d63",
+   "run": "run-0c51a9e2d7f3",
+   "started": 1794388726520.0,
+   "when": "Wed 09:18",
+   "exit": null
+  }
+ ],
+ "min_for_rate": 20
+}

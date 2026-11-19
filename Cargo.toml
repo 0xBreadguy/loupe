@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/core", "crates/term"]
 
 [workspace.package]
-version = "1.2.0"
+version = "1.3.0"
 edition = "2024"
 license = "MIT"
 publish = false
@@ -13,7 +13,7 @@ serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 indexmap = { version = "2", features = ["serde"] }
 libc = "0.2"
-rusqlite = { version = "0.38", features = ["bundled"] }
+rusqlite = { version = "0.38", features = ["blob", "bundled", "functions"] }
 
 [profile.release]
 opt-level = 3

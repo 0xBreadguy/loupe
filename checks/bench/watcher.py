@@ -40,7 +40,7 @@ def pss_mib(pid):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--tier", default="real")
+    ap.add_argument("--tier", default="real", help="lab tier (real is the skewed synthetic workload)")
     ap.add_argument("--dir", type=Path, default=ROOT / "checks/generated/scale/t3")
     ap.add_argument("--native", type=Path, default=ROOT / "target/release/t3-agents-term")
     ap.add_argument("--work", type=Path, default=ROOT / "checks/generated/tmp/watcher")
@@ -55,7 +55,8 @@ def main():
         print(f"missing {source}; run checks/scripts/scale-db.ts --tier {args.tier} --schema t3", file=sys.stderr)
         return 2
     # The watcher must never fall back to a real database: the path is explicit and the home is empty.
-    env = dict(os.environ, T3CODE_HOME=str(args.work / "no-such-home"))
+    home = (args.work / "empty-home").resolve()
+    env = dict(os.environ, T3CODE_HOME=str(home))
     revision = subprocess.run(["git", "-C", str(ROOT), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
     report = {"version": 1, "revision": revision, "tier": args.tier, "trials": args.trials, "warm_seconds": args.warm,
               "sample_seconds": args.seconds, "load_average_start": os.getloadavg(), "arms": {}, "errors": 0}
@@ -64,6 +65,7 @@ def main():
         for arm in (args.arms if trial % 2 == 0 else list(reversed(args.arms))):
             shutil.rmtree(args.work, ignore_errors=True)
             args.work.mkdir(parents=True)
+            home.mkdir()
             db = args.work / "statev2.sqlite"
             subprocess.run(["cp", "--reflink=auto", str(source), str(db)], check=True)
             if (source.parent / "environment-id").exists():

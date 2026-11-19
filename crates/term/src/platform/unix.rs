@@ -25,6 +25,18 @@ struct Saved {
     orig: libc::termios,
 }
 
+/// Register a report that also runs when a headless command exits directly.
+pub fn report_on_exit(report: extern "C" fn()) {
+    // SAFETY: The function has C linkage and can be called at process exit.
+    unsafe { libc::atexit(report) };
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn user_id() -> u32 {
+    // SAFETY: getuid takes no arguments and cannot fail.
+    unsafe { libc::getuid() }
+}
+
 // ── The wake channel ───────────────────────────────────────────────────────
 
 /// A pipe the loop waits on beside the terminal. Anything can wake the loop by writing a byte

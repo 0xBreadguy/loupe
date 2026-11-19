@@ -1,0 +1,70 @@
+ T3 Agents  TOOLS  Nov 9 – 15, 2026  7 of 7 days recorded                                             t3-agents --tools
+
+  CALLS                         CALL TIME                     FAILED                        LONGEST CALL
+  ▄  ▄  ▄▄                      ▄▄▄▄                                                        ▄  ▄    ▄    ▄▄
+  █▄▄█ █  █                       ▄▀                          none                          █▄▄█   ▀█   █  █
+     █ ▀▄▄▀                      █   m                                                         █ m ▄█▄  ▀▄▄▀ s
+  31 of them commands           leaves out 8 calls            of 40 calls                   npm · openro…-480b
+
+ HOW LONG THEY TOOK ───────────────────────────────────────────────  3% of calls took a minute or more: 60% of the time
+         under 1s              1–10s                 10–60s                1–10 min              over 10 min
+ calls   █████████▋      69%   █▊              13%   ██▎             16%   ▌                3%                     –
+ time    ▎                2%   ▌                3%   ████▉           35%   ████████▍       60%                     –
+
+ BY KIND ─────────────────────────────────────────────────────────────────────────────────────────────────────  by time
+                                        calls                time              typical  longest  failed
+ ❯ commands                                31 ████████████     7m ████████████     <1s    4m10s    none
+ ± file changes                             4 █▌               4s ▏                <1s       1s    none
+ ◎ reads                                    3 █▏              <1s ▏                <1s      <1s    none
+ ◈ other tools                              2 ▊               <1s ▏                <1s      <1s    none
+
+ COMMANDS BY PROGRAM ───────────────────────────────────────────────────────────────  75 programs on the list · by time
+                                        calls                time              typical  longest  failed
+   npm                                      3 ████▌            5m ████████████     48s    4m10s    none
+   not on the list                          2 ███              1m ██▎              31s      32s    none
+   python3                                  3 ████▌           24s ▉                 8s      12s    none
+   git                                      6 █████████        4s ▏                <1s      <1s    none
+   rg                                       4 ██████           1s ▏                <1s      <1s    none
+   sed                                      5 ███████▌        <1s ▏                <1s      <1s    none
+   cargo                                    8 ███████████ unknown                    –        –    none
+
+ WHY COMMANDS FAILED ─────────────────────────────────────────────────────────────────────────────────────────────────
+   No command was marked failed.
+
+ TOOLS BY NAME ─────────────────────────────────────────────────────────────────────────────────────  2 tools · by time
+                                        calls                time              typical  longest  failed
+ ◎ read                                     3 ████████████    <1s ████████████     <1s      <1s    none
+ ◈ update_plan                              2 ████████        <1s █████▋           <1s      <1s    none
+   no name  file changes 4
+
+ PROVIDERS ─────────────────────────────────────────────────────────────────  each decides for itself what failed means
+ ● codex                          22 commands    none marked failed           28 calls · 3m
+ ● openrouter-q…-coder-480b        9 commands    none marked failed           12 calls · 4m
+   └ 8 calls marked finished all at once: their time is not known
+
+ LONGEST CALLS ────────────────────────────────────────────────────────────────────────────  the 10 longest of the week
+                                       length  provider        started                                           thread
+ ❯ npm                                  4m10s  ● openro…-480b  Wed 15:00                                       d7f8b05a
+ ❯ npm                                    48s  ● codex         Wed 09:13                                       9a0b4d63
+ ❯ not on the list                        32s  ● codex         Wed 09:16                                       9a0b4d63
+ ❯ not on the list                        30s  ● codex         Wed 09:15                                       9a0b4d63
+ ❯ npm                                    25s  ● codex         Wed 09:12                                       9a0b4d63
+ ❯ python3                                12s  ● codex         Wed 09:11                                       9a0b4d63
+ ❯ python3                                 8s  ● codex         Wed 09:11                                       9a0b4d63
+ ❯ python3                                 4s  ● codex         Wed 09:10                                       9a0b4d63
+ ± file change                             1s  ● codex         Wed 09:19                                       9a0b4d63
+ ± file change                             1s  ● codex         Wed 09:18                                       9a0b4d63
+
+ HOW THIS IS COUNTED ─────────────────────────────────────────────────────────────────────────────────────────────────
+ Time adds up each call's own length. Calls in a thread can overlap; counted once, they come to 7m on the clock.
+ Recap's 'tools' hours are counted another way.
+
+ 8 calls were marked finished all at once, though they started at different times, most likely when a run stopped. When
+ each really finished is not known, so their time is not counted and they are not among the longest: totals of time can
+ only be too small.
+
+ A line like "cd app && cargo test | tail" is one call, named for its main program, cargo: its time, failure and exit
+ code are the whole line's. No command line ran two or more programs on the list. Programs are named from a list of 75
+ common ones; a command with none of them is "not on the list".
+
+ Only program and tool names and exit codes are read. Numbers may be cached in your cache folder; nothing is sent.

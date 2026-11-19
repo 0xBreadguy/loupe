@@ -197,6 +197,11 @@ impl Tmux {
             // The original's theme behavior, which the recording holds; the product's themes are
             // a deliberate difference, tested in pty.rs.
             .env("T3_AGENTS_NO_THEMES", "1");
+        for name in ["TMPDIR", "TMUX_TMPDIR", "SQLITE_TMPDIR"] {
+            if let Some(path) = std::env::var_os(name) {
+                command.env(name, path);
+            }
+        }
         command
     }
 

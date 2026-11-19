@@ -1,0 +1,10345 @@
+{
+ "period": "month",
+ "from": "2026-10-01",
+ "to": "2026-10-31",
+ "so_far": false,
+ "days": 31,
+ "days_elapsed": 31,
+ "days_recorded": 31,
+ "calls": 113779,
+ "ms": 1062478714.0,
+ "busy_ms": 984484688.0,
+ "failed": 3710,
+ "open": 6,
+ "closed_together": 1166,
+ "threads": 980,
+ "without_run": 8173,
+ "commands": {
+  "calls": 75716,
+  "ms": 958030570.0,
+  "failed": 3262,
+  "named": 72579,
+  "unnamed": 3137,
+  "unnamed_ms": 50939867.0,
+  "chained": 42974,
+  "listed": 75,
+  "exits": {
+   "known": 44746,
+   "failed_known": 2675,
+   "zero": 0,
+   "one": 1682,
+   "two": 514,
+   "timed_out": 6,
+   "not_runnable": 0,
+   "not_found": 17,
+   "signal": 134,
+   "other": 322,
+   "passed_nonzero": 0
+  }
+ },
+ "kinds": [
+  {
+   "kind": "shell",
+   "name": null,
+   "calls": 75716,
+   "ms": 958030570.0,
+   "failed": 3262,
+   "open": 5,
+   "closed_together": 639,
+   "longest_ms": 9600000.0,
+   "median_ms": 109.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 59931,
+     "ms": 7470520.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 5605,
+     "ms": 25026334.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 6163,
+     "ms": 167576739.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 3136,
+     "ms": 500791400.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 237,
+     "ms": 257165577.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 33213,
+     "ms": 433753895.0,
+     "failed": 2206,
+     "closed_together": 12
+    },
+    {
+     "provider": "claude",
+     "calls": 30865,
+     "ms": 379654628.0,
+     "failed": 572,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 9950,
+     "ms": 130580907.0,
+     "failed": 351,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1626,
+     "ms": 11390023.0,
+     "failed": 132,
+     "closed_together": 627
+    },
+    {
+     "provider": "unknown",
+     "calls": 62,
+     "ms": 2651117.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 44746,
+    "failed_known": 2675,
+    "zero": 0,
+    "one": 1682,
+    "two": 514,
+    "timed_out": 6,
+    "not_runnable": 0,
+    "not_found": 17,
+    "signal": 134,
+    "other": 322,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": null,
+   "calls": 12894,
+   "ms": 74530547.0,
+   "failed": 296,
+   "open": 0,
+   "closed_together": 6,
+   "longest_ms": 7200000.0,
+   "median_ms": 165.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 8710,
+     "ms": 1291546.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 3115,
+     "ms": 11468185.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 890,
+     "ms": 20282462.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 162,
+     "ms": 22902547.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 11,
+     "ms": 18585807.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 8633,
+     "ms": 60016167.0,
+     "failed": 211,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 3697,
+     "ms": 14073664.0,
+     "failed": 68,
+     "closed_together": 2
+    },
+    {
+     "provider": "opencode",
+     "calls": 552,
+     "ms": 439823.0,
+     "failed": 17,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 12,
+     "ms": 893.0,
+     "failed": 0,
+     "closed_together": 4
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "web",
+   "name": null,
+   "calls": 2050,
+   "ms": 12530266.0,
+   "failed": 20,
+   "open": 1,
+   "closed_together": 114,
+   "longest_ms": 94578.0,
+   "median_ms": 4680.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 51,
+     "ms": 38898.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 1544,
+     "ms": 6842033.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 338,
+     "ms": 5482494.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 2,
+     "ms": 166841.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 1195,
+     "ms": 7921035.0,
+     "failed": 12,
+     "closed_together": 1
+    },
+    {
+     "provider": "claude",
+     "calls": 563,
+     "ms": 3547993.0,
+     "failed": 3,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 292,
+     "ms": 1061238.0,
+     "failed": 5,
+     "closed_together": 113
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "edit",
+   "name": null,
+   "calls": 8610,
+   "ms": 8232081.0,
+   "failed": 33,
+   "open": 0,
+   "closed_together": 407,
+   "longest_ms": 133500.0,
+   "median_ms": 90.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 7423,
+     "ms": 884447.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 551,
+     "ms": 2418926.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 224,
+     "ms": 4437221.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 5,
+     "ms": 491487.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 5507,
+     "ms": 5494421.0,
+     "failed": 23,
+     "closed_together": 1
+    },
+    {
+     "provider": "opencode",
+     "calls": 2031,
+     "ms": 2011546.0,
+     "failed": 4,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1072,
+     "ms": 726114.0,
+     "failed": 6,
+     "closed_together": 406
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "search",
+   "name": null,
+   "calls": 4608,
+   "ms": 5317651.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 72325.0,
+   "median_ms": 104.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 3839,
+     "ms": 544341.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 639,
+     "ms": 2220057.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 129,
+     "ms": 2480928.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 1,
+     "ms": 72325.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2105,
+     "ms": 3464505.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 1779,
+     "ms": 889641.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 724,
+     "ms": 963505.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "read",
+   "name": null,
+   "calls": 9901,
+   "ms": 3837599.0,
+   "failed": 99,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 108445.0,
+   "median_ms": 81.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 9628,
+     "ms": 1117979.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 194,
+     "ms": 848576.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 75,
+     "ms": 1520598.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 4,
+     "ms": 350446.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 7995,
+     "ms": 2952004.0,
+     "failed": 80,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 1722,
+     "ms": 737997.0,
+     "failed": 19,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 184,
+     "ms": 147598.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "programs": [
+  {
+   "kind": "shell",
+   "name": "python3",
+   "calls": 19271,
+   "ms": 273850514.0,
+   "failed": 885,
+   "open": 1,
+   "closed_together": 161,
+   "longest_ms": 9600000.0,
+   "median_ms": 111.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 15391,
+     "ms": 1991395.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 1588,
+     "ms": 6696329.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1304,
+     "ms": 35142418.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 728,
+     "ms": 122582424.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 98,
+     "ms": 107437948.0
+    }
+   ],
+   "chained": 11915,
+   "appears_in": 19271,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 8450,
+     "ms": 128516337.0,
+     "failed": 608,
+     "closed_together": 2
+    },
+    {
+     "provider": "claude",
+     "calls": 7841,
+     "ms": 102120166.0,
+     "failed": 164,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 2544,
+     "ms": 37255727.0,
+     "failed": 82,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 421,
+     "ms": 4119618.0,
+     "failed": 31,
+     "closed_together": 159
+    },
+    {
+     "provider": "unknown",
+     "calls": 15,
+     "ms": 1838666.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 11398,
+    "failed_known": 717,
+    "zero": 0,
+    "one": 463,
+    "two": 196,
+    "timed_out": 1,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 37,
+    "other": 20,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "cargo",
+   "calls": 2298,
+   "ms": 198213933.0,
+   "failed": 265,
+   "open": 0,
+   "closed_together": 17,
+   "longest_ms": 6525000.0,
+   "median_ms": 36391.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 185,
+     "ms": 23354.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 255,
+     "ms": 1534070.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1026,
+     "ms": 30602276.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 773,
+     "ms": 123756073.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 42,
+     "ms": 42298160.0
+    }
+   ],
+   "chained": 1434,
+   "appears_in": 2298,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 1004,
+     "ms": 81466654.0,
+     "failed": 161,
+     "closed_together": 2
+    },
+    {
+     "provider": "claude",
+     "calls": 933,
+     "ms": 86937407.0,
+     "failed": 58,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 322,
+     "ms": 28086728.0,
+     "failed": 31,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 38,
+     "ms": 1451816.0,
+     "failed": 15,
+     "closed_together": 15
+    },
+    {
+     "provider": "unknown",
+     "calls": 1,
+     "ms": 271328.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 1365,
+    "failed_known": 206,
+    "zero": 0,
+    "one": 25,
+    "two": 6,
+    "timed_out": 5,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 24,
+    "other": 146,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "grep",
+   "calls": 4716,
+   "ms": 119774596.0,
+   "failed": 350,
+   "open": 0,
+   "closed_together": 41,
+   "longest_ms": 2175000.0,
+   "median_ms": 108.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 3685,
+     "ms": 430441.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 108,
+     "ms": 579337.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 434,
+     "ms": 13852166.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 415,
+     "ms": 72686893.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 33,
+     "ms": 32225759.0
+    }
+   ],
+   "chained": 2805,
+   "appears_in": 10616,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2038,
+     "ms": 55797021.0,
+     "failed": 239,
+     "closed_together": 1
+    },
+    {
+     "provider": "claude",
+     "calls": 1931,
+     "ms": 45903352.0,
+     "failed": 55,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 628,
+     "ms": 17415719.0,
+     "failed": 46,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 113,
+     "ms": 657550.0,
+     "failed": 9,
+     "closed_together": 40
+    },
+    {
+     "provider": "unknown",
+     "calls": 6,
+     "ms": 954.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 2779,
+    "failed_known": 292,
+    "zero": 0,
+    "one": 258,
+    "two": 34,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "node",
+   "calls": 1559,
+   "ms": 88444483.0,
+   "failed": 89,
+   "open": 0,
+   "closed_together": 14,
+   "longest_ms": 3900000.0,
+   "median_ms": 5862.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 557,
+     "ms": 101791.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 315,
+     "ms": 1464169.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 395,
+     "ms": 10670736.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 248,
+     "ms": 42997805.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 30,
+     "ms": 33209982.0
+    }
+   ],
+   "chained": 963,
+   "appears_in": 1559,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 718,
+     "ms": 48490475.0,
+     "failed": 57,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 600,
+     "ms": 29618192.0,
+     "failed": 16,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 201,
+     "ms": 8482751.0,
+     "failed": 10,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 37,
+     "ms": 1514227.0,
+     "failed": 6,
+     "closed_together": 14
+    },
+    {
+     "provider": "unknown",
+     "calls": 3,
+     "ms": 338838.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 957,
+    "failed_known": 72,
+    "zero": 0,
+    "one": 54,
+    "two": 7,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 8,
+    "other": 3,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": null,
+   "calls": 3137,
+   "ms": 50939867.0,
+   "failed": 302,
+   "open": 1,
+   "closed_together": 28,
+   "longest_ms": 5550000.0,
+   "median_ms": 790.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1602,
+     "ms": 280436.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 810,
+     "ms": 3407321.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 527,
+     "ms": 12656540.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 162,
+     "ms": 23980693.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 7,
+     "ms": 10614877.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 1387,
+     "ms": 23107808.0,
+     "failed": 206,
+     "closed_together": 1
+    },
+    {
+     "provider": "claude",
+     "calls": 1237,
+     "ms": 20029736.0,
+     "failed": 42,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 442,
+     "ms": 7252749.0,
+     "failed": 37,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 67,
+     "ms": 469753.0,
+     "failed": 17,
+     "closed_together": 27
+    },
+    {
+     "provider": "unknown",
+     "calls": 4,
+     "ms": 79821.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 1896,
+    "failed_known": 258,
+    "zero": 0,
+    "one": 107,
+    "two": 63,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 16,
+    "signal": 37,
+    "other": 35,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "npm",
+   "calls": 1230,
+   "ms": 39609618.0,
+   "failed": 105,
+   "open": 0,
+   "closed_together": 9,
+   "longest_ms": 1356681.0,
+   "median_ms": 9626.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 262,
+     "ms": 45595.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 361,
+     "ms": 1849759.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 437,
+     "ms": 11644793.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 154,
+     "ms": 19977537.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 7,
+     "ms": 6091934.0
+    }
+   ],
+   "chained": 768,
+   "appears_in": 1230,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 532,
+     "ms": 16313602.0,
+     "failed": 69,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 513,
+     "ms": 15530272.0,
+     "failed": 15,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 158,
+     "ms": 6525845.0,
+     "failed": 16,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 27,
+     "ms": 1239899.0,
+     "failed": 5,
+     "closed_together": 9
+    }
+   ],
+   "exits": {
+    "known": 715,
+    "failed_known": 90,
+    "zero": 0,
+    "one": 74,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 1,
+    "signal": 15,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "pytest",
+   "calls": 616,
+   "ms": 38563626.0,
+   "failed": 131,
+   "open": 0,
+   "closed_together": 3,
+   "longest_ms": 4725000.0,
+   "median_ms": 27558.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 38,
+     "ms": 6609.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 98,
+     "ms": 525434.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 318,
+     "ms": 9085608.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 156,
+     "ms": 22678692.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 3,
+     "ms": 6267283.0
+    }
+   ],
+   "chained": 391,
+   "appears_in": 616,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 272,
+     "ms": 16052831.0,
+     "failed": 25,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 252,
+     "ms": 13022267.0,
+     "failed": 85,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 82,
+     "ms": 9199284.0,
+     "failed": 15,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 10,
+     "ms": 289244.0,
+     "failed": 6,
+     "closed_together": 3
+    }
+   ],
+   "exits": {
+    "known": 346,
+    "failed_known": 105,
+    "zero": 0,
+    "one": 72,
+    "two": 19,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 5,
+    "other": 9,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "git",
+   "calls": 9840,
+   "ms": 20550959.0,
+   "failed": 212,
+   "open": 0,
+   "closed_together": 75,
+   "longest_ms": 555980.0,
+   "median_ms": 86.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 9048,
+     "ms": 1049220.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 291,
+     "ms": 1438930.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 354,
+     "ms": 8828978.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 72,
+     "ms": 9233831.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 6185,
+   "appears_in": 9840,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 4308,
+     "ms": 8320649.0,
+     "failed": 148,
+     "closed_together": 1
+    },
+    {
+     "provider": "claude",
+     "calls": 4083,
+     "ms": 8955651.0,
+     "failed": 40,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 1248,
+     "ms": 3100904.0,
+     "failed": 16,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 198,
+     "ms": 173456.0,
+     "failed": 8,
+     "closed_together": 74
+    },
+    {
+     "provider": "unknown",
+     "calls": 3,
+     "ms": 299.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 5740,
+    "failed_known": 171,
+    "zero": 0,
+    "one": 92,
+    "two": 18,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 61,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "make",
+   "calls": 287,
+   "ms": 19105401.0,
+   "failed": 22,
+   "open": 0,
+   "closed_together": 3,
+   "longest_ms": 824710.0,
+   "median_ms": 25854.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 25,
+     "ms": 3217.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 44,
+     "ms": 258619.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 147,
+     "ms": 4311831.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 64,
+     "ms": 11523385.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 4,
+     "ms": 3008349.0
+    }
+   ],
+   "chained": 179,
+   "appears_in": 287,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 124,
+     "ms": 8061588.0,
+     "failed": 5,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 119,
+     "ms": 9020505.0,
+     "failed": 15,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 39,
+     "ms": 1965855.0,
+     "failed": 2,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 4,
+     "ms": 20080.0,
+     "failed": 0,
+     "closed_together": 3
+    },
+    {
+     "provider": "unknown",
+     "calls": 1,
+     "ms": 37373.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 162,
+    "failed_known": 17,
+    "zero": 0,
+    "one": 1,
+    "two": 16,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "docker",
+   "calls": 58,
+   "ms": 15269373.0,
+   "failed": 7,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 3075000.0,
+   "median_ms": 74346.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 2,
+     "ms": 10988.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 23,
+     "ms": 752705.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 26,
+     "ms": 4399081.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 7,
+     "ms": 10106599.0
+    }
+   ],
+   "chained": 36,
+   "appears_in": 58,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 28,
+     "ms": 8380180.0,
+     "failed": 5,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 25,
+     "ms": 6233262.0,
+     "failed": 2,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 4,
+     "ms": 537161.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 118770.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 34,
+    "failed_known": 5,
+    "zero": 0,
+    "one": 1,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 3,
+    "other": 1,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "sleep",
+   "calls": 246,
+   "ms": 14528506.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 3,
+   "longest_ms": 1286701.0,
+   "median_ms": 40061.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 11,
+     "ms": 87330.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 159,
+     "ms": 5354198.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 71,
+     "ms": 7196556.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 2,
+     "ms": 1890422.0
+    }
+   ],
+   "chained": 128,
+   "appears_in": 247,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 104,
+     "ms": 5400169.0,
+     "failed": 0,
+     "closed_together": 1
+    },
+    {
+     "provider": "claude",
+     "calls": 100,
+     "ms": 6996674.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 36,
+     "ms": 2043686.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 5,
+     "ms": 35138.0,
+     "failed": 0,
+     "closed_together": 2
+    },
+    {
+     "provider": "unknown",
+     "calls": 1,
+     "ms": 52839.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 145,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "uv",
+   "calls": 246,
+   "ms": 13277610.0,
+   "failed": 9,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 1021912.0,
+   "median_ms": 17146.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 50,
+     "ms": 5820.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 47,
+     "ms": 250100.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 89,
+     "ms": 2349881.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 58,
+     "ms": 9649897.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 1,
+     "ms": 1021912.0
+    }
+   ],
+   "chained": 143,
+   "appears_in": 246,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 108,
+     "ms": 6006718.0,
+     "failed": 8,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 100,
+     "ms": 5637266.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 31,
+     "ms": 994276.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 5,
+     "ms": 634202.0,
+     "failed": 0,
+     "closed_together": 1
+    },
+    {
+     "provider": "unknown",
+     "calls": 2,
+     "ms": 5148.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 145,
+    "failed_known": 8,
+    "zero": 0,
+    "one": 4,
+    "two": 4,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "ssh",
+   "calls": 82,
+   "ms": 10331780.0,
+   "failed": 3,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 1162724.0,
+   "median_ms": 62902.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 7,
+     "ms": 1161.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 6,
+     "ms": 37148.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 27,
+     "ms": 714700.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 40,
+     "ms": 8416047.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 1,
+     "ms": 1162724.0
+    }
+   ],
+   "chained": 51,
+   "appears_in": 82,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 34,
+     "ms": 4635689.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 33,
+     "ms": 3471411.0,
+     "failed": 3,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 11,
+     "ms": 2074960.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 4,
+     "ms": 149720.0,
+     "failed": 0,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 49,
+    "failed_known": 3,
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "curl",
+   "calls": 820,
+   "ms": 9156559.0,
+   "failed": 41,
+   "open": 1,
+   "closed_together": 9,
+   "longest_ms": 1120324.0,
+   "median_ms": 293.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 489,
+     "ms": 86095.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 179,
+     "ms": 700760.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 113,
+     "ms": 2995828.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 27,
+     "ms": 3544248.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 2,
+     "ms": 1829628.0
+    }
+   ],
+   "chained": 505,
+   "appears_in": 820,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 360,
+     "ms": 5395820.0,
+     "failed": 24,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 327,
+     "ms": 3001170.0,
+     "failed": 8,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 114,
+     "ms": 705330.0,
+     "failed": 6,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 19,
+     "ms": 54239.0,
+     "failed": 3,
+     "closed_together": 9
+    }
+   ],
+   "exits": {
+    "known": 494,
+    "failed_known": 33,
+    "zero": 0,
+    "one": 0,
+    "two": 4,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 29,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "npx",
+   "calls": 246,
+   "ms": 7274370.0,
+   "failed": 20,
+   "open": 0,
+   "closed_together": 3,
+   "longest_ms": 342433.0,
+   "median_ms": 9912.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 39,
+     "ms": 10858.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 83,
+     "ms": 376120.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 89,
+     "ms": 2022391.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 32,
+     "ms": 4865001.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 159,
+   "appears_in": 246,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 108,
+     "ms": 3390845.0,
+     "failed": 16,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 106,
+     "ms": 3234716.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 28,
+     "ms": 647916.0,
+     "failed": 2,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 3,
+     "ms": 0.0,
+     "failed": 1,
+     "closed_together": 3
+    },
+    {
+     "provider": "unknown",
+     "calls": 1,
+     "ms": 893.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 139,
+    "failed_known": 19,
+    "zero": 0,
+    "one": 11,
+    "two": 6,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 1,
+    "other": 1,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "gh",
+   "calls": 615,
+   "ms": 5892119.0,
+   "failed": 51,
+   "open": 0,
+   "closed_together": 6,
+   "longest_ms": 139242.0,
+   "median_ms": 4289.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 138,
+     "ms": 28680.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 316,
+     "ms": 1403162.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 138,
+     "ms": 2976075.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 17,
+     "ms": 1484202.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 384,
+   "appears_in": 615,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 275,
+     "ms": 2762666.0,
+     "failed": 38,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 239,
+     "ms": 2343950.0,
+     "failed": 4,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 94,
+     "ms": 777588.0,
+     "failed": 7,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 7,
+     "ms": 7915.0,
+     "failed": 2,
+     "closed_together": 6
+    }
+   ],
+   "exits": {
+    "known": 377,
+    "failed_known": 47,
+    "zero": 0,
+    "one": 37,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 10,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "rg",
+   "calls": 3690,
+   "ms": 5820633.0,
+   "failed": 404,
+   "open": 0,
+   "closed_together": 27,
+   "longest_ms": 153697.0,
+   "median_ms": 89.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 3281,
+     "ms": 378533.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 218,
+     "ms": 1107920.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 151,
+     "ms": 3262432.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 13,
+     "ms": 1071748.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 2266,
+   "appears_in": 3690,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 1592,
+     "ms": 2675731.0,
+     "failed": 285,
+     "closed_together": 1
+    },
+    {
+     "provider": "claude",
+     "calls": 1546,
+     "ms": 2396222.0,
+     "failed": 68,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 471,
+     "ms": 684930.0,
+     "failed": 34,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 79,
+     "ms": 63667.0,
+     "failed": 17,
+     "closed_together": 26
+    },
+    {
+     "provider": "unknown",
+     "calls": 2,
+     "ms": 83.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 2134,
+    "failed_known": 333,
+    "zero": 0,
+    "one": 291,
+    "two": 42,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "go",
+   "calls": 70,
+   "ms": 4428000.0,
+   "failed": 8,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 500307.0,
+   "median_ms": 34391.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1,
+     "ms": 691.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 4,
+     "ms": 36310.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 46,
+     "ms": 1261244.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 19,
+     "ms": 3129755.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 40,
+   "appears_in": 70,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 32,
+     "ms": 2001677.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 30,
+     "ms": 1835913.0,
+     "failed": 6,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 5,
+     "ms": 340590.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 3,
+     "ms": 249820.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 38,
+    "failed_known": 7,
+    "zero": 0,
+    "one": 4,
+    "two": 2,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 1,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "tsc",
+   "calls": 115,
+   "ms": 4390899.0,
+   "failed": 23,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 336922.0,
+   "median_ms": 25277.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1,
+     "ms": 758.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 18,
+     "ms": 123931.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 78,
+     "ms": 2313264.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 17,
+     "ms": 1952946.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 72,
+   "appears_in": 115,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 51,
+     "ms": 1984317.0,
+     "failed": 8,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 49,
+     "ms": 1953149.0,
+     "failed": 12,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 14,
+     "ms": 453433.0,
+     "failed": 3,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 0.0,
+     "failed": 0,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 64,
+    "failed_known": 15,
+    "zero": 0,
+    "one": 2,
+    "two": 13,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "vitest",
+   "calls": 61,
+   "ms": 2952001.0,
+   "failed": 12,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 387571.0,
+   "median_ms": 30612.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 11,
+     "ms": 70083.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 33,
+     "ms": 934915.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 17,
+     "ms": 1947003.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 38,
+   "appears_in": 61,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 30,
+     "ms": 1695086.0,
+     "failed": 8,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 22,
+     "ms": 998239.0,
+     "failed": 3,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 8,
+     "ms": 243772.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 14904.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 39,
+    "failed_known": 9,
+    "zero": 0,
+    "one": 7,
+    "two": 1,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 1,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "pnpm",
+   "calls": 82,
+   "ms": 2214000.0,
+   "failed": 7,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 336250.0,
+   "median_ms": 9975.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 20,
+     "ms": 2726.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 21,
+     "ms": 116836.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 34,
+     "ms": 744675.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 7,
+     "ms": 1349763.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 46,
+   "appears_in": 82,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 39,
+     "ms": 1132732.0,
+     "failed": 4,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 31,
+     "ms": 897122.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 11,
+     "ms": 158091.0,
+     "failed": 2,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 26055.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 51,
+    "failed_known": 6,
+    "zero": 0,
+    "one": 3,
+    "two": 2,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 1,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "find",
+   "calls": 1230,
+   "ms": 2194622.0,
+   "failed": 38,
+   "open": 0,
+   "closed_together": 10,
+   "longest_ms": 116069.0,
+   "median_ms": 144.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 932,
+     "ms": 146350.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 232,
+     "ms": 822995.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 54,
+     "ms": 1048439.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 2,
+     "ms": 176838.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 748,
+   "appears_in": 1230,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 544,
+     "ms": 978730.0,
+     "failed": 29,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 498,
+     "ms": 899437.0,
+     "failed": 4,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 161,
+     "ms": 295669.0,
+     "failed": 4,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 26,
+     "ms": 20767.0,
+     "failed": 1,
+     "closed_together": 10
+    },
+    {
+     "provider": "unknown",
+     "calls": 1,
+     "ms": 19.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 729,
+    "failed_known": 34,
+    "zero": 0,
+    "one": 34,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "sed",
+   "calls": 9840,
+   "ms": 2183562.0,
+   "failed": 43,
+   "open": 1,
+   "closed_together": 92,
+   "longest_ms": 23188.0,
+   "median_ms": 82.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 9479,
+     "ms": 1132665.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 254,
+     "ms": 848436.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 14,
+     "ms": 202461.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 5912,
+   "appears_in": 11791,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 4351,
+     "ms": 1030668.0,
+     "failed": 27,
+     "closed_together": 1
+    },
+    {
+     "provider": "claude",
+     "calls": 3942,
+     "ms": 861551.0,
+     "failed": 7,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 1313,
+     "ms": 265135.0,
+     "failed": 6,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 228,
+     "ms": 25853.0,
+     "failed": 3,
+     "closed_together": 91
+    },
+    {
+     "provider": "unknown",
+     "calls": 6,
+     "ms": 355.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 5883,
+    "failed_known": 36,
+    "zero": 0,
+    "one": 10,
+    "two": 20,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 6,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "ruff",
+   "calls": 102,
+   "ms": 1476000.0,
+   "failed": 10,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 171533.0,
+   "median_ms": 1052.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 51,
+     "ms": 4296.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 16,
+     "ms": 96806.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 29,
+     "ms": 658973.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 6,
+     "ms": 715925.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 61,
+   "appears_in": 102,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 46,
+     "ms": 931488.0,
+     "failed": 2,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 41,
+     "ms": 271827.0,
+     "failed": 5,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 14,
+     "ms": 272605.0,
+     "failed": 3,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 80.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 56,
+    "failed_known": 8,
+    "zero": 0,
+    "one": 5,
+    "two": 3,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "tmux",
+   "calls": 123,
+   "ms": 1475999.0,
+   "failed": 1,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 216917.0,
+   "median_ms": 3512.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 40,
+     "ms": 11740.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 44,
+     "ms": 173608.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 35,
+     "ms": 835210.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 4,
+     "ms": 455441.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 72,
+   "appears_in": 123,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 61,
+     "ms": 529959.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 41,
+     "ms": 721514.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 18,
+     "ms": 195212.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "unknown",
+     "calls": 2,
+     "ms": 22562.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 6752.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 81,
+    "failed_known": 1,
+    "zero": 0,
+    "one": 1,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "pip",
+   "calls": 45,
+   "ms": 1130920.0,
+   "failed": 9,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 355053.0,
+   "median_ms": 10868.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 17,
+     "ms": 89020.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 25,
+     "ms": 612422.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 2,
+     "ms": 429478.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 26,
+   "appears_in": 45,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 19,
+     "ms": 603943.0,
+     "failed": 3,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 17,
+     "ms": 404325.0,
+     "failed": 4,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 8,
+     "ms": 122652.0,
+     "failed": 2,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 0.0,
+     "failed": 0,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 26,
+    "failed_known": 6,
+    "zero": 0,
+    "one": 4,
+    "two": 2,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "cat",
+   "calls": 6150,
+   "ms": 878502.0,
+   "failed": 39,
+   "open": 0,
+   "closed_together": 55,
+   "longest_ms": 7665.0,
+   "median_ms": 81.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 6028,
+     "ms": 718909.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 67,
+     "ms": 159593.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 2922,
+   "appears_in": 13695,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2749,
+     "ms": 402216.0,
+     "failed": 27,
+     "closed_together": 1
+    },
+    {
+     "provider": "claude",
+     "calls": 2470,
+     "ms": 349034.0,
+     "failed": 7,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 794,
+     "ms": 115472.0,
+     "failed": 5,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 131,
+     "ms": 10775.0,
+     "failed": 0,
+     "closed_together": 54
+    },
+    {
+     "provider": "unknown",
+     "calls": 6,
+     "ms": 1005.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 3672,
+    "failed_known": 32,
+    "zero": 0,
+    "one": 32,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "eslint",
+   "calls": 49,
+   "ms": 713717.0,
+   "failed": 14,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 120815.0,
+   "median_ms": 8064.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 11,
+     "ms": 1332.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 17,
+     "ms": 112945.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 17,
+     "ms": 331363.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 3,
+     "ms": 268077.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 30,
+   "appears_in": 49,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 25,
+     "ms": 362677.0,
+     "failed": 12,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 18,
+     "ms": 308594.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 5,
+     "ms": 42446.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 0.0,
+     "failed": 1,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 31,
+    "failed_known": 13,
+    "zero": 0,
+    "one": 9,
+    "two": 3,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 1,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "sqlite3",
+   "calls": 74,
+   "ms": 706510.0,
+   "failed": 4,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 154697.0,
+   "median_ms": 141.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 53,
+     "ms": 6371.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 3,
+     "ms": 12509.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 14,
+     "ms": 365569.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 3,
+     "ms": 322061.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 54,
+   "appears_in": 74,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 35,
+     "ms": 240453.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 30,
+     "ms": 465264.0,
+     "failed": 3,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 7,
+     "ms": 758.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 2,
+     "ms": 35.0,
+     "failed": 0,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 39,
+    "failed_known": 3,
+    "zero": 0,
+    "one": 3,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "ls",
+   "calls": 3280,
+   "ms": 437833.0,
+   "failed": 47,
+   "open": 1,
+   "closed_together": 36,
+   "longest_ms": 3427.0,
+   "median_ms": 81.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 3209,
+     "ms": 383197.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 34,
+     "ms": 54636.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 1748,
+   "appears_in": 5919,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 1433,
+     "ms": 204827.0,
+     "failed": 32,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 1352,
+     "ms": 173442.0,
+     "failed": 7,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 415,
+     "ms": 54827.0,
+     "failed": 6,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 77,
+     "ms": 4345.0,
+     "failed": 2,
+     "closed_together": 36
+    },
+    {
+     "provider": "unknown",
+     "calls": 3,
+     "ms": 392.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 1926,
+    "failed_known": 40,
+    "zero": 0,
+    "one": 5,
+    "two": 35,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "tar",
+   "calls": 49,
+   "ms": 295201.0,
+   "failed": 5,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 40173.0,
+   "median_ms": 3116.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 16,
+     "ms": 2497.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 24,
+     "ms": 99736.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 9,
+     "ms": 192968.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 33,
+   "appears_in": 49,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 24,
+     "ms": 179157.0,
+     "failed": 4,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 19,
+     "ms": 104462.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 5,
+     "ms": 7298.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 4284.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 30,
+    "failed_known": 5,
+    "zero": 0,
+    "one": 4,
+    "two": 1,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "jq",
+   "calls": 820,
+   "ms": 294919.0,
+   "failed": 16,
+   "open": 0,
+   "closed_together": 4,
+   "longest_ms": 27543.0,
+   "median_ms": 82.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 794,
+     "ms": 92981.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 15,
+     "ms": 87344.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 7,
+     "ms": 114594.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 513,
+   "appears_in": 820,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 355,
+     "ms": 147709.0,
+     "failed": 9,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 352,
+     "ms": 127778.0,
+     "failed": 6,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 97,
+     "ms": 18348.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 15,
+     "ms": 972.0,
+     "failed": 0,
+     "closed_together": 4
+    },
+    {
+     "provider": "unknown",
+     "calls": 1,
+     "ms": 112.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 465,
+    "failed_known": 10,
+    "zero": 0,
+    "one": 4,
+    "two": 5,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 1,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "tail",
+   "calls": 615,
+   "ms": 294673.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 5,
+   "longest_ms": 10762.0,
+   "median_ms": 90.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 562,
+     "ms": 65869.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 46,
+     "ms": 207821.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 20983.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 319,
+   "appears_in": 8825,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 278,
+     "ms": 137415.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 240,
+     "ms": 113657.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 88,
+     "ms": 40953.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 9,
+     "ms": 2648.0,
+     "failed": 0,
+     "closed_together": 5
+    }
+   ],
+   "exits": {
+    "known": 375,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "head",
+   "calls": 1230,
+   "ms": 294216.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 9,
+   "longest_ms": 18055.0,
+   "median_ms": 79.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1206,
+     "ms": 138449.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 6,
+     "ms": 32664.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 9,
+     "ms": 123103.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 527,
+   "appears_in": 16659,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 522,
+     "ms": 73186.0,
+     "failed": 0,
+     "closed_together": 1
+    },
+    {
+     "provider": "claude",
+     "calls": 507,
+     "ms": 108123.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 173,
+     "ms": 99131.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 26,
+     "ms": 13688.0,
+     "failed": 0,
+     "closed_together": 8
+    },
+    {
+     "provider": "unknown",
+     "calls": 2,
+     "ms": 88.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 721,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "wget",
+   "calls": 20,
+   "ms": 147602.0,
+   "failed": 3,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 30841.0,
+   "median_ms": 6360.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 17,
+     "ms": 94044.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 3,
+     "ms": 53558.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 12,
+   "appears_in": 20,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 10,
+     "ms": 62246.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 5,
+     "ms": 26252.0,
+     "failed": 2,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 4,
+     "ms": 53449.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 5655.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 10,
+    "failed_known": 3,
+    "zero": 0,
+    "one": 1,
+    "two": 2,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "ps",
+   "calls": 102,
+   "ms": 147545.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 58985.0,
+   "median_ms": 84.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 97,
+     "ms": 11245.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 4,
+     "ms": 136300.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 64,
+   "appears_in": 102,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 46,
+     "ms": 57870.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 45,
+     "ms": 88686.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 10,
+     "ms": 989.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 0.0,
+     "failed": 0,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 57,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "diff",
+   "calls": 205,
+   "ms": 147527.0,
+   "failed": 87,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 39400.0,
+   "median_ms": 87.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 199,
+     "ms": 22077.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 1,
+     "ms": 1572.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 4,
+     "ms": 123878.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 127,
+   "appears_in": 205,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 86,
+     "ms": 26274.0,
+     "failed": 56,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 84,
+     "ms": 118124.0,
+     "failed": 17,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 31,
+     "ms": 2833.0,
+     "failed": 10,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 4,
+     "ms": 296.0,
+     "failed": 4,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 123,
+    "failed_known": 71,
+    "zero": 0,
+    "one": 63,
+    "two": 8,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "awk",
+   "calls": 246,
+   "ms": 147238.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 43736.0,
+   "median_ms": 83.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 236,
+     "ms": 28242.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 3,
+     "ms": 4434.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 6,
+     "ms": 114562.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 145,
+   "appears_in": 246,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 111,
+     "ms": 44475.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 96,
+     "ms": 99308.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 35,
+     "ms": 3045.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 4,
+     "ms": 410.0,
+     "failed": 0,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 151,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "wc",
+   "calls": 492,
+   "ms": 132676.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 7,
+   "longest_ms": 15779.0,
+   "median_ms": 88.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 478,
+     "ms": 56718.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 3,
+     "ms": 19171.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 4,
+     "ms": 56787.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 270,
+   "appears_in": 3402,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 217,
+     "ms": 71732.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 205,
+     "ms": 54503.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 59,
+     "ms": 6027.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 10,
+     "ms": 232.0,
+     "failed": 0,
+     "closed_together": 7
+    },
+    {
+     "provider": "unknown",
+     "calls": 1,
+     "ms": 182.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 275,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "cp",
+   "calls": 144,
+   "ms": 73800.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 20379.0,
+   "median_ms": 85.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 139,
+     "ms": 16819.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 2,
+     "ms": 5222.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 3,
+     "ms": 51759.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 84,
+   "appears_in": 144,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 62,
+     "ms": 59472.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 55,
+     "ms": 10955.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 24,
+     "ms": 3280.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 3,
+     "ms": 93.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 91,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "sort",
+   "calls": 164,
+   "ms": 73573.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 2,
+   "longest_ms": 30716.0,
+   "median_ms": 71.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 159,
+     "ms": 16207.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 1,
+     "ms": 1210.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 56156.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 93,
+   "appears_in": 3081,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 69,
+     "ms": 31497.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 63,
+     "ms": 7168.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 25,
+     "ms": 34506.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 6,
+     "ms": 242.0,
+     "failed": 0,
+     "closed_together": 2
+    },
+    {
+     "provider": "unknown",
+     "calls": 1,
+     "ms": 160.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 100,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "echo",
+   "calls": 615,
+   "ms": 70048.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 6,
+   "longest_ms": 1589.0,
+   "median_ms": 80.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 608,
+     "ms": 68459.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 1,
+     "ms": 1589.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 269,
+   "appears_in": 8875,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 267,
+     "ms": 30648.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 260,
+     "ms": 29990.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 72,
+     "ms": 8049.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 16,
+     "ms": 1361.0,
+     "failed": 0,
+     "closed_together": 6
+    }
+   ],
+   "exits": {
+    "known": 353,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "mkdir",
+   "calls": 369,
+   "ms": 44999.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 2,
+   "longest_ms": 1322.0,
+   "median_ms": 81.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 365,
+     "ms": 42626.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 2,
+     "ms": 2373.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 203,
+   "appears_in": 3175,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 160,
+     "ms": 21327.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 157,
+     "ms": 18109.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 43,
+     "ms": 4572.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 9,
+     "ms": 991.0,
+     "failed": 0,
+     "closed_together": 2
+    }
+   ],
+   "exits": {
+    "known": 209,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "rm",
+   "calls": 246,
+   "ms": 29662.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 685.0,
+   "median_ms": 81.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 245,
+     "ms": 29662.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 121,
+   "appears_in": 246,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 111,
+     "ms": 12379.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 108,
+     "ms": 14859.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 22,
+     "ms": 2193.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 5,
+     "ms": 231.0,
+     "failed": 0,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 136,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "du",
+   "calls": 37,
+   "ms": 28482.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 2,
+   "longest_ms": 4255.0,
+   "median_ms": 657.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 21,
+     "ms": 4532.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 14,
+     "ms": 23950.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 15,
+   "appears_in": 37,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 14,
+     "ms": 8662.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 13,
+     "ms": 11339.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 8,
+     "ms": 8481.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 2,
+     "ms": 0.0,
+     "failed": 0,
+     "closed_together": 2
+    }
+   ],
+   "exits": {
+    "known": 23,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "touch",
+   "calls": 82,
+   "ms": 9314.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 488.0,
+   "median_ms": 89.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 82,
+     "ms": 9314.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 41,
+   "appears_in": 2920,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 38,
+     "ms": 4260.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 31,
+     "ms": 3864.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 12,
+     "ms": 1031.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 159.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 51,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "chmod",
+   "calls": 61,
+   "ms": 8019.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 713.0,
+   "median_ms": 87.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 61,
+     "ms": 8019.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 34,
+   "appears_in": 61,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 30,
+     "ms": 3913.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 21,
+     "ms": 3294.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 10,
+     "ms": 812.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 40,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "tree",
+   "calls": 41,
+   "ms": 4564.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 553.0,
+   "median_ms": 83.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 41,
+     "ms": 4564.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 23,
+   "appears_in": 41,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 20,
+     "ms": 2009.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "claude",
+     "calls": 15,
+     "ms": 1438.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 5,
+     "ms": 1036.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 81.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 26,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "printf",
+   "calls": 0,
+   "ms": 0.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 0.0,
+   "median_ms": null,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 2802,
+   "by_provider": [],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "tools": [
+  {
+   "kind": "tool",
+   "name": "AskUserQuestion",
+   "calls": 38,
+   "ms": 22080120.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 7200000.0,
+   "median_ms": 300398.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 113318.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 27,
+     "ms": 7132697.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 9,
+     "ms": 14834105.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 38,
+     "ms": 22080120.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "web",
+   "name": null,
+   "calls": 2050,
+   "ms": 12530266.0,
+   "failed": 20,
+   "open": 1,
+   "closed_together": 114,
+   "longest_ms": 94578.0,
+   "median_ms": 4680.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 51,
+     "ms": 38898.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 1544,
+     "ms": 6842033.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 338,
+     "ms": 5482494.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 2,
+     "ms": 166841.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 1195,
+     "ms": 7921035.0,
+     "failed": 12,
+     "closed_together": 1
+    },
+    {
+     "provider": "claude",
+     "calls": 563,
+     "ms": 3547993.0,
+     "failed": 3,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 292,
+     "ms": 1061238.0,
+     "failed": 5,
+     "closed_together": 113
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "t3_thread_wait",
+   "server": "t3-code",
+   "calls": 149,
+   "ms": 10230000.0,
+   "failed": 6,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 2850000.0,
+   "median_ms": 26529.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 28,
+     "ms": 184245.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 82,
+     "ms": 2265392.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 37,
+     "ms": 4028661.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 2,
+     "ms": 3751702.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 149,
+     "ms": 10230000.0,
+     "failed": 6,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "edit",
+   "name": null,
+   "calls": 8610,
+   "ms": 8232081.0,
+   "failed": 33,
+   "open": 0,
+   "closed_together": 407,
+   "longest_ms": 133500.0,
+   "median_ms": 90.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 7423,
+     "ms": 884447.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 551,
+     "ms": 2418926.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 224,
+     "ms": 4437221.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 5,
+     "ms": 491487.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 5507,
+     "ms": 5494421.0,
+     "failed": 23,
+     "closed_together": 1
+    },
+    {
+     "provider": "opencode",
+     "calls": 2031,
+     "ms": 2011546.0,
+     "failed": 4,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1072,
+     "ms": 726114.0,
+     "failed": 6,
+     "closed_together": 406
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "delegate_task",
+   "server": "t3-code",
+   "calls": 922,
+   "ms": 7377838.0,
+   "failed": 57,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 332293.0,
+   "median_ms": 3570.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 146,
+     "ms": 86037.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 589,
+     "ms": 2292911.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 173,
+     "ms": 3549246.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 13,
+     "ms": 1449644.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 533,
+     "ms": 4427995.0,
+     "failed": 30,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 389,
+     "ms": 2949843.0,
+     "failed": 27,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "request_secret",
+   "server": "t3-code",
+   "calls": 111,
+   "ms": 5904006.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 550757.0,
+   "median_ms": 29577.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 16,
+     "ms": 100255.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 67,
+     "ms": 2078025.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 28,
+     "ms": 3725726.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 111,
+     "ms": 5904006.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "WebFetch",
+   "calls": 554,
+   "ms": 5903998.0,
+   "failed": 35,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 99129.0,
+   "median_ms": 6046.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 19,
+     "ms": 14764.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 346,
+     "ms": 1586178.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 184,
+     "ms": 3953154.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 5,
+     "ms": 349902.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 554,
+     "ms": 5903998.0,
+     "failed": 35,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "wait",
+   "calls": 164,
+   "ms": 5165997.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 368716.0,
+   "median_ms": 14226.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 57,
+     "ms": 296651.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 86,
+     "ms": 2099719.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 21,
+     "ms": 2769627.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 164,
+     "ms": 5165997.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "search",
+   "name": null,
+   "calls": 2829,
+   "ms": 4428010.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 72325.0,
+   "median_ms": 126.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 2175,
+     "ms": 343481.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 544,
+     "ms": 1845834.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 109,
+     "ms": 2166370.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 1,
+     "ms": 72325.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2105,
+     "ms": 3464505.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 724,
+     "ms": 963505.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "t3_background_wait",
+   "server": "t3-code",
+   "calls": 98,
+   "ms": 4428003.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 354349.0,
+   "median_ms": 28265.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 16,
+     "ms": 112787.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 59,
+     "ms": 1765475.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 23,
+     "ms": 2549741.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 98,
+     "ms": 4428003.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "read",
+   "name": "Read",
+   "calls": 7995,
+   "ms": 2952004.0,
+   "failed": 80,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 108445.0,
+   "median_ms": 80.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 7814,
+     "ms": 904968.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 118,
+     "ms": 574740.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 60,
+     "ms": 1216772.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 3,
+     "ms": 255524.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 7995,
+     "ms": 2952004.0,
+     "failed": 80,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "spawn_agent",
+   "calls": 144,
+   "ms": 2951999.0,
+   "failed": 4,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 187258.0,
+   "median_ms": 12525.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 57,
+     "ms": 316294.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 80,
+     "ms": 1831708.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 7,
+     "ms": 803997.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 144,
+     "ms": 2951999.0,
+     "failed": 4,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "t3_thread_read",
+   "server": "t3-code",
+   "calls": 1115,
+   "ms": 1328386.0,
+   "failed": 9,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 14385.0,
+   "median_ms": 738.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 605,
+     "ms": 124637.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 509,
+     "ms": 1189364.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 14385.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 738,
+     "ms": 885587.0,
+     "failed": 7,
+     "closed_together": 0
+    },
+    {
+     "provider": "codex",
+     "calls": 377,
+     "ms": 442799.0,
+     "failed": 2,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "apply_patch",
+   "calls": 1353,
+   "ms": 1328285.0,
+   "failed": 29,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 43448.0,
+   "median_ms": 105.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1163,
+     "ms": 154344.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 165,
+     "ms": 620546.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 24,
+     "ms": 553395.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 1353,
+     "ms": 1328285.0,
+     "failed": 29,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "Edit",
+   "calls": 2460,
+   "ms": 1180798.0,
+   "failed": 58,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 92552.0,
+   "median_ms": 85.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 2344,
+     "ms": 272747.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 85,
+     "ms": 339613.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 30,
+     "ms": 475886.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 1,
+     "ms": 92552.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 2460,
+     "ms": 1180798.0,
+     "failed": 58,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "html_render",
+   "server": "t3-code",
+   "calls": 123,
+   "ms": 738001.0,
+   "failed": 11,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 17528.0,
+   "median_ms": 4919.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 106,
+     "ms": 516085.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 17,
+     "ms": 221916.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 123,
+     "ms": 738001.0,
+     "failed": 11,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "read",
+   "name": "read",
+   "calls": 1722,
+   "ms": 737997.0,
+   "failed": 19,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 94922.0,
+   "median_ms": 83.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1673,
+     "ms": 194517.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 33,
+     "ms": 144732.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 15,
+     "ms": 303826.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 1,
+     "ms": 94922.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "opencode",
+     "calls": 1722,
+     "ms": 737997.0,
+     "failed": 19,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "search",
+   "name": "Grep",
+   "calls": 1025,
+   "ms": 590402.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 22184.0,
+   "median_ms": 89.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 945,
+     "ms": 119094.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 68,
+     "ms": 282285.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 12,
+     "ms": 189023.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 1025,
+     "ms": 590402.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "browser_navigate",
+   "server": "playwright",
+   "calls": 115,
+   "ms": 590401.0,
+   "failed": 12,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 43022.0,
+   "median_ms": 3312.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 3,
+     "ms": 2346.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 102,
+     "ms": 419868.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 10,
+     "ms": 168187.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 115,
+     "ms": 590401.0,
+     "failed": 12,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "Write",
+   "calls": 861,
+   "ms": 442802.0,
+   "failed": 10,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 26579.0,
+   "median_ms": 83.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 820,
+     "ms": 90795.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 28,
+     "ms": 128267.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 13,
+     "ms": 223740.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 861,
+     "ms": 442802.0,
+     "failed": 10,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "edit",
+   "calls": 471,
+   "ms": 295201.0,
+   "failed": 17,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 37456.0,
+   "median_ms": 97.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 444,
+     "ms": 56752.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 20,
+     "ms": 68786.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 7,
+     "ms": 169663.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "opencode",
+     "calls": 471,
+     "ms": 295201.0,
+     "failed": 17,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "get-library-docs",
+   "server": "context7",
+   "calls": 74,
+   "ms": 295201.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 11002.0,
+   "median_ms": 3766.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 4,
+     "ms": 3462.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 69,
+     "ms": 280737.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 11002.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 38,
+     "ms": 156224.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "opencode",
+     "calls": 36,
+     "ms": 138977.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "search",
+   "name": "Glob",
+   "calls": 717,
+   "ms": 295200.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 21794.0,
+   "median_ms": 80.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 682,
+     "ms": 77727.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 27,
+     "ms": 91938.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 8,
+     "ms": 125535.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 717,
+     "ms": 295200.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "preview_navigate",
+   "server": "t3-code",
+   "calls": 90,
+   "ms": 295197.0,
+   "failed": 6,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 18484.0,
+   "median_ms": 2697.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 3,
+     "ms": 2138.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 86,
+     "ms": 274575.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 18484.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 90,
+     "ms": 295197.0,
+     "failed": 6,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "ToolSearch",
+   "calls": 369,
+   "ms": 147600.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 6503.0,
+   "median_ms": 97.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 335,
+     "ms": 43352.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 34,
+     "ms": 104248.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 369,
+     "ms": 147600.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "fetch_pr",
+   "server": "codex_apps.github",
+   "calls": 61,
+   "ms": 147600.0,
+   "failed": 6,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 7112.0,
+   "median_ms": 2051.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 10,
+     "ms": 7046.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 51,
+     "ms": 140554.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 61,
+     "ms": 147600.0,
+     "failed": 6,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "batch",
+   "server": "claude_ai_Claude_Docs",
+   "calls": 49,
+   "ms": 147600.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 7371.0,
+   "median_ms": 2542.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1,
+     "ms": 864.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 48,
+     "ms": 146736.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 49,
+     "ms": 147600.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "Skill",
+   "calls": 164,
+   "ms": 147599.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 6278.0,
+   "median_ms": 120.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 125,
+     "ms": 15637.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 39,
+     "ms": 131962.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 164,
+     "ms": 147599.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "read",
+   "name": "view_image",
+   "calls": 184,
+   "ms": 147598.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 7524.0,
+   "median_ms": 132.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 141,
+     "ms": 18494.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 43,
+     "ms": 129104.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 184,
+     "ms": 147598.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "t3_thread_search",
+   "server": "t3-code",
+   "calls": 119,
+   "ms": 147598.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 11643.0,
+   "median_ms": 138.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 90,
+     "ms": 12742.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 27,
+     "ms": 112846.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 22010.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 119,
+     "ms": 147598.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "browser_click",
+   "server": "playwright",
+   "calls": 107,
+   "ms": 147596.0,
+   "failed": 13,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 6305.0,
+   "median_ms": 1002.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 53,
+     "ms": 20958.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 54,
+     "ms": 126638.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 107,
+     "ms": 147596.0,
+     "failed": 13,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "TodoWrite",
+   "calls": 1189,
+   "ms": 140523.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 2104.0,
+   "median_ms": 76.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1186,
+     "ms": 135748.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 3,
+     "ms": 4775.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 1189,
+     "ms": 140523.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "update_plan",
+   "calls": 820,
+   "ms": 98217.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 1256.0,
+   "median_ms": 78.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 819,
+     "ms": 96961.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 1,
+     "ms": 1256.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 820,
+     "ms": 98217.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "read_file",
+   "server": "filesystem",
+   "calls": 20,
+   "ms": 88561.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 22652.0,
+   "median_ms": 3176.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 4,
+     "ms": 359.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 15,
+     "ms": 65550.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 22652.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 20,
+     "ms": 88561.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "create_review",
+   "server": "github",
+   "calls": 29,
+   "ms": 88560.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 16114.0,
+   "median_ms": 1629.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 10,
+     "ms": 3212.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 18,
+     "ms": 69234.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 16114.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 29,
+     "ms": 88560.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "list_events",
+   "server": "claude_ai_Google_Calendar",
+   "calls": 25,
+   "ms": 88560.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 17977.0,
+   "median_ms": 2434.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 11,
+     "ms": 1108.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 12,
+     "ms": 56837.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 30615.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 25,
+     "ms": 88560.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "dns_records",
+   "server": "cloudflare",
+   "calls": 16,
+   "ms": 88560.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 23413.0,
+   "median_ms": 4717.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 4,
+     "ms": 251.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 10,
+     "ms": 48970.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 39339.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 16,
+     "ms": 88560.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "get_pods",
+   "server": "kubernetes",
+   "calls": 16,
+   "ms": 88560.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 25139.0,
+   "median_ms": 3791.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 5,
+     "ms": 569.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 9,
+     "ms": 47405.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 40586.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 16,
+     "ms": 88560.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "search_events",
+   "server": "sentry",
+   "calls": 33,
+   "ms": 88559.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 12515.0,
+   "median_ms": 1559.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 14,
+     "ms": 2577.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 18,
+     "ms": 73467.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 12515.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 33,
+     "ms": 88559.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "t3_thread_list",
+   "server": "t3-code",
+   "calls": 29,
+   "ms": 88559.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 21596.0,
+   "median_ms": 1617.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 12,
+     "ms": 3749.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 14,
+     "ms": 42631.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 3,
+     "ms": 42179.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 29,
+     "ms": 88559.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "now",
+   "server": "time",
+   "calls": 12,
+   "ms": 88559.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 19219.0,
+   "median_ms": 7489.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 2,
+     "ms": 426.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 6,
+     "ms": 30115.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 4,
+     "ms": 58018.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 12,
+     "ms": 88559.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "link_pull_request",
+   "server": "t3-code",
+   "calls": 25,
+   "ms": 88557.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 16897.0,
+   "median_ms": 1462.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 11,
+     "ms": 2708.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 11,
+     "ms": 42777.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 3,
+     "ms": 43072.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 25,
+     "ms": 88557.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "list_containers",
+   "server": "docker",
+   "calls": 16,
+   "ms": 73802.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 14024.0,
+   "median_ms": 2589.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 6,
+     "ms": 1679.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 8,
+     "ms": 46637.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 25486.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 16,
+     "ms": 73802.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "describe_table",
+   "server": "postgres",
+   "calls": 29,
+   "ms": 73801.0,
+   "failed": 2,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 11711.0,
+   "median_ms": 1840.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 14,
+     "ms": 5247.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 13,
+     "ms": 45292.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 23262.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 29,
+     "ms": 73801.0,
+     "failed": 2,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "get_task",
+   "server": "asana",
+   "calls": 12,
+   "ms": 73801.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 13343.0,
+   "median_ms": 7389.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 3,
+     "ms": 835.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 6,
+     "ms": 37796.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 3,
+     "ms": 35170.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 12,
+     "ms": 73801.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "read_note",
+   "server": "obsidian",
+   "calls": 12,
+   "ms": 73801.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 13406.0,
+   "median_ms": 6721.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1,
+     "ms": 98.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 10,
+     "ms": 60297.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 13406.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 12,
+     "ms": 73801.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "get_issue_details",
+   "server": "sentry",
+   "calls": 33,
+   "ms": 73800.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 8436.0,
+   "median_ms": 1937.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 11,
+     "ms": 3483.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 22,
+     "ms": 70317.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 33,
+     "ms": 73800.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "list_directory",
+   "server": "filesystem",
+   "calls": 20,
+   "ms": 73800.0,
+   "failed": 2,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 13158.0,
+   "median_ms": 1842.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 6,
+     "ms": 1365.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 12,
+     "ms": 47348.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 25087.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 20,
+     "ms": 73800.0,
+     "failed": 2,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "list_deployments",
+   "server": "vercel",
+   "calls": 16,
+   "ms": 73800.0,
+   "failed": 1,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 13542.0,
+   "median_ms": 3754.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 4,
+     "ms": 496.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 9,
+     "ms": 37215.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 3,
+     "ms": 36089.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 16,
+     "ms": 73800.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "list_commits",
+   "server": "github",
+   "calls": 33,
+   "ms": 73799.0,
+   "failed": 2,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 8213.0,
+   "median_ms": 1618.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 12,
+     "ms": 4006.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 21,
+     "ms": 69793.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 33,
+     "ms": 73799.0,
+     "failed": 2,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "preview_snapshot",
+   "server": "t3-code",
+   "calls": 25,
+   "ms": 73799.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 13653.0,
+   "median_ms": 1750.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 11,
+     "ms": 938.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 12,
+     "ms": 46812.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 26049.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 25,
+     "ms": 73799.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "search_files",
+   "server": "claude_ai_Google_Drive",
+   "calls": 25,
+   "ms": 73799.0,
+   "failed": 3,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 12134.0,
+   "median_ms": 1522.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 8,
+     "ms": 1971.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 15,
+     "ms": 49183.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 22645.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 25,
+     "ms": 73799.0,
+     "failed": 3,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "create_comment",
+   "server": "linear",
+   "calls": 33,
+   "ms": 59041.0,
+   "failed": 1,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 13949.0,
+   "median_ms": 844.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 18,
+     "ms": 7903.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 14,
+     "ms": 37189.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 13949.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 33,
+     "ms": 59041.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "extract",
+   "server": "tavily",
+   "calls": 20,
+   "ms": 59041.0,
+   "failed": 2,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 21438.0,
+   "median_ms": 1432.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 10,
+     "ms": 2783.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 9,
+     "ms": 34820.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 21438.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 20,
+     "ms": 59041.0,
+     "failed": 2,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "create_view",
+   "server": "excalidraw",
+   "calls": 12,
+   "ms": 59041.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 14006.0,
+   "median_ms": 3260.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 2,
+     "ms": 275.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 8,
+     "ms": 31630.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 27136.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 12,
+     "ms": 59041.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "html_preview",
+   "server": "t3-code",
+   "calls": 25,
+   "ms": 59040.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 14067.0,
+   "median_ms": 1850.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 10,
+     "ms": 2893.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 14,
+     "ms": 42080.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 14067.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 25,
+     "ms": 59040.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "lessons",
+   "server": "example-notes",
+   "calls": 20,
+   "ms": 59040.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 35204.0,
+   "median_ms": 1276.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 9,
+     "ms": 2177.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 10,
+     "ms": 21659.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 35204.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 20,
+     "ms": 59040.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "fetch",
+   "server": "notion",
+   "calls": 16,
+   "ms": 59040.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 14994.0,
+   "median_ms": 3130.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 6,
+     "ms": 1416.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 8,
+     "ms": 29480.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 28144.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 16,
+     "ms": 59040.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "get_pull_request",
+   "server": "github",
+   "calls": 33,
+   "ms": 59039.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 6891.0,
+   "median_ms": 1478.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 14,
+     "ms": 2345.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 19,
+     "ms": 56694.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 33,
+     "ms": 59039.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "query",
+   "server": "postgres",
+   "calls": 29,
+   "ms": 59039.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 6726.0,
+   "median_ms": 1998.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 12,
+     "ms": 3664.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 17,
+     "ms": 55375.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 29,
+     "ms": 59039.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "list_merge_requests",
+   "server": "gitlab",
+   "calls": 12,
+   "ms": 59039.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 17598.0,
+   "median_ms": 4961.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 4,
+     "ms": 132.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 7,
+     "ms": 41309.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 17598.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 12,
+     "ms": 59039.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "search_threads",
+   "server": "claude_ai_Gmail",
+   "calls": 25,
+   "ms": 59038.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 14847.0,
+   "median_ms": 1157.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 10,
+     "ms": 2268.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 13,
+     "ms": 29657.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 2,
+     "ms": 27113.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 25,
+     "ms": 59038.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "orchestrator_capabilities",
+   "server": "t3-code",
+   "calls": 29,
+   "ms": 44282.0,
+   "failed": 1,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 6111.0,
+   "median_ms": 1065.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 13,
+     "ms": 1950.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 16,
+     "ms": 42332.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 29,
+     "ms": 44282.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "get_issue",
+   "server": "linear",
+   "calls": 33,
+   "ms": 44281.0,
+   "failed": 1,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 6576.0,
+   "median_ms": 1213.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 15,
+     "ms": 8062.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 18,
+     "ms": 36219.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 33,
+     "ms": 44281.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "update",
+   "server": "claude_ai_Claude_Docs",
+   "calls": 25,
+   "ms": 44280.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 6204.0,
+   "median_ms": 1014.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 12,
+     "ms": 6192.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 13,
+     "ms": 38088.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 25,
+     "ms": 44280.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "remember",
+   "server": "memory",
+   "calls": 20,
+   "ms": 44280.0,
+   "failed": 1,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 9237.0,
+   "median_ms": 1780.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 8,
+     "ms": 1044.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 12,
+     "ms": 43236.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 20,
+     "ms": 44280.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "search",
+   "server": "notion",
+   "calls": 16,
+   "ms": 44280.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 11550.0,
+   "median_ms": 1585.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 6,
+     "ms": 856.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 9,
+     "ms": 31874.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 11550.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 16,
+     "ms": 44280.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "screenshot",
+   "server": "puppeteer",
+   "calls": 12,
+   "ms": 44280.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 8118.0,
+   "median_ms": 3284.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 3,
+     "ms": 470.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 9,
+     "ms": 43810.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 12,
+     "ms": 44280.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "search_code",
+   "server": "github",
+   "calls": 12,
+   "ms": 44280.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 12262.0,
+   "median_ms": 3414.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 4,
+     "ms": 487.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 7,
+     "ms": 31531.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 12262.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 12,
+     "ms": 44280.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "get_image",
+   "server": "figma",
+   "calls": 33,
+   "ms": 44279.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 6692.0,
+   "median_ms": 574.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 18,
+     "ms": 5515.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 15,
+     "ms": 38764.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 33,
+     "ms": 44279.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "read_channel",
+   "server": "slack",
+   "calls": 29,
+   "ms": 44279.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 5502.0,
+   "median_ms": 1509.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 13,
+     "ms": 3736.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 16,
+     "ms": 40543.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 29,
+     "ms": 44279.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "search",
+   "server": "exa",
+   "calls": 20,
+   "ms": 44279.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 11185.0,
+   "median_ms": 2182.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 8,
+     "ms": 2178.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 11,
+     "ms": 30916.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 11185.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 20,
+     "ms": 44279.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "post_message",
+   "server": "slack",
+   "calls": 29,
+   "ms": 29523.0,
+   "failed": 1,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 5475.0,
+   "median_ms": 610.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 21,
+     "ms": 11146.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 8,
+     "ms": 18377.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 29,
+     "ms": 29523.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "get_node",
+   "server": "figma",
+   "calls": 33,
+   "ms": 29522.0,
+   "failed": 2,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 3668.0,
+   "median_ms": 675.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 22,
+     "ms": 7704.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 11,
+     "ms": 21818.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 33,
+     "ms": 29522.0,
+     "failed": 2,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "list_issues",
+   "server": "linear",
+   "calls": 37,
+   "ms": 29521.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 5095.0,
+   "median_ms": 453.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 27,
+     "ms": 9614.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 10,
+     "ms": 19907.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 37,
+     "ms": 29521.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "task_status",
+   "server": "t3-code",
+   "calls": 29,
+   "ms": 29521.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 5320.0,
+   "median_ms": 478.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 19,
+     "ms": 6009.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 10,
+     "ms": 23512.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 29,
+     "ms": 29521.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "get_issue",
+   "server": "jira",
+   "calls": 16,
+   "ms": 29521.0,
+   "failed": 1,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 8249.0,
+   "median_ms": 1515.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 7,
+     "ms": 1766.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 9,
+     "ms": 27755.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 16,
+     "ms": 29521.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "read_query",
+   "server": "sqlite",
+   "calls": 12,
+   "ms": 29521.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 15827.0,
+   "median_ms": 1105.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 6,
+     "ms": 1999.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 5,
+     "ms": 11695.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 15827.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 12,
+     "ms": 29521.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "guide",
+   "server": "claude_ai_Claude_Docs",
+   "calls": 25,
+   "ms": 29520.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 5594.0,
+   "median_ms": 736.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 14,
+     "ms": 4562.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 11,
+     "ms": 24958.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 25,
+     "ms": 29520.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "recall",
+   "server": "memory",
+   "calls": 20,
+   "ms": 29520.0,
+   "failed": 1,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 6309.0,
+   "median_ms": 971.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 11,
+     "ms": 5746.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 9,
+     "ms": 23774.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 20,
+     "ms": 29520.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "web_search",
+   "server": "brave",
+   "calls": 20,
+   "ms": 29520.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 5383.0,
+   "median_ms": 960.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 10,
+     "ms": 3025.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 10,
+     "ms": 26495.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 20,
+     "ms": 29520.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "query_prometheus",
+   "server": "grafana",
+   "calls": 16,
+   "ms": 29519.0,
+   "failed": 2,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 6442.0,
+   "median_ms": 1932.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 6,
+     "ms": 684.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 10,
+     "ms": 28835.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 16,
+     "ms": 29519.0,
+     "failed": 2,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "todowrite",
+   "calls": 45,
+   "ms": 5645.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 829.0,
+   "median_ms": 78.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 45,
+     "ms": 5645.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "opencode",
+     "calls": 45,
+     "ms": 5645.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "search",
+   "name": "LS",
+   "calls": 37,
+   "ms": 4039.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 414.0,
+   "median_ms": 83.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 37,
+     "ms": 4039.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "claude",
+     "calls": 37,
+     "ms": 4039.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": null,
+   "calls": 12,
+   "ms": 893.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 4,
+   "longest_ms": 376.0,
+   "median_ms": 88.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 8,
+     "ms": 893.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "grok",
+     "calls": 12,
+     "ms": 893.0,
+     "failed": 0,
+     "closed_together": 4
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "lengths": [
+  {
+   "label": "under 1s",
+   "calls": 89582,
+   "ms": 11347731.0
+  },
+  {
+   "label": "1-10s",
+   "calls": 11648,
+   "ms": 48824111.0
+  },
+  {
+   "label": "10-60s",
+   "calls": 7819,
+   "ms": 201780442.0
+  },
+  {
+   "label": "1-10min",
+   "calls": 3310,
+   "ms": 524775046.0
+  },
+  {
+   "label": "over 10min",
+   "calls": 248,
+   "ms": 275751384.0
+  }
+ ],
+ "providers": [
+  {
+   "provider": "claude",
+   "calls": 49835,
+   "ms": 447060433.0,
+   "failed": 866,
+   "closed_together": 0,
+   "commands": 30865,
+   "commands_failed": 572,
+   "exits": {
+    "known": 132,
+    "failed_known": 3,
+    "zero": 0,
+    "one": 2,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 1,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "provider": "codex",
+   "calls": 45901,
+   "ms": 464855118.0,
+   "failed": 2309,
+   "closed_together": 16,
+   "commands": 33213,
+   "commands_failed": 2206,
+   "exits": {
+    "known": 33208,
+    "failed_known": 2205,
+    "zero": 0,
+    "one": 1396,
+    "two": 428,
+    "timed_out": 5,
+    "not_runnable": 0,
+    "not_found": 15,
+    "signal": 106,
+    "other": 255,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "provider": "opencode",
+   "calls": 14979,
+   "ms": 134733778.0,
+   "failed": 391,
+   "closed_together": 0,
+   "commands": 9950,
+   "commands_failed": 351,
+   "exits": {
+    "known": 9940,
+    "failed_known": 351,
+    "zero": 0,
+    "one": 222,
+    "two": 64,
+    "timed_out": 1,
+    "not_runnable": 0,
+    "not_found": 2,
+    "signal": 19,
+    "other": 43,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "provider": "grok",
+   "calls": 3002,
+   "ms": 13178268.0,
+   "failed": 143,
+   "closed_together": 1150,
+   "commands": 1626,
+   "commands_failed": 132,
+   "exits": {
+    "known": 1433,
+    "failed_known": 115,
+    "zero": 0,
+    "one": 61,
+    "two": 22,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 9,
+    "other": 23,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "provider": "unknown",
+   "calls": 62,
+   "ms": 2651117.0,
+   "failed": 1,
+   "closed_together": 0,
+   "commands": 62,
+   "commands_failed": 1,
+   "exits": {
+    "known": 33,
+    "failed_known": 1,
+    "zero": 0,
+    "one": 1,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "longest": [
+  {
+   "kind": "shell",
+   "name": "python3",
+   "ms": 9600000.0,
+   "failed": true,
+   "provider": "codex",
+   "thread": "b07efd63-5577-4426-b074-20d4e1f33e1c",
+   "run": "run-0a5861e37247",
+   "started": 1791706122370.0,
+   "when": "Sun 11, 08:08",
+   "exit": 124
+  },
+  {
+   "kind": "tool",
+   "name": "AskUserQuestion",
+   "ms": 7200000.0,
+   "failed": false,
+   "provider": "claude",
+   "thread": "9e7c6757-6c19-4955-b287-8291c7ad3336",
+   "run": "run-ce0fb8333af3",
+   "started": 1790848848308.0,
+   "when": "Thu 1, 10:00",
+   "exit": null
+  },
+  {
+   "kind": "shell",
+   "name": "cargo",
+   "ms": 6525000.0,
+   "failed": true,
+   "provider": "claude",
+   "thread": "47196fa7-5e67-4071-92ca-003bd5fc40d2",
+   "run": "run-bb5513602ac9",
+   "started": 1791043541026.0,
+   "when": "Sat 3, 16:05",
+   "exit": null
+  },
+  {
+   "kind": "shell",
+   "name": null,
+   "ms": 5550000.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "e0d6817b-86ec-4cd8-b9d4-07a3f07c2aec",
+   "run": "run-13b97ec18580",
+   "started": 1791099064818.0,
+   "when": "Sun 4, 07:31",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": "pytest",
+   "ms": 4725000.0,
+   "failed": true,
+   "provider": "opencode",
+   "thread": "cd9c2544-29a9-4dc1-8907-afc0753abf6b",
+   "run": "run-6880754eff4e",
+   "started": 1791860085492.0,
+   "when": "Tue 13, 02:54",
+   "exit": 1
+  },
+  {
+   "kind": "shell",
+   "name": "node",
+   "ms": 3900000.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "9352ae9e-c7e9-456c-848d-dbe4617834ca",
+   "run": "run-c32c469f9bb4",
+   "started": 1791043797821.0,
+   "when": "Sat 3, 16:09",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": "docker",
+   "ms": 3075000.0,
+   "failed": true,
+   "provider": "codex",
+   "thread": "4c3ab655-79d4-420e-a4fc-09499539992f",
+   "run": "run-f65c5df1c80e",
+   "started": 1791041668273.0,
+   "when": "Sat 3, 15:34",
+   "exit": 137
+  },
+  {
+   "kind": "tool",
+   "name": "t3_thread_wait",
+   "server": "t3-code",
+   "ms": 2850000.0,
+   "failed": false,
+   "provider": "claude",
+   "thread": "18576f5f-dc3b-44dd-b86a-36d5cddf2ab8",
+   "run": "run-05905a9778e6",
+   "started": 1791891908041.0,
+   "when": "Tue 13, 11:45",
+   "exit": null
+  },
+  {
+   "kind": "shell",
+   "name": "cargo",
+   "ms": 2475000.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "c481af43-9dab-4094-8c2f-f85319c1bd4a",
+   "run": "run-146700a15d55",
+   "started": 1791016474798.0,
+   "when": "Sat 3, 08:34",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": "grep",
+   "ms": 2175000.0,
+   "failed": true,
+   "provider": "opencode",
+   "thread": "04a58fc9-5539-4c80-8c28-6ec3b5ef29e8",
+   "run": "run-29753e550b56",
+   "started": 1792003530474.0,
+   "when": "Wed 14, 18:45",
+   "exit": 1
+  }
+ ],
+ "min_for_rate": 20
+}

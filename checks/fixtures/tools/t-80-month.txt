@@ -1,0 +1,97 @@
+ T3 Agents  TOOLS  October 2026  31 of 31 days recorded       t3-agents --tools
+
+  CALLS                      CALL TIME                  FAILED
+   ▄    ▄   ▄  ▄             ▄▄▄   ▄▄  ▄▄▄▄             ▄▄▄    ▄▄▄▄
+  ▀█   ▀█   █▄▄█              ▄▄▀ ▀▄▄█ █▄▄               ▄▄▀     ▄▀
+  ▄█▄  ▄█▄     █ K           █▄▄▄  ▄▄▀ ▄▄▄▀ h           ▄▄▄▀ ▄  █   K
+  75,716 of them commands    leaves out 1,172 calls     3% of calls
+
+ HOW LONG THEY TOOK ───────  3% of calls took a minute or more: 75% of the time
+         under 1s      1–10s         10–60s        1–10 min      over 10 min
+ calls   █████▋   80%  ▊        10%  ▌         7%  ▎         3%  ▏        <1%
+ time    ▏         1%  ▍         5%  █▍       19%  ███▌     49%  █▉       26%
+
+ BY KIND ─────────────────────────────────────────────────────────────  by time
+                          calls           time         failed
+ ❯ commands              75,716 ███████   266h ███████  3,262    4%
+ ◈ other tools           12,894 █▎         21h ▌          296    2%
+ ⊕ web searches           2,050 ▎         3.5h ▏           20    1%
+ ± file changes           8,610 ▊         2.3h ▏           33   <1%
+ ⊛ searches               4,608 ▍         1.5h ▏         none
+ ◎ reads                  9,901 ▉         1.1h ▏           99    1%
+
+ COMMANDS BY PROGRAM ───────────────────────  75 programs on the list · by time
+                          calls           time         failed
+   python3               19,271 ███████    76h ███████    885    5%
+   cargo                  2,298 ▉          55h █████▏     265   12%
+   grep                   4,716 █▊         33h ███        350    7%
+   node                   1,559 ▋          25h ██▎         89    6%
+   not on the list        3,137 █▏         14h █▎         302   10%
+   npm                    1,230 ▌          11h █          105    9%
+   pytest                   616 ▎          11h █          131   21%
+   git                    9,840 ███▋      5.7h ▌          212    2%
+   rg                     3,690 █▍        1.6h ▏          404   11%
+   sed                    9,840 ███▋       36m ▏           43   <1%
+   cat                    6,150 ██▎        15m ▏           39    1%
+   37 more               13,369            33h            437    3%
+   also inside other command lines  head 15,429 · echo 8,260 · tail 8,210
+
+ WHY COMMANDS FAILED ────────────────────  2,675 of the 3,262 have an exit code
+   exit 1                 1,070 ███████  an error, or a test that failed
+   found nothing            549 ███▋     rg or grep, exit 1
+   exit 2                   514 ███▍     often a wrong option or a missing file
+   another code             322 ██▏      any code not listed here
+   stopped                  134 ▉        interrupted, killed or crashed
+   files differ              63 ▍        diff, exit 1
+   not installed             17 ▏        no such program, exit 127
+   timed out                  6 ▏        timeout stopped it, exit 124
+   no exit code             587 ███▉     claude 569 · grok 17 · codex 1
+   Of claude's 30,865 commands, 132 have an exit code. Where a code was
+   recorded, a command was marked failed exactly when its code was not 0.
+
+ TOOLS BY NAME ────────────────────────────────────────────  81 tools · by time
+                          calls           time         failed
+ ◈ AskUserQuestion           38 ▏         6.1h ███████   none
+ ◈ t3_thread_wait           149 ▏         2.8h ███▎         6    4%
+ ◈ delegate_task            922 ▊         2.0h ██▍         57    6%
+ ◈ request_secret           111 ▏         1.6h █▉        none
+ ◎ Read                   7,995 ███████    49m ▉           80    1%
+ ◈ Edit                   2,460 ██▏        20m ▍           58    2%
+ ◎ read                   1,722 █▌         12m ▎           19    1%
+   75 more               11,177           8.0h            175    2%
+   no name  file changes 8,610 · file searches 2,829 · web searches 2,050
+
+ PROVIDERS ─────────────────────────  each decides for itself what failed means
+ ● claude         30,865 commands     572 marked failed     49,835 calls · 124h
+ ● codex          33,213 commands   2,206 marked failed     45,901 calls · 129h
+   └ 16 calls marked finished all at once: their time is not known
+ ● opencode        9,950 commands     351 marked failed      14,979 calls · 37h
+ ● grok            1,626 commands     132 marked failed      3,002 calls · 3.7h
+   └ 1,150 calls marked finished all at once: their time is not known
+   not recorded       62 commands       1 marked failed          62 calls · 44m
+
+ LONGEST CALLS ────────────────────────────────────  the 5 longest of the month
+                     length provider       started                       thread
+ ❯ python3            2h40m ● codex        Sun 11, 08:08 timed out     e1f33e1c
+ ◈ AskUserQuestion    2h00m ● claude       Thu 1, 10:00                c7ad3336
+ ❯ cargo              1h48m ● claude       Sat 3, 16:05  failed        d5fc40d2
+ ❯ not on the list    1h32m ● codex        Sun 4, 07:31                f07c2aec
+ ❯ pytest             1h18m ● opencode     Tue 13, 02:54 exit 1        753abf6b
+
+ HOW THIS IS COUNTED ─────────────────────────────────────────────────────────
+ Time adds up each call's own length. Calls in a thread can overlap; counted
+ once, they come to 273h on the clock. Recap's 'tools' hours are counted
+ another way.
+
+ 1,166 calls were marked finished all at once, though they started at different
+ times, most likely when a run stopped. When each really finished is not known,
+ so their time is not counted and they are not among the longest: totals of
+ time can only be too small. 6 more calls never ended and add no time.
+
+ A line like "cd app && cargo test | tail" is one call, named for its main
+ program, cargo: its time, failure and exit code are the whole line's. 57% of
+ command lines ran two or more programs on the list. Programs are named from a
+ list of 75 common ones; a command with none of them is "not on the list".
+
+ Only program and tool names and exit codes are read. Numbers may be cached in
+ your cache folder; nothing is sent.

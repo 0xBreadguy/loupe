@@ -2,6 +2,7 @@
 // machine. Virtual clock + stdin acknowledgements avoid polling/sleep races and
 // let us check silent ticks too. No event payloads or user database are read.
 import { spawn, spawnSync } from "node:child_process"
+import assert from "node:assert/strict"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -10,6 +11,8 @@ import { line } from "../../oracle/src/status.ts"
 import { Source } from "../../oracle/src/source.ts"
 
 const root = resolve(import.meta.dirname, "..")
+// Strip only additive numeric fields, preserving legacy JSON bytes and surrogate escapes.
+const legacy = (s: string) => s.replace(/,"openAsks":\d+,"estimatedAsks":\d+/g, "")
 const binary = resolve(process.env.T3_NATIVE_BINARY ?? join(root, "..", "target/release/t3-agents-core"))
 const directory = mkdtempSync(join(tmpdir(), "t3-status-live-"))
 const home = join(directory, "empty-home")
@@ -31,7 +34,20 @@ function scale(args: string[]) {
 try {
   for (const tier of tiers) {
     const path = join(directory, `${tier}.sqlite`)
-    scale(["--tier", tier, "--schema", "t3", "--db", path])
+    const generated = scale(["--tier", tier, "--schema", "t3", "--db", path])
+    if (tier === "real") {
+      const { rows, shape, events } = generated
+      assert.ok(shape.items_per_thread.sum >= 50_000, "stress tier has a large item history")
+      assert.ok(shape.items_per_thread.p99 > 10 * shape.items_per_thread.p50, "thread histories are skewed")
+      assert.ok(shape.item_bytes.p99 > 10 * shape.item_bytes.p50, "item payloads are skewed")
+      assert.ok(shape.recent_3h.n > 0 && shape.recent_24h.n > shape.recent_3h.n
+        && shape.recent_24h.n < shape.items_per_thread.sum, "recent, intermediate and older activity")
+      assert.equal(rows.orchestration_v2_events, 0)
+      assert.ok(events.gap_free && events.min > 1, "pruned event log has a continuous surviving tail")
+      assert.equal(events.max, events.meta["thread-projections"])
+      assert.equal(events.min - 1, events.meta["event-log-pruned-through"])
+      assert.equal(events.min - 1, events.meta["event-log-prune-mark"])
+    }
     const watcher = spawn(binary, ["--status", "--db", path, "--probe-status-db"], {
       env, stdio: ["pipe", "pipe", "pipe"],
     })
@@ -54,7 +70,7 @@ try {
         clearTimeout(timeout)
       }
       checks++
-      if (result.done || result.value !== expected) {
+      if (result.done || legacy(result.value) !== expected) {
         errors.push(`${tier} ${label}\n  oracle: ${expected}\n  watcher: ${result.value}\n  stderr: ${stderr}`)
       }
     }
@@ -74,6 +90,9 @@ try {
       }
       await check("idle", epoch + 35_000)
       await check("failure-window-aged", epoch + 700_000)
+      if (tier === "real") {
+        assert.ok(kinds.has("delegated-activity") && kinds.has("remote-progress"), "both remote mutation paths ran")
+      }
       console.log(JSON.stringify({ tier, checks: 30, writes: 27, kinds: [...kinds] }))
     } finally {
       watcher.stdin.end()

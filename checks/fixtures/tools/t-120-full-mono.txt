@@ -1,0 +1,104 @@
+ T3 Agents  TOOLS  Nov 9 – 15, 2026  7 of 7 days recorded                                             t3-agents --tools
+
+  CALLS                         CALL TIME                     FAILED                        LONGEST CALL
+  ▄▄▄   ▄▄                      ▄▄▄▄ ▄▄▄▄                      ▄▄  ▄▄▄▄  ▄▄                 ▄▄▄     ▄▄   ▄▄
+   ▄▄▀ ▀▄▄▀                       ▄▀   ▄▀                     ▀▄▄█ █▄▄  █▄▄                  ▄▄▀   █  █ ▀▄▄▀
+  █▄▄▄ ▀▄▄▀ K                    █    █   h                    ▄▄▀ ▄▄▄▀ ▀▄▄▀                █▄▄▄ h ▀▄▄▀ ▀▄▄▀ m
+  18,474 of them commands       leaves out 308 calls          3% of calls                   python3 · codex
+
+ HOW LONG THEY TOOK ───────────────────────────────────────────────  3% of calls took a minute or more: 77% of the time
+         under 1s              1–10s                 10–60s                1–10 min              over 10 min
+ calls   ███████████▏    80%   █▌              10%   █                7%   ▍                3%   ▏               <1%
+ time    ▏                1%   ▋                4%   ██▌             18%   ██████▍         45%   ████▍           31%
+
+ BY KIND ─────────────────────────────────────────────────────────────────────────────────────────────────────  by time
+                                        calls                time              typical  longest  failed
+ ❯ commands                            18,474 ████████████    68h ████████████     <1s    2h08m     832    5%
+ ◈ other tools                          3,141 ██             6.7h █▏               <1s    1h36m      81    3%
+ ⊕ web searches                           500 ▍               51m ▏                 4s    1m16s       4    1%
+ ± file changes                         2,100 █▍              34m ▏                <1s    1m10s      15    1%
+ ⊛ searches                             1,124 ▊               22m ▏                <1s      50s    none
+ ◎ reads                                2,415 █▋              16m ▏                <1s    1m03s      24    1%
+
+ COMMANDS BY PROGRAM ───────────────────────────────────────────────────────────────  75 programs on the list · by time
+                                        calls                time              typical  longest  failed
+   python3                              4,701 ████████████    19h ████████████     <1s    2h08m     246    5%
+   cargo                                  562 █▍              14h █████████▏       33s    1h27m      56   10%
+   grep                                 1,151 ███            8.1h █████▎           <1s      29m      77    7%
+   node                                   381 █              6.5h ████▎             6s      52m      20    5%
+   not on the list                        766 ██             4.3h ██▊               1s    1h14m      88   11%
+   pytest                                 151 ▍              3.3h ██▏              28s    1h03m      38   25%
+   npm                                    300 ▊              2.7h █▊               10s      12m      20    7%
+   docker                                  15 ▏              1.6h █              2m09s      41m       3  too few to say
+   git                                  2,400 ██████▏        1.4h ▉                <1s    7m40s      51    2%
+   make                                    70 ▏              1.3h ▉                24s      11m       6    9%
+   rg                                     900 ██▎             24m ▎                <1s    3m06s     108   12%
+   sed                                  2,400 ██████▏          9m ▏                <1s      14s       9   <1%
+   cat                                  1,500 ███▉             4m ▏                <1s       9s      15    1%
+   35 more                              3,177                5.8h                                    95    3%
+   also inside other command lines  head 3,626 · echo 2,130 · tail 1,991 · cat 1,839 · grep 1,442 · printf 754 · ls 724
+
+ WHY COMMANDS FAILED ────────────────────────────────────────────────────────────────  678 of the 832 have an exit code
+   exit 1                   289 ████████████  an error, or a test that failed         python3 135 · not on the list 27
+   exit 2                   145 ██████        often a wrong option or a missing file  python3 51 · not on the list 24
+   found nothing            128 █████▍        rg or grep, exit 1                      rg 69 · grep 59
+   another code              63 ██▋           any code not listed here                cargo 28 · git 12
+   stopped                   32 █▍            interrupted, killed or crashed          not on the list 10 · python3 8
+   files differ              12 ▌             diff, exit 1                            diff 12
+   not installed              6 ▎             no such program, exit 127               not on the list 6
+   timed out                  2 ▏             timeout stopped it, exit 124            cargo 1 · python3 1
+   could not run              1 ▏             found but not runnable, exit 126        not on the list 1
+   no exit code             154 ██████▍       claude 150 · grok 4                     python3 48 · rg 26 · git 13
+   Of claude's 7,573 commands, 29 have an exit code. Where a code was recorded, a command was marked failed exactly
+   when its code was not 0.
+
+ TOOLS BY NAME ────────────────────────────────────────────────────────────────────────────────────  79 tools · by time
+                                        calls                time              typical  longest  failed
+ ◈ AskUserQuestion                         10 ▏              2.7h ████████████   8m01s    1h36m    none
+ ◈ t3_thread_wait t3-code                  37 ▎              1.1h █████            32s      38m       1    3%
+ ◈ delegate_task t3-code                  225 █▍              30m ██▎               3s    1m42s      17    8%
+ ◈ WebFetch                               135 ▉               24m █▊                6s      55s       6    4%
+ ◈ request_secret t3-code                  27 ▏               24m █▊               22s    5m13s    none
+ ◈ wait                                    40 ▎               21m █▌               19s    2m54s    none
+ ◎ Read                                 1,950 ████████████    12m ▉                <1s    1m03s      19    1%
+ ◈ apply_patch                            330 ██               5m ▍                <1s      33s       6    2%
+ ◈ Edit                                   600 ███▊             5m ▍                <1s    1m03s      18    3%
+ ◎ read                                   420 ██▋              3m ▎                <1s      32s       5    1%
+   70 more                              2,216                1.1h                                    33    1%
+   no name  file changes 2,100 · file searches 690 · web searches 500
+
+ PROVIDERS ─────────────────────────────────────────────────────────────────  each decides for itself what failed means
+ ● claude                      7,573 commands     151 marked failed      12,221 calls · 31h
+ ● codex                       8,116 commands     573 marked failed      11,157 calls · 35h
+   └ 6 calls marked finished all at once: their time is not known
+ ● opencode                    2,361 commands      78 marked failed      3,623 calls · 9.6h
+ ● grok                          410 commands      30 marked failed        739 calls · 1.3h
+   └ 299 calls marked finished all at once: their time is not known
+   not recorded                   14 commands    none marked failed          14 calls · 25s
+
+ LONGEST CALLS ────────────────────────────────────────────────────────────────────────────  the 10 longest of the week
+                                       length  provider        started                                           thread
+ ❯ python3                              2h08m  ● codex         Wed 08:07       timed out                       594abb01
+ ◈ AskUserQuestion                      1h36m  ● claude        Mon 06:01                                       5ed63f28
+ ❯ cargo                                1h27m  ● claude        Wed 23:18       failed                          dca80ad3
+ ❯ not on the list                      1h14m  ● codex         Mon 22:53                                       31b954b4
+ ❯ pytest                               1h03m  ● opencode      Wed 04:31       exit 1                          3229ef32
+ ❯ node                                   52m  ● codex         Wed 07:46                                       1d671adc
+ ❯ docker                                 41m  ● codex         Tue 10:49       stopped                         e7573e38
+ ◈ t3_thread_wait t3-code                 38m  ● claude        Tue 16:15                                       f6a93962
+ ❯ cargo                                  33m  ● codex         Tue 03:39                                       9f27b31d
+ ❯ grep                                   29m  ● opencode      Wed 06:06       found nothing                   3229ef32
+
+ HOW THIS IS COUNTED ─────────────────────────────────────────────────────────────────────────────────────────────────
+ Time adds up each call's own length. Calls in a thread can overlap; counted once, they come to 72h on the clock.
+ Recap's 'tools' hours are counted another way.
+
+ 305 calls were marked finished all at once, though they started at different times, most likely when a run stopped.
+ When each really finished is not known, so their time is not counted and they are not among the longest: totals of
+ time can only be too small. 3 more calls never ended and add no time.
+
+ A line like "cd app && cargo test | tail" is one call, named for its main program, cargo: its time, failure and exit
+ code are the whole line's. 57% of command lines ran two or more programs on the list. Programs are named from a list
+ of 75 common ones; a command with none of them is "not on the list".
+
+ Only program and tool names and exit codes are read. Numbers may be cached in your cache folder; nothing is sent.

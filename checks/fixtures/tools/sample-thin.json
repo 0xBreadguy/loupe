@@ -1,0 +1,1651 @@
+{
+ "period": "week",
+ "from": "2026-11-09",
+ "to": "2026-11-15",
+ "so_far": false,
+ "days": 7,
+ "days_elapsed": 7,
+ "days_recorded": 7,
+ "calls": 40,
+ "ms": 923871.0,
+ "busy_ms": 809418.0,
+ "failed": 4,
+ "open": 0,
+ "closed_together": 3,
+ "threads": 4,
+ "without_run": 0,
+ "commands": {
+  "calls": 26,
+  "ms": 735063.0,
+  "failed": 4,
+  "named": 24,
+  "unnamed": 2,
+  "unnamed_ms": 324000.0,
+  "chained": 10,
+  "listed": 75,
+  "exits": {
+   "known": 24,
+   "failed_known": 3,
+   "zero": 0,
+   "one": 2,
+   "two": 0,
+   "timed_out": 0,
+   "not_runnable": 0,
+   "not_found": 0,
+   "signal": 0,
+   "other": 1,
+   "passed_nonzero": 0
+  }
+ },
+ "kinds": [
+  {
+   "kind": "shell",
+   "name": null,
+   "calls": 26,
+   "ms": 735063.0,
+   "failed": 4,
+   "open": 0,
+   "closed_together": 3,
+   "longest_ms": 229818.0,
+   "median_ms": 160.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 15,
+     "ms": 1269.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 1,
+     "ms": 3827.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 3,
+     "ms": 97356.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 4,
+     "ms": 632611.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 23,
+     "ms": 735063.0,
+     "failed": 3,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 3,
+     "ms": 0.0,
+     "failed": 1,
+     "closed_together": 3
+    }
+   ],
+   "exits": {
+    "known": 24,
+    "failed_known": 3,
+    "zero": 0,
+    "one": 2,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 1,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": null,
+   "calls": 5,
+   "ms": 180415.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 180000.0,
+   "median_ms": 121.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 4,
+     "ms": 415.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 1,
+     "ms": 180000.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 5,
+     "ms": 180415.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "web",
+   "name": null,
+   "calls": 2,
+   "ms": 7200.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 3829.0,
+   "median_ms": 3600.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 2,
+     "ms": 7200.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2,
+     "ms": 7200.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "edit",
+   "name": null,
+   "calls": 6,
+   "ms": 1162.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 797.0,
+   "median_ms": 88.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 6,
+     "ms": 1162.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 6,
+     "ms": 1162.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "read",
+   "name": null,
+   "calls": 1,
+   "ms": 31.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 31.0,
+   "median_ms": 31.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1,
+     "ms": 31.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 1,
+     "ms": 31.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "programs": [
+  {
+   "kind": "shell",
+   "name": null,
+   "calls": 2,
+   "ms": 324000.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 195520.0,
+   "median_ms": 162000.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 2,
+     "ms": 324000.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2,
+     "ms": 324000.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 2,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "cargo",
+   "calls": 3,
+   "ms": 288000.0,
+   "failed": 2,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 229818.0,
+   "median_ms": 144000.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 58182.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 1,
+     "ms": 229818.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 1,
+   "appears_in": 3,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2,
+     "ms": 288000.0,
+     "failed": 1,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 0.0,
+     "failed": 1,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 2,
+    "failed_known": 1,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 1,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "python3",
+   "calls": 4,
+   "ms": 108000.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 78793.0,
+   "median_ms": 25380.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 1,
+     "ms": 3827.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 25380.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 1,
+     "ms": 78793.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 4,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 3,
+     "ms": 108000.0,
+     "failed": 0,
+     "closed_together": 0
+    },
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 0.0,
+     "failed": 0,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 3,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "git",
+   "calls": 9,
+   "ms": 14400.0,
+   "failed": 1,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 13794.0,
+   "median_ms": 54.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 8,
+     "ms": 606.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 1,
+     "ms": 13794.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 4,
+   "appears_in": 9,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 9,
+     "ms": 14400.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 9,
+    "failed_known": 1,
+    "zero": 0,
+    "one": 1,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "sed",
+   "calls": 4,
+   "ms": 499.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 240.0,
+   "median_ms": 117.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 4,
+     "ms": 499.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 3,
+   "appears_in": 4,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 4,
+     "ms": 499.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 4,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "ls",
+   "calls": 1,
+   "ms": 100.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 100.0,
+   "median_ms": 100.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1,
+     "ms": 100.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 1,
+   "appears_in": 1,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 1,
+     "ms": 100.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 1,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "rg",
+   "calls": 2,
+   "ms": 64.0,
+   "failed": 1,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 36.0,
+   "median_ms": 32.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 2,
+     "ms": 64.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 1,
+   "appears_in": 2,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2,
+     "ms": 64.0,
+     "failed": 1,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 2,
+    "failed_known": 1,
+    "zero": 0,
+    "one": 1,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "mkdir",
+   "calls": 1,
+   "ms": 0.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 1,
+   "longest_ms": 0.0,
+   "median_ms": null,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 2,
+   "by_provider": [
+    {
+     "provider": "grok",
+     "calls": 1,
+     "ms": 0.0,
+     "failed": 0,
+     "closed_together": 1
+    }
+   ],
+   "exits": {
+    "known": 1,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "cat",
+   "calls": 0,
+   "ms": 0.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 0.0,
+   "median_ms": null,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 2,
+   "by_provider": [],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "echo",
+   "calls": 0,
+   "ms": 0.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 0.0,
+   "median_ms": null,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 4,
+   "by_provider": [],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "grep",
+   "calls": 0,
+   "ms": 0.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 0.0,
+   "median_ms": null,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 1,
+   "by_provider": [],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "head",
+   "calls": 0,
+   "ms": 0.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 0.0,
+   "median_ms": null,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 4,
+   "by_provider": [],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "shell",
+   "name": "tail",
+   "calls": 0,
+   "ms": 0.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 0.0,
+   "median_ms": null,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 3,
+   "by_provider": [],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "tools": [
+  {
+   "kind": "tool",
+   "name": "delegate_task",
+   "server": "t3-code",
+   "calls": 1,
+   "ms": 180000.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 180000.0,
+   "median_ms": 180000.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 1,
+     "ms": 180000.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 1,
+     "ms": 180000.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "web",
+   "name": null,
+   "calls": 2,
+   "ms": 7200.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 3829.0,
+   "median_ms": 3600.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 2,
+     "ms": 7200.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 2,
+     "ms": 7200.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "edit",
+   "name": null,
+   "calls": 6,
+   "ms": 1162.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 797.0,
+   "median_ms": 88.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 6,
+     "ms": 1162.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 6,
+     "ms": 1162.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "update_plan",
+   "calls": 4,
+   "ms": 415.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 192.0,
+   "median_ms": 99.5,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 4,
+     "ms": 415.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 4,
+     "ms": 415.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "kind": "read",
+   "name": "view_image",
+   "calls": 1,
+   "ms": 31.0,
+   "failed": 0,
+   "open": 0,
+   "closed_together": 0,
+   "longest_ms": 31.0,
+   "median_ms": 31.0,
+   "lengths": [
+    {
+     "label": "under 1s",
+     "calls": 1,
+     "ms": 31.0
+    },
+    {
+     "label": "1-10s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "10-60s",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "1-10min",
+     "calls": 0,
+     "ms": 0.0
+    },
+    {
+     "label": "over 10min",
+     "calls": 0,
+     "ms": 0.0
+    }
+   ],
+   "chained": 0,
+   "appears_in": 0,
+   "by_provider": [
+    {
+     "provider": "codex",
+     "calls": 1,
+     "ms": 31.0,
+     "failed": 0,
+     "closed_together": 0
+    }
+   ],
+   "exits": {
+    "known": 0,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "lengths": [
+  {
+   "label": "under 1s",
+   "calls": 26,
+   "ms": 2877.0
+  },
+  {
+   "label": "1-10s",
+   "calls": 3,
+   "ms": 11027.0
+  },
+  {
+   "label": "10-60s",
+   "calls": 3,
+   "ms": 97356.0
+  },
+  {
+   "label": "1-10min",
+   "calls": 5,
+   "ms": 812611.0
+  },
+  {
+   "label": "over 10min",
+   "calls": 0,
+   "ms": 0.0
+  }
+ ],
+ "providers": [
+  {
+   "provider": "codex",
+   "calls": 37,
+   "ms": 923871.0,
+   "failed": 3,
+   "closed_together": 0,
+   "commands": 23,
+   "commands_failed": 3,
+   "exits": {
+    "known": 23,
+    "failed_known": 3,
+    "zero": 0,
+    "one": 2,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 1,
+    "passed_nonzero": 0
+   }
+  },
+  {
+   "provider": "grok",
+   "calls": 3,
+   "ms": 0.0,
+   "failed": 1,
+   "closed_together": 3,
+   "commands": 3,
+   "commands_failed": 1,
+   "exits": {
+    "known": 1,
+    "failed_known": 0,
+    "zero": 0,
+    "one": 0,
+    "two": 0,
+    "timed_out": 0,
+    "not_runnable": 0,
+    "not_found": 0,
+    "signal": 0,
+    "other": 0,
+    "passed_nonzero": 0
+   }
+  }
+ ],
+ "longest": [
+  {
+   "kind": "shell",
+   "name": "cargo",
+   "ms": 229818.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "4f84e683-0cc0-42cf-a705-75ffa2f8efcd",
+   "run": "run-c04a03ce9123",
+   "started": 1794194612736.0,
+   "when": "Mon 03:23",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": null,
+   "ms": 195520.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "b0ee3b88-33d9-4627-86dd-5d239a3af75e",
+   "run": "run-468ccf3ff6b5",
+   "started": 1794474556520.0,
+   "when": "Thu 09:09",
+   "exit": 0
+  },
+  {
+   "kind": "tool",
+   "name": "delegate_task",
+   "server": "t3-code",
+   "ms": 180000.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "4f84e683-0cc0-42cf-a705-75ffa2f8efcd",
+   "run": "run-c04a03ce9123",
+   "started": 1794194487397.0,
+   "when": "Mon 03:21",
+   "exit": null
+  },
+  {
+   "kind": "shell",
+   "name": null,
+   "ms": 128480.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "b0ee3b88-33d9-4627-86dd-5d239a3af75e",
+   "run": "run-468ccf3ff6b5",
+   "started": 1794474239046.0,
+   "when": "Thu 09:03",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": "python3",
+   "ms": 78793.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "c12b2858-ae75-4592-955f-88c17f75fc75",
+   "run": "run-831d1d441d8b",
+   "started": 1794242563687.0,
+   "when": "Mon 16:42",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": "cargo",
+   "ms": 58182.0,
+   "failed": true,
+   "provider": "codex",
+   "thread": "4f84e683-0cc0-42cf-a705-75ffa2f8efcd",
+   "run": "run-c04a03ce9123",
+   "started": 1794194678592.0,
+   "when": "Mon 03:24",
+   "exit": 101
+  },
+  {
+   "kind": "shell",
+   "name": "python3",
+   "ms": 25380.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "4f84e683-0cc0-42cf-a705-75ffa2f8efcd",
+   "run": "run-c04a03ce9123",
+   "started": 1794194463457.0,
+   "when": "Mon 03:21",
+   "exit": 0
+  },
+  {
+   "kind": "shell",
+   "name": "git",
+   "ms": 13794.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "4f84e683-0cc0-42cf-a705-75ffa2f8efcd",
+   "run": "run-c04a03ce9123",
+   "started": 1794194881039.0,
+   "when": "Mon 03:28",
+   "exit": 0
+  },
+  {
+   "kind": "web",
+   "name": null,
+   "ms": 3829.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "c12b2858-ae75-4592-955f-88c17f75fc75",
+   "run": "run-831d1d441d8b",
+   "started": 1794242665792.0,
+   "when": "Mon 16:44",
+   "exit": null
+  },
+  {
+   "kind": "shell",
+   "name": "python3",
+   "ms": 3827.0,
+   "failed": false,
+   "provider": "codex",
+   "thread": "c12b2858-ae75-4592-955f-88c17f75fc75",
+   "run": "run-831d1d441d8b",
+   "started": 1794242768324.0,
+   "when": "Mon 16:46",
+   "exit": 0
+  }
+ ],
+ "min_for_rate": 20
+}

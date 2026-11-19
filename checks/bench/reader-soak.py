@@ -33,6 +33,8 @@ its failing step and keeps the database; `--stop-at-step N` does the same for an
 
 Synthetic data only: the readers are always given --db on a lab copy, and T3CODE_HOME points at an
 empty directory inside the work directory. Nothing under the real home is read.
+The legacy tier name "real" selects the skewed synthetic workload. Regenerate an existing
+base with the current scale-db.ts before establishing a new baseline.
 
   python3 checks/bench/reader-soak.py --tier real --seed 1 --writes 20000
   python3 checks/bench/reader-soak.py --tier m --seed 2 --writes 5000 --exclude prune-log

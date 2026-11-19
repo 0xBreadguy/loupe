@@ -1,0 +1,21 @@
+T3 AGENTS · TOOLS · Nov 9 – 15 · 7 of 7 days recorded
+
+calls        5  3 of them commands
+call time    unknown  no length is known
+failed       none  of 5 calls
+how long     no call has a known length
+
+by kind      commands 3 · unknown · none failed
+             reads 1 · unknown · none failed
+             file changes 1 · unknown · none failed
+
+programs     cargo 2 · unknown · none failed
+             not on the list 1 · unknown · none failed
+             75 programs on the list
+
+why failed   no command was marked failed
+
+tools        view_image 1 · unknown · none failed
+             no name  file changes 1
+
+providers    codex 3 commands · none marked failed

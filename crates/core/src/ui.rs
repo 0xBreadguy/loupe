@@ -53,38 +53,39 @@ struct PreparedShape {
 struct RowCounts {
     rows: std::sync::Arc<model::Rows>,
     positions: Vec<Vec<usize>>,
-    contributions: Vec<[usize; 4]>,
-    tree: Vec<[isize; 4]>,
-    reference: Option<Vec<[usize; 4]>>,
+    contributions: Vec<[usize; 5]>,
+    tree: Vec<[isize; 5]>,
+    reference: Option<Vec<[usize; 5]>>,
     shown: usize,
     live: usize,
 }
 impl RowCounts {
-    fn contribution(a: &Agent, pc: Option<&Pace>) -> [usize; 4] {
+    fn contribution(a: &Agent, pc: Option<&Pace>) -> [usize; 5] {
         [
             usize::from(model::needs_you(a)),
             usize::from(pc.is_some_and(|p| p.quiet && p.stalled)),
             usize::from(pc.is_some_and(|p| !p.quiet && p.stalled)),
             usize::from(matches!(a.status.as_str(), "failed" | "error")),
+            usize::from(model::wants_attention(a) && !model::needs_you(a)),
         ]
     }
-    fn add(&mut self, row: usize, delta: [isize; 4]) {
+    fn add(&mut self, row: usize, delta: [isize; 5]) {
         let mut at = row + 1;
         while at < self.tree.len() {
-            for k in 0..4 {
+            for k in 0..5 {
                 self.tree[at][k] += delta[k];
             }
             at += at & at.wrapping_neg();
         }
     }
-    fn sum(&self, end: usize) -> [usize; 4] {
+    fn sum(&self, end: usize) -> [usize; 5] {
         if let Some(prefix) = &self.reference {
             return prefix[end];
         }
         let mut at = end;
-        let mut total = [0isize; 4];
+        let mut total = [0isize; 5];
         while at > 0 {
-            for k in 0..4 {
+            for k in 0..5 {
                 total[k] += self.tree[at][k];
             }
             at &= at - 1;
@@ -100,7 +101,7 @@ impl RowCounts {
                 .iter()
                 .map(|a| Self::contribution(a, paces.get(&a.id)))
                 .collect(),
-            tree: vec![[0; 4]; rows.len() + 1],
+            tree: vec![[0; 5]; rows.len() + 1],
             reference: None,
             rows,
             shown: 0,
@@ -124,7 +125,7 @@ impl RowCounts {
         // Linear Fenwick construction, including repeated membership exactly once per occurrence.
         for (i, positions) in counts.positions.iter().enumerate() {
             for &r in positions {
-                for k in 0..4 {
+                for k in 0..5 {
                     counts.tree[r + 1][k] += counts.contributions[i][k] as isize;
                 }
             }
@@ -132,7 +133,7 @@ impl RowCounts {
         for at in 1..counts.tree.len() {
             let parent = at + (at & at.wrapping_neg());
             if parent < counts.tree.len() {
-                for k in 0..4 {
+                for k in 0..5 {
                     counts.tree[parent][k] += counts.tree[at][k];
                 }
             }
@@ -144,7 +145,7 @@ impl RowCounts {
         s: &State,
         paces: &HashMap<String, Pace>,
     ) -> Self {
-        let mut prefix = vec![[0usize; 4]];
+        let mut prefix = vec![[0usize; 5]];
         let mut shown = 0;
         let mut live = 0;
         for r in rows.iter() {
@@ -156,10 +157,9 @@ impl RowCounts {
             {
                 let a = &s.snap.agents[i];
                 let pc = paces.get(&a.id);
-                totals[0] += usize::from(model::needs_you(a));
-                totals[1] += usize::from(pc.is_some_and(|p| p.quiet && p.stalled));
-                totals[2] += usize::from(pc.is_some_and(|p| !p.quiet && p.stalled));
-                totals[3] += usize::from(matches!(a.status.as_str(), "failed" | "error"));
+                for (total, value) in totals.iter_mut().zip(Self::contribution(a, pc)) {
+                    *total += value;
+                }
             }
             prefix.push(totals);
             if !r.is_earlier() {
@@ -187,7 +187,7 @@ impl RowCounts {
             let next = Self::contribution(&s.snap.agents[i], paces.get(&s.snap.agents[i].id));
             let delta =
                 std::array::from_fn(|k| next[k] as isize - self.contributions[i][k] as isize);
-            if delta != [0; 4] {
+            if delta != [0; 5] {
                 for j in 0..self.positions[i].len() {
                     self.add(self.positions[i][j], delta);
                 }
@@ -244,7 +244,7 @@ impl Prepared {
             for (i, a) in agents
                 .iter()
                 .enumerate()
-                .filter(|(_, a)| model::needs_you(a))
+                .filter(|(_, a)| model::wants_attention(a))
             {
                 let _ = a;
                 let mut at = parents[i];
@@ -662,11 +662,17 @@ fn earlier_tint(indices: &[usize], s: &State, p: &Palette) -> Option<u32> {
     }
 }
 fn doing(a: &Agent, pc: Option<&Pace>, s: &State, w: i32) -> Option<(String, bool)> {
+    if model::needs_you(a) && a.open_asks.total() > 0 && !model::shows_blocking_now(a) {
+        return None;
+    }
+    if model::shows_blocking_now(a) && a.now.as_ref().is_none_or(|i| i.kind != "user_input_request") {
+        return Some((fit("◆ user input request", w), false));
+    }
     if let Some(pc) = pc.filter(|pc| pc.quiet) {
         let last = a
             .items
             .iter()
-            .find(|i| !matches!(i.kind.as_str(), "reasoning" | "assistant_message"));
+            .find(|i| model::shows_recent_activity(a, i));
         let lead = format!(
             "◌ {} {}",
             if pc.stalled { "stalled" } else { "quiet" },
@@ -709,6 +715,144 @@ fn doing(a: &Agent, pc: Option<&Pace>, s: &State, w: i32) -> Option<(String, boo
     let _ = s;
     Some((text, pc.stalled))
 }
+
+struct Chip {
+    text: String,
+    estimated: bool,
+    bold: bool,
+}
+
+struct Chips {
+    parts: Vec<Chip>,
+    separator: &'static str,
+}
+
+impl Chips {
+    fn new(a: &Agent, wide: bool, collapse: bool) -> Self {
+        let asks = &a.open_asks;
+        let mut parts = Vec::new();
+        let mut formal = |text, bold| {
+            parts.push(Chip {
+                text,
+                estimated: false,
+                bold,
+            })
+        };
+        if collapse {
+            if asks.total() > 0 {
+                let mark = if model::needs_you(a) { "◆" } else { "◇" };
+                formal(format!("{mark}{}", asks.total()), true);
+            }
+        } else {
+            if asks.blocking > 0 && (asks.total() > 1 || a.estimated_asks > 0) {
+                formal(
+                    if wide {
+                        format!("◆ {} question{}", asks.blocking, plural(asks.blocking))
+                    } else {
+                        format!("◆{}", asks.blocking)
+                    },
+                    true,
+                );
+            }
+            let link_mark = if model::running(a) { "◇" } else { "◆" };
+            for (n, kind, action, mark) in [
+                (asks.cards.secret, "secret", "enter", "◆"),
+                (asks.cards.link, "link", "open", link_mark),
+            ] {
+                if n > 0 {
+                    formal(
+                        match (wide, n) {
+                            (true, 1) => format!("{mark} {kind} to {action}"),
+                            (true, _) => format!("{mark} {n} {kind}s to {action}"),
+                            (false, 1) => format!("{mark}{kind}"),
+                            (false, _) => format!("{mark}{kind}×{n}"),
+                        },
+                        false,
+                    );
+                }
+            }
+            if asks.nonblocking > 0 {
+                formal(
+                    if wide {
+                        format!(
+                            "◇ {} question{} open",
+                            asks.nonblocking,
+                            plural(asks.nonblocking)
+                        )
+                    } else {
+                        format!("◇{}", asks.nonblocking)
+                    },
+                    false,
+                );
+            }
+        }
+        if a.estimated_asks > 0 {
+            let n = a.estimated_asks;
+            parts.push(Chip {
+                text: if wide {
+                    format!("~{n} ask{} in reply · estimate", plural(n))
+                } else {
+                    format!("~{n}")
+                },
+                estimated: true,
+                bold: false,
+            });
+        }
+        Self {
+            parts,
+            separator: if wide { " · " } else { " " },
+        }
+    }
+
+    fn width(&self) -> i32 {
+        self.parts.iter().map(|part| width(&part.text)).sum::<i32>()
+            + self.parts.len().saturating_sub(1) as i32 * width(self.separator)
+    }
+
+    fn fit(a: &Agent, wide_room: Option<i32>, narrow_room: i32) -> Self {
+        if let Some(room) = wide_room {
+            let chips = Self::new(a, true, false);
+            if chips.width() <= room {
+                return chips;
+            }
+        }
+        let chips = Self::new(a, false, false);
+        if chips.width() > narrow_room {
+            Self::new(a, false, true)
+        } else {
+            chips
+        }
+    }
+
+    fn draw(
+        &self,
+        c: &mut Canvas,
+        mut x: i32,
+        y: i32,
+        bg: u32,
+        ink: impl Fn(u32) -> u32,
+        p: &Palette,
+    ) {
+        for (i, part) in self.parts.iter().enumerate() {
+            if i > 0 {
+                x += c.text_bg(x, y, self.separator, ink(p.dim), bg, false);
+            }
+            x += c.text_bg(
+                x,
+                y,
+                &part.text,
+                ink(if part.estimated { p.text2 } else { p.hot }),
+                bg,
+                part.bold,
+            );
+        }
+    }
+}
+
+pub(crate) fn plural(n: u64) -> &'static str {
+    if n == 1 { "" } else { "s" }
+}
+
 fn glyph(cat: &str) -> char {
     model::glyph(cat)
 }
@@ -1251,12 +1395,26 @@ fn draw_list(
             let meta = format!("● {}  {}", terminal::short_model(&a.model), age);
             let meta_w = width(&meta);
             let namemax = (right - meta_w - 2 - (x + 2)).max(6);
-            let title = fit(&a.title, namemax - folded) + fold;
+            let chip_room = right - meta_w - 2 - (x + 2) - folded - width(fold);
+            let wide_room = (a.open_asks.total() > 0 || a.estimated_asks > 0)
+                .then(|| chip_room - width(&a.title) - 2);
+            let chips = Chips::fit(a, wide_room, chip_room - 8);
+            let chip_w = chips.width();
+            let name_room = if chip_w > 0 {
+                chip_room - chip_w - 2
+            } else {
+                namemax - folded
+            };
+            let title = fit(&a.title, name_room) + fold;
             let used = name(c, x + 2, y, &title, namecolor, bg, bold, a, s, p, moving) + folded;
             if folded > 0 {
                 c.set(x + 1 + used, y, '◆', p.hot, Some(bg), true);
             }
-            let ax = x + 2 + used + 2;
+            let mut ax = x + 2 + used + 2;
+            if chip_w > 0 && ax + chip_w <= right - meta_w - 2 {
+                chips.draw(c, ax, y, bg, ink, p);
+                ax += chip_w + 2;
+            }
             let aw = right - meta_w - 2 - ax;
             if aw > 8 && (live || attention) {
                 if let Some((doing, warn)) = doing(a, pc, s, aw) {
@@ -1314,10 +1472,23 @@ fn draw_list(
                 c.text_bg(bx + bw + 1, y + 1, &pct, pctcolor, bg, true);
             }
         } else {
-            let title = fit(&a.title, (xx + 4 + name_w - (x + 2) - folded).max(4)) + fold;
+            let end = xx + 4 + name_w;
+            let room = end - (x + 2) - folded;
+            let chips = Chips::fit(a, None, room - width(fold) - 5);
+            let chip_w = chips.width();
+            let show_chips = chip_w > 0 && chip_w < room - width(fold);
+            let title_room = if show_chips {
+                room - width(fold) - chip_w - 1
+            } else {
+                room.max(4)
+            };
+            let title = fit(&a.title, title_room) + fold;
             let used = name(c, x + 2, y, &title, namecolor, bg, bold, a, s, p, moving);
             if folded > 0 {
                 c.set(x + 3 + used, y, '◆', p.hot, Some(bg), true);
+            }
+            if show_chips {
+                chips.draw(c, end - chip_w, y, bg, ink, p);
             }
             let bx = xx + 4 + name_w + 2;
             if rati.is_none() {
@@ -1371,6 +1542,8 @@ fn draw_list(
         let stalled = hidden(1);
         let slow = hidden(2);
         let failed = hidden(3);
+        let open = hidden(4);
+        let attention = waiting > 0 || open > 0;
         let lead = if first > 0 && below > 0 {
             format!("▲ {first} · ▼ {below} more")
         } else if below > 0 {
@@ -1378,9 +1551,12 @@ fn draw_list(
         } else {
             format!("▲ {first} more")
         };
-        let mut parts = vec![(lead, if waiting > 0 { p.hot } else { p.text2 })];
+        let mut parts = vec![(lead, if attention { p.hot } else { p.text2 })];
         if waiting > 0 {
             parts.push((format!("◆{waiting}"), p.hot));
+        }
+        if open > 0 {
+            parts.push((format!("◇{open}"), p.hot));
         }
         if stalled > 0 {
             parts.push((format!("{stalled} stalled"), p.warn));
@@ -1402,7 +1578,7 @@ fn draw_list(
                 &fit(text, xx + ww - 1 - x),
                 *color,
                 None,
-                i == 0 && waiting > 0,
+                i == 0 && attention,
                 usize::MAX,
             );
         }
@@ -1410,6 +1586,136 @@ fn draw_list(
     }
     y
 }
+/// Decimal size, one decimal under 10. `short` is the warning line's tight form (`1.2G`).
+fn format_bytes(bytes: u64, short: bool) -> String {
+    let (unit, long, brief): (u64, &str, &str) = if bytes >= 1_000_000_000 {
+        (1_000_000_000, " GB", "G")
+    } else if bytes >= 1_000_000 {
+        (1_000_000, " MB", "M")
+    } else {
+        (1_000, " KB", "K")
+    };
+    let tenths = (u128::from(bytes) * 10 + u128::from(unit) / 2) / u128::from(unit);
+    let suffix = if short { brief } else { long };
+    if tenths == 0 {
+        format!("0{suffix}")
+    } else if tenths >= 100 {
+        format!("{}{suffix}", tenths / 10)
+    } else {
+        format!("{}.{}{suffix}", tenths / 10, tenths % 10)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum WarnInk {
+    Bold,
+    Plain,
+    Dim,
+}
+
+/// Warning line. Memory-backed volumes first.
+/// The most detailed plan that leaves room for the `s storage` hint is drawn.
+/// `s` itself belongs to the Storage view, which is not bound here.
+fn warning_plan(s: &State, columns: i32) -> (Vec<(String, WarnInk)>, bool) {
+    let mut lows: Vec<&crate::headroom::WarningVolume> =
+        s.headroom.iter().filter(|volume| volume.low()).collect();
+    lows.sort_by_key(|volume| volume.volume.is_tmpfs != Some(true));
+    let says = |volume: &crate::headroom::WarningVolume, level: u8| -> Vec<(String, WarnInk)> {
+        let memory = volume.volume.is_tmpfs == Some(true);
+        let short = level >= 3;
+        let free = format_bytes(volume.volume.available_bytes, short);
+        let total = format_bytes(volume.volume.total_bytes, short);
+        let memory_tail = if !memory {
+            ""
+        } else if level >= 4 {
+            ", in RAM"
+        } else {
+            ", in memory"
+        };
+        let name = if volume.worktrees {
+            if level == 0 && !volume.worktree_mount.is_empty() {
+                format!("worktrees on {}", volume.worktree_mount)
+            } else {
+                "worktrees".to_string()
+            }
+        } else if volume.temp_mount.is_empty() {
+            "temp".to_string()
+        } else {
+            volume.temp_mount.clone()
+        };
+        let detail = if level <= 1 {
+            format!(" {free} free of {total}{memory_tail}")
+        } else {
+            format!(" {free} free{memory_tail}")
+        };
+        vec![(name, WarnInk::Bold), (detail, WarnInk::Plain)]
+    };
+    let lead_long = vec![("△ Low space · ".to_string(), WarnInk::Bold)];
+    let lead = vec![("△ ".to_string(), WarnInk::Bold)];
+    let plans: [(Vec<(String, WarnInk)>, [u8; 2]); 9] = [
+        (lead_long.clone(), [0, 0]),
+        (lead.clone(), [0, 0]),
+        (lead_long.clone(), [1, 1]),
+        (lead.clone(), [1, 1]),
+        (lead.clone(), [1, 2]),
+        (lead.clone(), [2, 2]),
+        (lead.clone(), [2, 3]),
+        (lead.clone(), [3, 3]),
+        (lead, [4, 4]),
+    ];
+    let mut built = Vec::new();
+    for (head, level) in plans {
+        let mut parts = head;
+        for (i, volume) in lows.iter().enumerate() {
+            if i > 0 {
+                parts.push((" · ".to_string(), WarnInk::Dim));
+            }
+            parts.extend(says(volume, level[i.min(1)]));
+        }
+        built.push(parts);
+    }
+    // `s` + ` storage` is 9 columns, as compose.py measures it.
+    const HINT: i32 = 9;
+    let room = columns - 2;
+    let mut chosen = built.len() - 1;
+    let mut with_hint = false;
+    for (i, parts) in built.iter().enumerate() {
+        let n: i32 = parts.iter().map(|(text, _)| width(text)).sum();
+        if n + 2 + HINT <= room {
+            chosen = i;
+            with_hint = true;
+            break;
+        }
+    }
+    (built.swap_remove(chosen), with_hint)
+}
+
+fn draw_warning(c: &mut Canvas, s: &State, p: &Palette) {
+    let w = c.w as i32;
+    let y = c.h as i32 - 2;
+    c.fill(0, y, w, 1, p.bg);
+    let (parts, with_hint) = warning_plan(s, w);
+    let limit = if with_hint { w - 1 - 9 } else { w - 1 };
+    let mut x = 1;
+    for (text, ink) in parts {
+        if x >= limit {
+            break;
+        }
+        let max = (limit - x) as usize;
+        let (color, bold) = match ink {
+            WarnInk::Bold => (p.warn, true),
+            WarnInk::Plain => (p.warn, false),
+            WarnInk::Dim => (p.dim, false),
+        };
+        x += c.text_with(x, y, &text, color, None, bold, max);
+    }
+    if with_hint {
+        let mut x = w - 1 - 9;
+        x += c.text_bold(x, y, "s", p.accent);
+        c.text(x, y, " storage", p.dim);
+    }
+}
+
 fn footer(c: &mut Canvas, s: &State, p: &Palette) {
     let w = c.w as i32;
     let y = c.h as i32 - 1;
@@ -1444,7 +1750,13 @@ fn footer(c: &mut Canvas, s: &State, p: &Palette) {
         return;
     }
     let mut keys = Vec::new();
-    if s.snap.agents.iter().any(|a| model::needs_you(a)) {
+    if s.themes {
+        keys.extend([("?", "help"), ("w", "trace")]);
+        if s.storage_key_in_help {
+            keys.push(("s", "storage"));
+        }
+    }
+    if s.snap.agents.iter().any(|a| model::wants_attention(a)) {
         keys.push(("n", "needs you"));
     }
     keys.extend([
@@ -1452,22 +1764,15 @@ fn footer(c: &mut Canvas, s: &State, p: &Palette) {
         ("⏎", "open in T3"),
         ("␣", "fold"),
         ("a", scope_name(&s.scope)),
-        ("x", "fx"),
-        ("?", "help"),
-        ("q", "quit"),
     ]);
     if s.t3_link {
-        keys.insert(
-            if s.snap.agents.iter().any(|a| model::needs_you(a)) {
-                5
-            } else {
-                4
-            },
-            ("f", if s.follow { "follow T3" } else { "follow off" }),
-        );
+        keys.push(("f", if s.follow { "follow T3" } else { "follow off" }));
     }
-    let tail = keys.len() - 3;
-    keys.insert(tail, ("t", "lane"));
+    keys.extend([("t", "lane"), ("x", "fx")]);
+    if !s.themes {
+        keys.push(("?", "help"));
+    }
+    keys.push(("q", "quit"));
     let mut x = 1;
     for (key, label) in keys {
         if x + width(key) + width(label) + 3 > w - 24 {
@@ -1501,7 +1806,12 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
     let hh = h as i32;
     if w < 48 || h < 14 {
         c.text_bold(1, 0, "T3 Agents", p.bright);
-        c.text(1, 2, "Enlarge the terminal to at least 48 × 14.", p.dim);
+        let notice = match (s.themes, w) {
+            (true, ..17) => "Enlarge terminal",
+            (true, 17..42) => "Minimum: 48 × 14",
+            _ => "Enlarge the terminal to at least 48 × 14.",
+        };
+        c.text(1, 2, notice, p.dim);
         c.text(1, 3, "q quit", p.accent);
         return (c, frame);
     }
@@ -1600,7 +1910,11 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
     };
     let overview_time = phase_start.elapsed();
     frame.needs_you = top.needs_you;
-    let main_h = hh - 1 - top.main_top;
+    // One row above the footer, only when a watched volume is low. Healthy
+    // headroom leaves `main_h` alone, so every other cell stays where it was.
+    let show_warn = s.headroom.iter().any(|volume| volume.low()) && hh - 2 > top.main_top;
+    let main_bottom = hh - 1 - i32::from(show_warn);
+    let main_h = main_bottom - top.main_top;
     if w >= 140 {
         let lw = (ww as f64 * 0.56).floor() as i32;
         frame.list = Rect {
@@ -1615,7 +1929,7 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
             w: ww - lw - 3,
             h: main_h,
         };
-        for y in top.main_top..hh - 1 {
+        for y in top.main_top..main_bottom {
             c.set(lw, y, '│', p.rule, None, false);
         }
     } else {
@@ -1695,6 +2009,9 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
                 false,
             );
         }
+    }
+    if show_warn {
+        draw_warning(&mut c, s, p);
     }
     footer(&mut c, s, p);
     if s.help {
@@ -1807,6 +2124,40 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
 #[cfg(test)]
 mod prepared_tests {
     use super::*;
+
+    #[test]
+    fn product_footer_names_help_and_the_two_views_at_phone_width() {
+        let mut state = State::new(model::Snapshot::default());
+        let palette = Palette::fallback();
+        for width in [55, 60, 80, 120] {
+            let mut canvas = Canvas::new(width, 24);
+            state.themes = false;
+            state.storage_key_in_help = false;
+            footer(&mut canvas, &state, &palette);
+            let original = canvas.row_text(23);
+            assert!(!original.contains("w trace") && !original.contains("s storage"));
+            state.themes = true;
+            state.storage_key_in_help = true;
+            state.demo = true;
+            footer(&mut canvas, &state, &palette);
+            let row = canvas.row_text(23);
+            for label in ["? help", "w trace", "s storage", "demo data · made up"] {
+                assert!(row.contains(label), "{width}: {row}");
+            }
+        }
+    }
+
+    #[test]
+    fn short_dashboard_notice_preserves_the_reference_outside_product_mode() {
+        let mut state = State::new(model::Snapshot::default());
+        let palette = Palette::fallback();
+        // oracle/src/view.ts writes the full sentence and lets the canvas clip it.
+        let (original, _) = draw_grid(&state, 30, 14, &palette);
+        assert!(original.row_text(2).trim_start().starts_with("Enlarge the terminal to"));
+        state.themes = true;
+        let (product, _) = draw_grid(&state, 30, 14, &palette);
+        assert!(product.row_text(2).contains("48 × 14"));
+    }
 
     #[test]
     fn borrowed_aggregate_lane_matches_original_concatenation_at_boundaries() {

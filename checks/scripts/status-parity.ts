@@ -14,6 +14,8 @@ import { EPOCH, ROOT, agent } from "./fixtures.ts"
 // Opt-in: with T3_RECORD set, export-status.ts turns this run into the recorded fixture.
 import { recordCase } from "./record.ts"
 
+// Strip only additive numeric fields, preserving legacy JSON bytes and surrogate escapes.
+const legacy = (s: string) => s.replace(/,"openAsks":\d+,"estimatedAsks":\d+/g, "")
 const binary = resolve(process.argv[2] ?? process.env.T3_NATIVE_BINARY ?? join(ROOT, "..", "target/release/t3-agents-core"))
 const dir = mkdtempSync(join(tmpdir(), "t3-status-parity-"))
 const home = join(dir, "empty-t3-home")
@@ -36,7 +38,7 @@ function expect(label: string, expected: string, args: string[]) {
     return
   }
   const actual = run.stdout.endsWith("\n") ? run.stdout.slice(0, -1) : run.stdout
-  if (actual !== expected) differences.push(`${label}\n  ts:   ${expected}\n  rust: ${actual}`)
+  if (legacy(actual) !== expected) differences.push(`${label}\n  ts:   ${expected}\n  rust: ${actual}`)
 }
 
 /** Compare one synthetic snapshot; `now` defaults to the snapshot's at, as `--snapshot` does. */
@@ -332,7 +334,7 @@ try {
     cases++
     const run = native(["--demo", "--probe-status-demo", "1206000", "--now-ms", String(EPOCH)])
     recordCase({ kind: "demo-watch", label: "demo:watch-timer-replay", args: ["--status", "--demo", "--probe-status-demo", "1206000", "--now-ms", String(EPOCH)], expected: expected.join("") })
-    if (run.status !== 0 || run.stdout !== expected.join("")) {
+    if (run.status !== 0 || legacy(run.stdout) !== expected.join("")) {
       differences.push(`demo:watch-timer-replay: exit ${run.status}; expected ${expected.length} lines, got ${run.stdout.split("\n").length - 1}; ${run.stderr}`)
     }
     if (new Set(expected).size < 2) throw new Error("demo replay did not evolve")

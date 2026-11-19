@@ -1,0 +1,13 @@
+[package]
+name = "asks-count"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+# Its own workspace: this is a check, not part of the product, and the workspace's
+# `cargo test` must keep working while `asks` is being written in `crates/core`.
+[workspace]
+
+[dependencies]
+serde_json = "1"
+t3-agents-core = { path = "../../crates/core" }

@@ -102,7 +102,10 @@ function compare(label: string, args: string[], options: Options = {}) {
   const actual = native([...args, ...(options.nativeArgs ?? [])], env)
   const problems: string[] = []
   if (expected.status !== actual.status) problems.push(`exit ${expected.status} vs ${actual.status}`)
-  if (!expected.stdout.equals(actual.stdout)) {
+  const actualOut = args.includes("--status")
+    ? Buffer.from(actual.stdout.toString("utf8").replace(/,"openAsks":\d+,"estimatedAsks":\d+/g, ""))
+    : actual.stdout
+  if (!expected.stdout.equals(actualOut)) {
     problems.push(`stdout\n  ts:   ${JSON.stringify(preview(expected.stdout))}\n  rust: ${JSON.stringify(preview(actual.stdout))}`)
   }
   const expectedErr = options.ignoreFirstStderrLine ? afterFirstLine(expected.stderr) : expected.stderr

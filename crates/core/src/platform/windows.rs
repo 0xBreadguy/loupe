@@ -54,3 +54,8 @@ impl FocusWatcher {
 
     pub fn stop(&mut self) {}
 }
+
+/// The terminal's columns and its rows. Not read on Windows yet.
+pub fn terminal_size() -> (Option<usize>, Option<usize>) {
+    (None, None)
+}

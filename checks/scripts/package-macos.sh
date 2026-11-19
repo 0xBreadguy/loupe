@@ -118,8 +118,7 @@ cp LICENSE THIRD-PARTY-NOTICES.md "$out/$folder/"
 cat > "$out/$folder/README" <<EOF
 T3 Agents $version for macOS ($label)
 
-PREVIEW. This is the first macOS build. Nobody has yet checked it in every Mac
-terminal, so expect rough edges and please report what you find.
+This is a preview of the standalone macOS dashboard.
 
 T3 Agents shows your T3 Code agents in the terminal. T3 Code must be installed
 on this same Mac: the program reads its local database, read-only.

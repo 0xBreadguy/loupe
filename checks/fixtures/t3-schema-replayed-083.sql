@@ -242,6 +242,28 @@ CREATE INDEX orchestration_v2_projection_runtime_requests_thread_status_idx ON o
 CREATE INDEX orchestration_v2_projection_runtime_requests_provider_turn_idx ON orchestration_v2_projection_runtime_requests(provider_turn_id);
 
 -- apps/server/src/persistence/Migrations/055_OrchestrationV2.ts
+CREATE TABLE orchestration_v2_projection_messages (
+      message_id TEXT PRIMARY KEY,
+      thread_id TEXT NOT NULL,
+      run_id TEXT,
+      node_id TEXT,
+      role TEXT NOT NULL,
+      streaming INTEGER NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      payload_json TEXT NOT NULL
+    );
+
+-- apps/server/src/persistence/Migrations/055_OrchestrationV2.ts
+CREATE INDEX orchestration_v2_projection_messages_thread_created_idx ON orchestration_v2_projection_messages(thread_id, created_at, message_id);
+
+-- apps/server/src/persistence/Migrations/055_OrchestrationV2.ts
+CREATE INDEX orchestration_v2_projection_messages_run_idx ON orchestration_v2_projection_messages(run_id);
+
+-- apps/server/src/persistence/Migrations/055_OrchestrationV2.ts
+CREATE INDEX orchestration_v2_projection_messages_node_idx ON orchestration_v2_projection_messages(node_id);
+
+-- apps/server/src/persistence/Migrations/055_OrchestrationV2.ts
 CREATE TABLE orchestration_v2_projection_turn_items (
       turn_item_id TEXT PRIMARY KEY,
       thread_id TEXT NOT NULL,
@@ -451,6 +473,11 @@ CREATE INDEX orchestration_v2_projection_turn_items_shell_pending_idx
     WHERE type IN ('command_execution', 'dynamic_tool', 'subagent')
       AND status NOT IN ('completed', 'interrupted', 'failed', 'cancelled');
 
+-- apps/server/src/persistence/Migrations/OrchestrationV2/ShellIndexes.ts
+CREATE INDEX orchestration_v2_projection_messages_latest_user_idx
+    ON orchestration_v2_projection_messages(thread_id, updated_at DESC, message_id DESC)
+    WHERE role = 'user';
+
 -- apps/server/src/persistence/Migrations/060_ThreadSnapshotWindowIndexes.ts
 CREATE INDEX IF NOT EXISTS orchestration_v2_projection_turn_items_user_message_idx
     ON orchestration_v2_projection_turn_items(thread_id, ordinal, turn_item_id)
@@ -528,6 +555,9 @@ CREATE INDEX orchestration_v2_projection_runs_delegated_delivery_idx
     WHERE CASE WHEN json_valid(payload_json)
       THEN json_type(payload_json, '$.delegatedCompletion.delivery') = 'object'
       ELSE 0 END;
+
+-- apps/server/src/persistence/Migrations/081_ProjectionMessageSearchText.ts
+ALTER TABLE orchestration_v2_projection_messages ADD COLUMN search_text TEXT;
 
 -- apps/server/src/persistence/Migrations/082_TurnItemConversationIndex.ts
 CREATE INDEX IF NOT EXISTS orchestration_v2_projection_turn_items_conversation_idx

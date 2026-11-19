@@ -11,6 +11,9 @@ pub struct Db {
 }
 impl Db {
     pub fn new() -> Self {
+        Self::with_schema(include_str!("../../../../checks/fixtures/t3-schema.sql"))
+    }
+    pub fn with_schema(schema: &str) -> Self {
         let dir = std::env::temp_dir().join(format!(
             "t3-live-{}-{}",
             std::process::id(),
@@ -19,8 +22,7 @@ impl Db {
         std::fs::create_dir(&dir).unwrap();
         let path = dir.join("synthetic.sqlite");
         let db = Connection::open(&path).unwrap();
-        db.execute_batch(include_str!("../../../../checks/fixtures/t3-schema.sql"))
-            .unwrap();
+        db.execute_batch(schema).unwrap();
         db.execute_batch("PRAGMA journal_mode=WAL; INSERT INTO projection_projects(project_id,title,workspace_root,scripts_json,created_at,updated_at) VALUES('p','Synthetic','/synthetic','[]','',''); INSERT INTO orchestration_v2_projection_metadata VALUES('thread-projections',1,0,'');").unwrap();
         // A table T3 has that the dashboard never opens, for commits that add no event.
         db.execute_batch("CREATE TABLE orchestration_command_receipts (command_id TEXT PRIMARY KEY, status TEXT NOT NULL)").unwrap();

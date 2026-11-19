@@ -58,8 +58,7 @@ pub struct Item {
     pub updated_at: String,
     pub started_at: Option<String>,
     pub label: String,
-    /// T3 has always written a command's input and a file change's name (0 of about 14,000
-    /// such items lacked one on a real database). SQL still yields null if one is missing.
+    /// SQL yields null when a command input or file name is missing.
     /// The original's reader passes that null on and its view then throws on it; here a
     /// missing text is an empty one, which is also what the incremental reader keeps.
     #[serde(deserialize_with = "null_as_empty")]
@@ -102,6 +101,27 @@ pub struct Shelf {
     pub settled: bool,
     pub snoozed_until: Option<String>,
 }
+/// Pending, structured asks attributed to an agent. Runtime approvals stay in
+/// `Agent::requests`; prose and card contents are outside this contract.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct OpenAsks {
+    pub blocking: u64,
+    pub nonblocking: u64,
+    pub cards: AskCards,
+}
+
+impl OpenAsks {
+    pub fn total(&self) -> u64 {
+        self.blocking + self.nonblocking + self.cards.secret + self.cards.link
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AskCards {
+    pub secret: u64,
+    pub link: u64,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Agent {
@@ -130,6 +150,15 @@ pub struct Agent {
     #[serde(rename = "recentFailures")]
     pub recent_failures: Vec<Item>,
     pub requests: Vec<String>,
+    // Internal reader/model contract. Keep the legacy snapshot wire shape.
+    #[serde(skip)]
+    pub open_asks: OpenAsks,
+    /// Estimated prose asks owned by this thread (not part of legacy snapshots).
+    #[serde(skip)]
+    pub estimated_asks: u64,
+    /// Storage identity for a local thread projection row, including linked local children.
+    #[serde(skip)]
+    pub storage: Option<ThreadStorage>,
     pub asked: Option<String>,
     pub thread_id: String,
     pub branch: Option<String>,
@@ -141,6 +170,14 @@ pub struct Agent {
     pub mix: indexmap::IndexMap<String, u64>,
     pub failures: u64,
     pub now: Option<Item>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreadStorage {
+    pub project_id: String,
+    pub project_root: Option<String>,
+    /// The thread's explicit checkout. The display cwd may fall back to the project root.
+    pub worktree: Option<String>,
 }
 
 /// Milliseconds for a timestamp, read the way `Date.parse` in Node reads the ECMAScript
@@ -290,11 +327,64 @@ pub fn live(a: &Agent) -> bool {
         "running" | "starting" | "preparing" | "queued" | "waiting" | "pending" | "active"
     )
 }
+fn has_pending_request(a: &Agent) -> bool {
+    !a.requests.is_empty() || a.open_asks != OpenAsks::default()
+}
+/// Attention can coexist with work on a nonblocking ask.
+pub fn wants_attention(a: &Agent) -> bool {
+    has_pending_request(a) || a.status == "waiting"
+}
+/// The legacy waiting view and the running view are mutually exclusive.
 pub fn needs_you(a: &Agent) -> bool {
-    !a.requests.is_empty() || a.status == "waiting"
+    blocks_activity(a) || (!live(a) && a.open_asks.cards.link > 0)
+}
+
+/// Keep the legacy approval/waiting indicator alongside the exact question and card counts.
+pub(crate) fn pending_count(a: &Agent) -> u64 {
+    let exact = a.open_asks.total();
+    if a.open_asks.blocking == 0 {
+        exact + u64::from(!a.requests.is_empty() || (exact == 0 && a.status == "waiting"))
+    } else {
+        exact + u64::from(a.requests.iter().any(|kind| kind != "user_input"))
+    }
+}
+
+pub(crate) fn waiting_since(a: &Agent) -> Option<f64> {
+    let item = a.items.iter().find(|i| {
+        category(&i.kind, i.tool.as_deref()) == "ask"
+            && matches!(
+                i.status.as_str(),
+                "running" | "starting" | "preparing" | "queued" | "waiting" | "pending" | "active"
+            )
+    });
+    ms(a.asked.as_deref())
+        .or_else(|| item.and_then(|i| ms(i.started_at.as_deref())))
+        .or_else(|| item.and_then(|i| ms(Some(&i.updated_at))))
+        .or_else(|| ms(a.updated.as_deref()))
+}
+
+/// Use the existing question label for the legacy single blocking presentation.
+pub(crate) fn shows_blocking_now(a: &Agent) -> bool {
+    a.open_asks.blocking == 1 && a.open_asks.total() == 1
+}
+
+pub(crate) fn shows_recent_activity(a: &Agent, item: &Item) -> bool {
+    match item.kind.as_str() {
+        "reasoning" | "assistant_message" => false,
+        "user_input_request" => a.open_asks.nonblocking == 0,
+        "secret_request" => a.open_asks.cards.secret == 0,
+        "link_request" => a.open_asks.cards.link == 0,
+        _ => true,
+    }
+}
+pub fn blocks_activity(a: &Agent) -> bool {
+    !a.requests.is_empty()
+        || a.status == "waiting"
+        || a.open_asks.blocking > 0
+        || a.open_asks.cards.secret > 0
 }
 pub fn running(a: &Agent) -> bool {
-    live(a) && !needs_you(a)
+    live(a) && !blocks_activity(a)
 }
 pub fn last_seen(a: &Agent) -> f64 {
     ms(a.ended.as_deref()).unwrap_or_else(|| {
@@ -307,7 +397,7 @@ pub fn in_sidebar(a: &Agent, now: f64) -> bool {
     a.shelf.as_ref().is_none_or(|s| {
         s.listed
             && !s.settled
-            && !(ms(s.snoozed_until.as_deref()).is_some_and(|until| until > now) && !needs_you(a))
+            && !(ms(s.snoozed_until.as_deref()).is_some_and(|until| until > now) && !wants_attention(a))
     })
 }
 pub fn category(kind: &str, tool: Option<&str>) -> &'static str {
@@ -454,7 +544,7 @@ pub(crate) fn pace_with_last(
     children_live: bool,
     known_last: Option<f64>,
 ) -> Option<Pace> {
-    if needs_you(a) || !matches!(a.status.as_str(), "running" | "active") {
+    if blocks_activity(a) || !matches!(a.status.as_str(), "running" | "active") {
         return None;
     }
     if let Some(tool) = a
@@ -676,7 +766,7 @@ fn same_structure(a: &Agent, b: &Agent) -> bool {
         && a.parent == b.parent
         && a.kind == b.kind
         && a.status == b.status
-        && a.requests.is_empty() == b.requests.is_empty()
+        && has_pending_request(a) == has_pending_request(b)
         && a.updated == b.updated
         && a.started == b.started
         && a.ended == b.ended
@@ -770,6 +860,8 @@ pub struct State {
     pub fx: bool,
     /// The product's themes are on: the help lists `c`. Off in the original's behavior.
     pub themes: bool,
+    /// The presenter offers Storage and lists its key in the dashboard help.
+    pub storage_key_in_help: bool,
     pub acked: HashSet<String>,
     pub follow: bool,
     pub t3_link: bool,
@@ -798,6 +890,11 @@ pub struct State {
     pub now: f64,
     pub linked: Option<String>,
     pub notice: Option<String>,
+    /// Volumes for the low-headroom line. Empty draws nothing. The live host
+    /// replaces this on each dashboard refresh, including when the database
+    /// snapshot did not change. Demo, `--db`, and tests set it themselves.
+    /// Drawing never probes.
+    pub headroom: Vec<crate::headroom::WarningVolume>,
     /// `process.env.HOME ?? ""`, read once when the state is built, as `view.ts` reads it at
     /// module load. Drawing never reads the environment. It lives on the state because the
     /// presenters build their own state instead of going through `cli`.
@@ -825,6 +922,7 @@ impl State {
             interval: 2.,
             fx: false,
             themes: false,
+            storage_key_in_help: false,
             acked: HashSet::new(),
             follow: true,
             t3_link: false,
@@ -853,6 +951,7 @@ impl State {
             now,
             linked: None,
             notice: None,
+            headroom: Vec::new(),
             home: std::env::var_os("HOME")
                 .map(|home| home.to_string_lossy().into_owned())
                 .unwrap_or_default(),
@@ -885,7 +984,7 @@ impl State {
             index.len() != self.snap.agents.len()
                 || index.get(*id).is_some_and(|i| {
                     let a = &self.snap.agents[*i];
-                    a.parent.is_some() && !live(a) && !needs_you(a)
+                    a.parent.is_some() && !live(a) && !wants_attention(a)
                 })
         })
     }
@@ -1087,7 +1186,7 @@ impl State {
             .snap
             .agents
             .iter()
-            .filter(|a| needs_you(a))
+            .filter(|a| wants_attention(a))
             .map(|a| a.id.as_str())
             .collect();
         self.waits.retain(|id, _| waiting.contains(id.as_str()));
@@ -1155,7 +1254,7 @@ impl State {
         };
         let working = |a: &Agent| {
             matches!(a.status.as_str(), "running" | "active")
-                && !needs_you(a)
+                && !blocks_activity(a)
                 && !paces
                     .as_ref()
                     .and_then(|ps| ps.get(&a.id))
@@ -1386,9 +1485,9 @@ impl State {
                 if index.len() == self.snap.agents.len() {
                     index
                         .get(id)
-                        .is_some_and(|&i| needs_you(&self.snap.agents[i]))
+                        .is_some_and(|&i| wants_attention(&self.snap.agents[i]))
                 } else {
-                    self.snap.agents.iter().any(|a| &a.id == id && needs_you(a))
+                    self.snap.agents.iter().any(|a| &a.id == id && wants_attention(a))
                 }
             });
         }
@@ -1448,15 +1547,37 @@ impl State {
         let mut unfolded = self.clone();
         unfolded.collapsed.clear();
         let order = unfolded.rows();
-        let position = order
+        let mut waiting: Vec<_> = order
             .iter()
-            .position(|r| Some(&r.id) == self.selected.as_ref());
-        let start = position.map_or(0, |i| i + 1);
-        let next = order[start..]
+            .enumerate()
+            .filter(|(_, r)| !r.is_earlier() && wants_attention(&self.snap.agents[r.agent]))
+            .collect();
+        let exact = waiting
             .iter()
-            .chain(order[..start].iter())
-            .find(|r| !r.is_earlier() && needs_you(&self.snap.agents[r.agent]));
-        let Some(next) = next else {
+            .any(|(_, r)| self.snap.agents[r.agent].open_asks.total() > 0);
+        if exact {
+            waiting.sort_by(|(_, l), (_, r)| {
+                let (l, r) = (&self.snap.agents[l.agent], &self.snap.agents[r.agent]);
+                (!needs_you(l)).cmp(&!needs_you(r)).then_with(|| {
+                    waiting_since(l)
+                        .unwrap_or(at)
+                        .total_cmp(&waiting_since(r).unwrap_or(at))
+                })
+            });
+        }
+        let start = if exact {
+            waiting
+                .iter()
+                .position(|(_, r)| Some(&r.id) == self.selected.as_ref())
+        } else {
+            // Legacy approvals-only navigation follows the visible list from the current row.
+            let position = order
+                .iter()
+                .position(|r| Some(&r.id) == self.selected.as_ref());
+            position.and_then(|i| waiting.iter().rposition(|(index, _)| *index <= i))
+        }
+        .map_or(0, |i| i + 1);
+        let Some((_, next)) = waiting.get(start).or_else(|| waiting.first()) else {
             self.note("Nobody is waiting on you", false, at);
             return;
         };
@@ -1725,9 +1846,8 @@ impl TreeIndex {
             if let Some(list) = self.children.get_mut(&key) {
                 list.sort_by(|&i, &j| {
                     let (a, b) = (&snap.agents[i], &snap.agents[j]);
-                    a.requests
-                        .is_empty()
-                        .cmp(&b.requests.is_empty())
+                    (!has_pending_request(a))
+                        .cmp(&!has_pending_request(b))
                         .then_with(|| (!live(a)).cmp(&!live(b)))
                         .then_with(|| self.updated[j].total_cmp(&self.updated[i]))
                         .then_with(|| a.id.cmp(&b.id))
@@ -1760,7 +1880,7 @@ impl TreeIndex {
             }
             if a.updated != b.updated
                 || live(a) != live(b)
-                || a.requests.is_empty() != b.requests.is_empty()
+                || has_pending_request(a) != has_pending_request(b)
             {
                 self.updated[i] = ms(b.updated.as_deref()).unwrap_or(0.);
                 dirty.insert(b.parent.clone());
@@ -1793,7 +1913,7 @@ fn tree_indexed(s: &State, mut index: Option<&mut TreeIndex>) -> Rows {
     };
     if s.scope != "all" {
         for (start, a) in agents.iter().enumerate() {
-            if !live(a) && a.requests.is_empty() {
+            if !live(a) && !has_pending_request(a) {
                 continue;
             }
             let mut seen = HashSet::new();
@@ -1865,9 +1985,8 @@ fn tree_indexed(s: &State, mut index: Option<&mut TreeIndex>) -> Rows {
         for list in children.values_mut() {
             list.sort_by(|p, q| {
                 let (p, q) = (&agents[*p], &agents[*q]);
-                p.requests
-                    .is_empty()
-                    .cmp(&q.requests.is_empty())
+                (!has_pending_request(p))
+                    .cmp(&!has_pending_request(q))
                     .then_with(|| (!live(p)).cmp(&!live(q)))
                     .then_with(|| {
                         ms(q.updated.as_deref())
@@ -1894,7 +2013,7 @@ fn tree_indexed(s: &State, mut index: Option<&mut TreeIndex>) -> Rows {
         }
         let a = &s.snap.agents[i];
         let v = live(a)
-            || needs_you(a)
+            || wants_attention(a)
             || s.selected.as_deref() == Some(&a.id)
             || s.linked.as_deref() == Some(&a.id)
             || children

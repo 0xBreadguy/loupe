@@ -254,3 +254,23 @@ pub fn numbers_digest(numbers: &[impl std::fmt::Display]) -> String {
     let text: Vec<String> = numbers.iter().map(|n| n.to_string()).collect();
     fnv1a(&text.join(","))
 }
+
+// Remove only the two numeric product extensions; retain every legacy byte,
+// including lone UTF-16 surrogate escapes.
+pub fn legacy_status(line: &str) -> String {
+    let marker = ",\"openAsks\":";
+    let mut result = String::new();
+    let mut rest = line;
+    while let Some(i) = rest.find(marker) {
+        result.push_str(&rest[..i]);
+        let tail = &rest[i + marker.len()..];
+        let n = tail.bytes().take_while(u8::is_ascii_digit).count();
+        let Some(tail) = tail[n..].strip_prefix(",\"estimatedAsks\":") else {
+            result.push_str(marker); rest = tail; continue;
+        };
+        let n = tail.bytes().take_while(u8::is_ascii_digit).count();
+        rest = &tail[n..];
+    }
+    result.push_str(rest);
+    result
+}

@@ -9,7 +9,7 @@ import json, re, sqlite3, subprocess, sys
 from pathlib import Path
 repo, ref, limit, output = sys.argv[1:5]
 limit = int(limit)
-ref = subprocess.check_output(['git', '-C', repo, 'rev-parse', ref], text=True).strip()
+ref = subprocess.check_output(['git', '-C', repo, 'show', '-s', '--format=%H', ref, '--'], text=True).strip()
 base = 'apps/server/src/persistence/'
 def read(path):
     return subprocess.check_output(['git', '-C', repo, 'show', f'{ref}:{path}'], text=True)
@@ -20,7 +20,8 @@ tables = {'projection_projects', 'orchestration_events', 'orchestration_v2_event
           'orchestration_v2_projection_metadata', 'orchestration_v2_effect_outbox',
           'orchestration_v2_effect_outbox_next', 'orchestration_v2_projection_turn_item_counts'}
 tables |= {'orchestration_v2_projection_' + n for n in
-           ['threads', 'runs', 'subagents', 'nodes', 'provider_threads', 'provider_turns', 'turn_items', 'runtime_requests']}
+           ['threads', 'runs', 'subagents', 'nodes', 'provider_threads', 'provider_turns',
+            'turn_items', 'runtime_requests', 'messages']}
 db = sqlite3.connect(':memory:')
 trace = []
 def extract(path):

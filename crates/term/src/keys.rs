@@ -369,11 +369,13 @@ fn allowed_char(c: char) -> Option<&'static str> {
         't' => "t",
         'p' => "p",
         'r' => "r",
+        's' => "s",
         'm' => "m",
         'x' => "x",
         'f' => "f",
         'c' => "c",
         'C' => "C",
+        'w' => "w",
         _ => return None,
     })
 }

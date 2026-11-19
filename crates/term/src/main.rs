@@ -5,9 +5,9 @@
 //! Whatever is not answered without a screen is presented here. The loop blocks in
 //! `platform::wait` until the terminal has input, a signal arrives, or the host's next wake;
 //! a calm fixed snapshot does not wake at all. Every operating-system call is in `platform`.
-use std::io::{self, IsTerminal};
+use std::io::{self, IsTerminal, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 use t3_agents_core::{
     cli::{self, interaction_state},
@@ -16,13 +16,17 @@ use t3_agents_core::{
     integration,
     model::{Snapshot, State},
     product::{self, Command, Database},
-    source, terminal, theme,
+    recap, source, terminal, theme, trace, trace_live, trace_view,
 };
 use t3_agents_term::platform::{self, Wake, Waker};
 use t3_agents_term::{
     BACKGROUND_QUERY, Encoder, Event, GRAPHEME_ON, Parser, Probe, Report, compose, probe_wanted,
     startup_probe_for,
+    storage::StorageSource,
 };
+
+mod storage_screen;
+use storage_screen::StorageScreen;
 
 struct TermClock {
     now: f64,
@@ -101,6 +105,70 @@ fn setup(s: &mut State, h: &mut Host, wake: Waker) {
         }
     }
     host::start_live(h, s.interval, move || wake.wake());
+}
+
+/// Trace the selected row's own demo history or its live thread. Live delegates with no
+/// thread of their own use their parent's thread. Remote rows have nothing here to read.
+fn trace_target(s: &State) -> Result<trace::Target, String> {
+    let agent = s.snap.agents.iter().find(|a| Some(&a.id) == s.selected.as_ref()).ok_or("Select an agent to trace it")?;
+    if agent.remote.is_some() || agent.reference_only == Some(true) {
+        return Err(format!("{} runs on another machine: no trace here", agent.title));
+    }
+    let id = if s.demo { &agent.id } else { &agent.thread_id };
+    Ok(trace::Target::Thread(id.clone()))
+}
+
+/// Start reading the trace's task, unless a read is running or the demo has its task. On T3's
+/// database, a watch rereads it as often as the dashboard reads; the demo's task is made up
+/// once, and its clocks run on the screen's own time.
+fn trace_read(t: &mut trace_live::Screen, s: &State, host: &Host, wake: &Wake) {
+    if t.watch.is_some() || t.data.is_some() {
+        return;
+    }
+    match &host.db {
+        Some(path) => {
+            let waker = wake.waker();
+            let every = Duration::from_secs_f64(s.interval.max(0.5));
+            t.watch = Some(trace_live::watch(path, t.target().clone(), every, move || waker.wake()));
+        }
+        None => {
+            t.data = Some(demo::trace(s.snap.at, host.epoch, t.target()));
+        }
+    }
+}
+
+/// Enter on a trace: open its thread in T3 as Enter does on the dashboard, by selecting its row.
+fn trace_open_thread(s: &mut State, host: &Host, thread: &str, at: f64) {
+    match s.snap.agents.iter().find(|a| a.id == thread || a.thread_id == thread).map(|a| a.id.clone()) {
+        Some(id) => {
+            s.selected = Some(id);
+            host::open_selected(s, host);
+        }
+        None => s.note("This thread is not in the dashboard's list", true, at),
+    }
+}
+
+/// A key while Trace is open. Returns whether to quit; `None` when the dashboard handles it.
+fn trace_key(s: &mut State, host: &Host, tracing: &mut Option<trace_live::Screen>, wake: &Wake, name: &str) -> Option<bool> {
+    let t = tracing.as_mut()?;
+    if s.help {
+        return None;
+    }
+    match name {
+        "q" => return Some(true),
+        // Help, calm, pause, refresh and the theme keys are the dashboard's still.
+        "?" | "h" | "m" | "p" | "r" | "c" | "C" => return None,
+        _ => {}
+    }
+    let at = host::input_now(s, host);
+    match t.key(name) {
+        trace_live::Outcome::Close => *tracing = None,
+        trace_live::Outcome::OpenThread(thread) => trace_open_thread(s, host, &thread, at),
+        trace_live::Outcome::Say(text) => s.note(text, false, at),
+        trace_live::Outcome::Read => trace_read(t, s, host, wake),
+        trace_live::Outcome::Stay => {}
+    }
+    Some(false)
 }
 
 fn on_key(s: &mut State, host: &mut Host, clock: &mut TermClock, name: &str, replay: bool) -> bool {
@@ -230,14 +298,48 @@ fn replay_step(s: &mut State, replay: &[Snapshot], time: f64, clock: &mut TermCl
     true
 }
 
+/// Trace, drawn over the whole terminal with its own contextual help.
+fn draw_trace(s: &State, t: &mut trace_live::Screen, cols: usize, rows: usize) -> terminal::Canvas {
+    if cols < 60 || rows < 16 {
+        return trace_view::small(&s.palette, cols, rows);
+    }
+    let reduced = s.surface.borrow().system_reduced;
+    let view = trace_view::View {
+        selected: t.selected.clone(),
+        scroll: t.scroll,
+        calm: s.calm || reduced,
+        mono: false,
+        spin: (s.now / 100.) as usize,
+        demo: s.demo,
+        now: s.now,
+    };
+    if let Some(canvas) = t.frame(&s.palette, cols, rows, &view, &t3_agents_core::platform::local_time) {
+        return canvas;
+    }
+    match &t.data {
+        Some(Ok(None)) => trace_view::notice(&s.palette, cols, rows, "Nothing to trace", "T3 has no run on record for this agent yet.", &["w goes back to the dashboard".into()]),
+        Some(Err(e)) => trace_view::notice(&s.palette, cols, rows, "Can't read T3", &e.to_string(), &["w goes back to the dashboard".into()]),
+        _ => trace_view::notice(&s.palette, cols, rows, "Trace", "Reading…", &[]),
+    }
+}
+
 fn paint(
     s: &mut State,
+    storage: &mut StorageScreen,
     cols: usize,
     rows: usize,
     enc: &mut Encoder,
     full: &mut bool,
+    tracing: &mut Option<trace_live::Screen>,
 ) -> io::Result<()> {
-    let canvas = compose(s, cols, rows);
+    let canvas = match tracing.as_mut() {
+        Some(t) => {
+            let mut canvas = draw_trace(s, t, cols.max(1), rows.max(1));
+            if s.help { trace_view::help(&mut canvas, &s.palette); }
+            canvas
+        },
+        _ => storage.render(s, (cols, rows)).unwrap_or_else(|| compose(s, cols, rows)),
+    };
     let bytes = enc.encode(&canvas, *full);
     *full = false;
     if !bytes.is_empty() {
@@ -246,9 +348,10 @@ fn paint(
     Ok(())
 }
 
-fn present(wake: &Wake, launch: (State, Host)) -> Result<(), Box<dyn std::error::Error>> {
+fn present(wake: Arc<Wake>, launch: (State, Host, StorageSource)) -> Result<(), Box<dyn std::error::Error>> {
     let _restore = platform::enter_raw()?;
-    let (mut state, mut host) = launch;
+    let (mut state, mut host, source) = launch;
+    let mut storage = StorageScreen::new(source, Arc::clone(&wake));
     // Ask the terminal what it can do before anything slow, and never wait for the answer: it
     // arrives while the first frame is being composed. See `caps.rs`. A theme that follows the
     // terminal's light or dark mode also asks for its background and for color scheme reports.
@@ -303,8 +406,10 @@ fn present(wake: &Wake, launch: (State, Host)) -> Result<(), Box<dyn std::error:
     // drawing twice, and where a terminal measures text differently from the layout the first
     // drawing can leave cells behind that the second never touches.
     let mut painted = false;
+    // Trace, while it is open over the dashboard (the product's `w`).
+    let mut tracing: Option<trace_live::Screen> = None;
     loop {
-        let ready = platform::wait(wake, timeout(next_wake, parser.deadline()))?;
+        let ready = platform::wait(&wake, timeout(next_wake, parser.deadline()))?;
         if ready.wake {
             wake.drain();
         }
@@ -391,28 +496,82 @@ fn present(wake: &Wake, launch: (State, Host)) -> Result<(), Box<dyn std::error:
         } else {
             host::poll_host(&mut state, clock.now, &mut clock, &mut host);
         }
+        storage.poll(&state);
+        if let Some(t) = tracing.as_mut() {
+            t.poll();
+            trace_read(t, &state, &host, &wake);
+            // Open steps' clocks tick every second; the spinner turns while the task runs.
+            let reduced = state.surface.borrow().system_reduced;
+            let running = t.trace().is_some_and(|task| task.ended.is_none());
+            clock.wake_after(Duration::from_millis(if running && !state.calm && !reduced { 100 } else { 1000 }));
+        }
         let hold = !painted && probe.as_ref().is_some_and(|probe| probe.waiting(Instant::now()));
         if !hold {
-            paint(&mut state, size.0, size.1, &mut encoder, &mut full)?;
+            paint(&mut state, &mut storage, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
             painted = true;
         }
         let mut quit = eof || signals.quit;
         for event in events {
             let stop = match event {
                 Event::Quit => true,
-                Event::Key(name) => on_key(&mut state, &mut host, &mut clock, name, replay.is_some()),
+                Event::Key("s") if state.storage_key_in_help && tracing.is_none() && !storage.is_open() => {
+                    if state.help {
+                        on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
+                    }
+                    storage.open(&state);
+                    false
+                }
+                Event::Key(name) if storage.is_open() => {
+                    if matches!(name, "c" | "C") {
+                        on_key(&mut state, &mut host, &mut clock, name, replay.is_some())
+                    } else {
+                        storage.key(name, &mut state, &host, size)
+                    }
+                }
+                Event::Key(name) => match trace_key(&mut state, &host, &mut tracing, &wake, name) {
+                    Some(quit) => quit,
+                    // `w` opens Trace on the selected agent: the product's key, like `c`. Without
+                    // the product's options it is not a key, as in the original.
+                    None if name == "w" => {
+                        if host.themes.is_some() && !state.help && replay.is_none() {
+                            match trace_target(&state) {
+                                Ok(target) => {
+                                    let mut t = trace_live::Screen::new(target);
+                                    trace_read(&mut t, &state, &host, &wake);
+                                    tracing = Some(t);
+                                }
+                                Err(message) => {
+                                    let at = host::input_now(&state, &host);
+                                    state.note(message, false, at);
+                                }
+                            }
+                        }
+                        false
+                    }
+                    None => on_key(&mut state, &mut host, &mut clock, name, replay.is_some()),
+                },
                 Event::Press { x, y } => {
-                    on_press(&mut state, &mut host, &mut clock, x, y, replay.is_some());
+                    match tracing.as_mut() {
+                        Some(t) if !state.help => t.press(y),
+                        _ if storage.is_open() => storage.press(y, size),
+                        _ => on_press(&mut state, &mut host, &mut clock, x, y, replay.is_some()),
+                    }
                     false
                 }
                 Event::Wheel { x, y, down } => {
-                    on_wheel(&mut state, &host, x, y, down);
+                    match tracing.as_mut() {
+                        Some(t) if !state.help => {
+                            t.key(if down { "down" } else { "up" });
+                        }
+                        _ if storage.is_open() => { storage.key(if down { "down" } else { "up" }, &mut state, &host, size); }
+                        _ => on_wheel(&mut state, &host, x, y, down),
+                    }
                     false
                 }
                 // Answers were taken above.
                 Event::Report(_) => false,
             };
-            paint(&mut state, size.0, size.1, &mut encoder, &mut full)?;
+            paint(&mut state, &mut storage, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
             painted = true;
             if stop {
                 quit = true;
@@ -528,9 +687,10 @@ fn product_launch(
     interval: f64,
     calm: bool,
     themes: Option<theme::Themes>,
-) -> (State, Host) {
+) -> (State, Host, StorageSource) {
+    let storage = StorageSource::for_database(&database);
     let now = clock::wall_now();
-    let (mut state, host) = match database {
+    let (mut state, mut host) = match database {
         Database::Demo => {
             let state = match demo::snapshot(now, now) {
                 Ok(snapshot) => State::new(snapshot),
@@ -555,13 +715,19 @@ fn product_launch(
         }
     };
     state.calm = calm;
+    state.storage_key_in_help = !theme::disabled();
     state.interval = interval;
-    let mut host = host;
+    // Use the same launch roots for the dashboard warning and the Storage view.
+    if let StorageSource::Disk(roots) = &storage {
+        host.watch_headroom = true;
+        host.managed_worktrees = Some(roots.worktrees.clone());
+        host.temporary = Some(roots.temp.clone());
+    }
     if themes.is_some() {
         host.theme = None;
         host.themes = themes;
     }
-    (state, host)
+    (state, host, storage)
 }
 
 /// A state that shows why T3's database could not be read.
@@ -588,9 +754,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         let state = cli::init();
         let host = Host::from_args(&state);
-        (state, host)
+        (state, host, StorageSource::Unavailable)
     } else {
-        if product::headless()? {
+        let cache_stats = request_recap_cache_stats();
+        let headless = product::headless();
+        if cache_stats {
+            report_cache_stats();
+        }
+        if headless? {
             return Ok(());
         }
         let args: Vec<String> = std::env::args().skip(1).collect();
@@ -623,9 +794,31 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         };
         product_launch(database, interval, calm, themes)
     };
-    let wake = Wake::new()?;
+    let wake = Arc::new(Wake::new()?);
     platform::install_signals(wake.waker())?;
-    present(&wake, launch)
+    present(wake, launch)
+}
+
+/// Arm the optional report only for the Recap command.
+fn request_recap_cache_stats() -> bool {
+    if !std::env::var_os("T3_AGENTS_CACHE_STATS").is_some_and(|value| value == "1") {
+        return false;
+    }
+    let args: Vec<_> = std::env::args().skip(1).collect();
+    if !matches!(product::parse(&args), Ok(Command::Recap { .. })) {
+        return false;
+    }
+    recap::request_cache_stats();
+    #[cfg(unix)]
+    platform::report_on_exit(report_cache_stats);
+    true
+}
+
+/// Write the diagnostic once, including when the product exits after a read error.
+extern "C" fn report_cache_stats() {
+    if let Some(line) = recap::take_cache_stats() {
+        let _ = writeln!(io::stderr().lock(), "{line}");
+    }
 }
 
 fn main() {

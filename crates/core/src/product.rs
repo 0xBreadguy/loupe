@@ -7,7 +7,9 @@
 use crate::{
     clock, demo, integration,
     model::{self, Agent, Snapshot, State},
+    recap, recap_view, tools, tools_view,
     source::{self, SourceError},
+    trace, trace_view,
     status, terminal, theme,
 };
 use std::{
@@ -41,10 +43,44 @@ pub const THEME_USAGE: &str = "  --theme NAME      color theme: a built-in, a th
                     a theme's colors, contrast and colorblind separation
 ";
 
-/// `--help`: the original's text, and the theme options where themes are on.
+/// What `--help` adds for Recap, beside the theme options: the original has neither.
+pub const RECAP_USAGE: &str = "  --recap           the last full week of agent work on one card: hours and
+                    where they went, tasks, output and models, read from T3's
+                    records. For Recap and Tools, T3_AGENTS_CACHE=1 lets them
+                    save finished-run facts locally. T3_AGENTS_NO_CACHE=1
+                    always turns it off. Nothing is sent
+  --this-week       with --recap, the current week so far
+  --month, --this-month
+                    with --recap, the last full calendar month, or the current
+                    month so far
+  --wide, --compact with --recap, the 120-column card or the 80-column one,
+                    whatever the terminal's size; without either, a terminal
+                    of 120 columns by 40 rows or more gets the wide card
+  --narrow          with --recap, the short list a terminal under 80 columns
+                    gets, whatever the terminal's size
+  --json            with --recap, the numbers as JSON
+";
+
+/// What `--help` adds for Tools, after Recap's: the original has neither.
+pub const TOOLS_USAGE: &str = "  --tools           what agents ran in the last full week and what failed: by kind
+                    of tool, and for commands by program, with calls, time and failures
+                    (--this-week, --month, --this-month, --json and --demo as --recap)
+  --wide, --compact with --tools, the 120-column report or the 80-column one,
+                    whatever the terminal's size; without either, a terminal
+                    of 120 columns or more gets the wide report
+";
+
+/// What `--help` adds for Trace: the original has no counterpart either.
+pub const TRACE_USAGE: &str = "  --trace [ID]      one task on a time axis: the model, each tool call, each
+                    wait on you and each delegate. The latest task, a thread's
+                    latest (its id, or the end of it), or the task that holds a
+                    run; with --json, the spans
+";
+
+/// `--help`: the original's text, and the theme and report options where they are on.
 pub fn usage(themes: bool) -> String {
     if themes {
-        format!("{USAGE}{THEME_USAGE}")
+        format!("{USAGE}{THEME_USAGE}{RECAP_USAGE}{TOOLS_USAGE}{TRACE_USAGE}")
     } else {
         USAGE.to_owned()
     }
@@ -72,6 +108,8 @@ pub enum Database {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Help,
+    /// `--trace [ID]`: one task on a time axis. `target` is a thread or a run id.
+    Trace { database: Database, now: Option<f64>, target: Option<String>, json: bool, theme: Option<String> },
     Status { database: Database, watch: bool, now: Option<f64> },
     Once { database: Database, now: Option<f64> },
     Interactive { database: Database, interval: f64, calm: bool, theme: Option<String> },
@@ -79,6 +117,10 @@ pub enum Command {
     Themes { theme: Option<String> },
     /// `--theme-check NAME`.
     ThemeCheck { name: String },
+    /// `--tools`: what agents ran in a week or a month and what failed, by kind and by program.
+    Tools { database: Database, now: Option<f64>, period: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<String> },
+    /// `--recap`: a week or a month of agent work on one card.
+    Recap { database: Database, now: Option<f64>, period: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<String> },
 }
 
 /// A usage error: `message`, a blank line, then [`USAGE`] on stderr, exiting 2.
@@ -259,7 +301,11 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
     let (mut once, mut help, mut status, mut watch, mut demo, mut calm) =
         (false, false, false, false, false, false);
     let (mut theme, mut check, mut themes) = (None::<String>, None::<String>, false);
+    let (mut recap, mut this_week, mut month, mut this_month) = (false, false, false, false);
+    let mut tools_flag = false;
+    let (mut json, mut wide, mut compact, mut narrow) = (false, false, false, false);
     let mut i = 0;
+    let (mut trace, mut trace_target) = (false, None::<String>);
     while i < args.len() {
         let arg = &args[i];
         if arg == "--" {
@@ -286,6 +332,32 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
                 "--theme" if env.themes => theme = Some(string_value(args, &mut i, flag, value)?),
                 "--theme-check" if env.themes => check = Some(string_value(args, &mut i, flag, value)?),
                 "--themes" if env.themes => boolean(&mut themes)?,
+                // Recap is the product's own, like the themes: the original rejects it.
+                "--recap" if env.themes => boolean(&mut recap)?,
+                // So is Tools.
+                "--tools" if env.themes => boolean(&mut tools_flag)?,
+                "--this-week" if env.themes => boolean(&mut this_week)?,
+                "--month" if env.themes => boolean(&mut month)?,
+                "--this-month" if env.themes => boolean(&mut this_month)?,
+                "--json" if env.themes => boolean(&mut json)?,
+                "--wide" if env.themes => boolean(&mut wide)?,
+                "--compact" if env.themes => boolean(&mut compact)?,
+                "--narrow" if env.themes => boolean(&mut narrow)?,
+                // Trace is the product's own too. Its id is optional: `--trace`, `--trace ID` or
+                // `--trace=ID`; a following word that starts with `-` is the next option.
+                "--trace" if env.themes => {
+                    trace = true;
+                    trace_target = match value {
+                        Some(value) => Some(value.to_owned()),
+                        None => match args.get(i + 1) {
+                            Some(next) if !next.starts_with('-') => {
+                                i += 1;
+                                Some(next.clone())
+                            }
+                            _ => None,
+                        },
+                    };
+                }
                 "--interval" => interval_raw = string_value(args, &mut i, flag, value)?,
                 "--now-ms" => {
                     let raw = string_value(args, &mut i, flag, value)?;
@@ -338,7 +410,59 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
             origin,
         }
     };
+    if trace {
+        if recap || tools_flag || this_week || month || this_month || narrow || wide || compact || status || once || watch {
+            return Err(UsageError("--trace goes with --json, --demo, --db and --theme only".into()));
+        }
+        return Ok(Command::Trace { database, now: now_ms, target: trace_target, json, theme });
+    }
     let interval = interval(Some(&interval_raw));
+    if recap && tools_flag {
+        return Err(UsageError("--recap and --tools cannot be used together".into()));
+    }
+    if (this_week || month || this_month || json || wide || compact || narrow) && !recap && !tools_flag {
+        return Err(UsageError("--this-week, --month, --this-month, --json, --wide, --compact and --narrow go with --recap or --tools".into()));
+    }
+    if u8::from(this_week) + u8::from(month) + u8::from(this_month) > 1 {
+        return Err(UsageError("--this-week, --month and --this-month cannot be used together".into()));
+    }
+    if tools_flag && narrow {
+        return Err(UsageError("--narrow goes with --recap".into()));
+    }
+    if u8::from(wide) + u8::from(compact) + u8::from(narrow) > 1 {
+        let message = if tools_flag {
+            "--wide and --compact cannot be used together"
+        } else {
+            "--wide, --compact and --narrow cannot be used together"
+        };
+        return Err(UsageError(message.into()));
+    }
+    if tools_flag {
+        let period = match (this_week, month, this_month) {
+            (true, ..) => recap::Which::ThisWeek,
+            (_, true, _) => recap::Which::LastMonth,
+            (_, _, true) => recap::Which::ThisMonth,
+            _ => recap::Which::LastWeek,
+        };
+        let size = if wide { Some(recap_view::Size::Wide) } else { compact.then_some(recap_view::Size::Compact) };
+        return Ok(Command::Tools { database, now: now_ms, period, json, size, theme });
+    }
+    if recap {
+        let size = if wide {
+            Some(recap_view::Size::Wide)
+        } else if compact {
+            Some(recap_view::Size::Compact)
+        } else {
+            narrow.then_some(recap_view::Size::Narrow)
+        };
+        let period = match (this_week, month, this_month) {
+            (true, ..) => recap::Which::ThisWeek,
+            (_, true, _) => recap::Which::LastMonth,
+            (_, _, true) => recap::Which::ThisMonth,
+            _ => recap::Which::LastWeek,
+        };
+        return Ok(Command::Recap { database, now: now_ms, period, json, size, theme });
+    }
     if status {
         Ok(Command::Status {
             database,
@@ -556,10 +680,272 @@ pub fn headless() -> Result<bool, Box<dyn std::error::Error>> {
                 Err(error) => Err(error.into()),
             }
         }
+        Command::Tools { database, now, period, json, size, theme } => {
+            let code = tools_command(&database, now.unwrap_or_else(clock::wall_now), period, json, size, theme.as_deref())?;
+            if code != 0 { std::process::exit(code); }
+            Ok(true)
+        }
+        Command::Recap { database, now, period, json, size, theme } => {
+            let code = recap_command(&database, now.unwrap_or_else(clock::wall_now), period, json, size, theme.as_deref())?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            Ok(true)
+        }
+
+        Command::Trace { database, now, target, json, theme } => {
+            let code = trace_command(&database, now.unwrap_or_else(clock::wall_now), target.as_deref(), json, theme.as_deref())?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            Ok(true)
+        }
         // The caller presents. A terminal presenter calls `ensure_terminal` first; a window
         // does not need one.
         Command::Interactive { .. } => Ok(false),
     }
+}
+
+/// Whether color is wanted, and how deep: none when the output is not a terminal, when
+/// `NO_COLOR` is set or the terminal is `dumb`; 24-bit where `COLORTERM` says so, else the
+/// 256-color palette. `FORCE_COLOR` or `CLICOLOR_FORCE` asks for color into a pipe.
+fn recap_color(terminal: bool, var: &dyn Fn(&str) -> Option<String>) -> recap_view::Color {
+    let set = |name: &str| var(name).is_some_and(|v| !v.is_empty() && v != "0");
+    let forced = set("FORCE_COLOR") || set("CLICOLOR_FORCE");
+    if var("NO_COLOR").is_some_and(|v| !v.is_empty()) || var("TERM").is_some_and(|t| t == "dumb") || !(terminal || forced) {
+        return recap_view::Color::None;
+    }
+    let deep = var("COLORTERM").is_some_and(|c| c.contains("truecolor") || c.contains("24bit"));
+    if deep || (forced && !terminal) { recap_view::Color::True } else { recap_view::Color::Indexed }
+}
+
+/// `--tools`. Returns the exit code: 0, or 1 when T3's database can't be read.
+fn tools_command(database: &Database, now: f64, which: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> {
+    let local: recap::Local = &crate::platform::local_time;
+    let load = |which: recap::Which| -> Result<tools::Tools, SourceError> {
+        let period = recap::Period::new(now, which, local);
+        match database {
+            Database::Demo => tools::demo(&period, local),
+            Database::Path { path, .. } => tools::load(path, &period, local),
+        }
+    };
+    // The last full week or month; when it has nothing and the current one does, that so far.
+    let month = which.span() == recap::Span::Month;
+    let (span, demo_tip) = if month { ("month", "Just looking? t3-agents --tools --month --demo shows a made-up month.") } else { ("week", "Just looking? t3-agents --tools --demo shows a made-up week.") };
+    let read = if which.so_far() {
+        load(which)
+    } else {
+        load(which).and_then(|last| {
+            if !last.is_empty() {
+                return Ok(last);
+            }
+            let this = load(if month { recap::Which::ThisMonth } else { recap::Which::ThisWeek })?;
+            Ok(if this.is_empty() { last } else { this })
+        })
+    };
+    let source = if matches!(database, Database::Demo) { recap_view::Source::Demo } else { recap_view::Source::Records };
+    let terminal = io::stdout().is_terminal();
+    let color = recap_color(terminal, &|name| std::env::var(name).ok());
+    // Into a pipe, or where the terminal's size can't be asked for: a default terminal's 80 by 24.
+    let columns = terminal.then(|| crate::platform::terminal_size().0).flatten().unwrap_or(80);
+    // A report that was asked for is drawn whatever the terminal; otherwise its columns decide.
+    // Rows do not: the report is taller than a screen at either width.
+    let narrow = size.is_none() && columns < tools_view::REPORT_COLUMNS;
+    let wide = match size {
+        Some(recap_view::Size::Wide) => true,
+        Some(recap_view::Size::Compact | recap_view::Size::Narrow) => false,
+        None => columns >= tools_view::WIDE_COLUMNS,
+    };
+    let palette = || -> Result<terminal::Palette, Box<dyn std::error::Error>> {
+        let (themes, skipped) = theme::Themes::from_environment(theme)?;
+        for line in skipped {
+            let _ = io::stderr().write_all(format!("skipped {line}\n").as_bytes());
+        }
+        Ok(themes.palette())
+    };
+    let mono = color == recap_view::Color::None;
+    let (text, code) = match read {
+        Ok(week) if json => (serde_json::to_string_pretty(&week)?, 0),
+        Ok(week) if week.is_empty() => {
+            let period = recap_view::period_text(week.period, &week.from, &week.to);
+            let within = if month { format!("in {period}") } else { period.clone() };
+            let message = if week.so_far { format!("No tool calls recorded {within} so far.") } else { format!("No tool calls recorded {within}, or this {span} so far.") };
+            let tips = ["Tools reads the tool calls T3 Code has recorded on this machine.".to_owned(), demo_tip.to_owned()];
+            if narrow {
+                (format!("{message}\n{}", tips.join("\n")), 0)
+            } else {
+                (recap_view::paint(&tools_view::notice(&palette()?, &period, "no tool calls", false, &message, &tips), color), 0)
+            }
+        }
+        Ok(week) if narrow => (tools_view::list(&week, source, columns), 0),
+        Ok(week) if wide => (recap_view::paint(&tools_view::wide(&week, &palette()?, source, mono), color), 0),
+        Ok(week) => (recap_view::paint(&tools_view::report(&week, &palette()?, source, mono), color), 0),
+        Err(error) => {
+            let origin = match database {
+                Database::Path { origin, .. } => *origin,
+                Database::Demo => Origin::Default,
+            };
+            let advice = advice(&error, origin);
+            if json || !terminal || narrow {
+                let _ = io::stderr().write_all(advice.as_bytes());
+                return Ok(1);
+            }
+            let period = recap::Period::new(now, which, local);
+            let dates = |stamp: f64| recap::local_date(local, stamp);
+            let first = advice.lines().next().unwrap_or_default().trim_start_matches("t3-agents: ");
+            let mut message: String = first.chars().take(1).flat_map(char::to_uppercase).chain(first.chars().skip(1)).collect();
+            if !message.ends_with('.') {
+                message.push('.');
+            }
+            let home = crate::platform::home_dir().map(|h| h.to_string_lossy().into_owned()).filter(|h| h.len() > 1);
+            let short = |text: &str| home.as_deref().map_or_else(|| text.to_owned(), |h| text.replace(h, "~"));
+            let message = short(&message);
+            let mut tips: Vec<String> = advice.lines().skip(1).map(|line| short(line.trim())).collect();
+            if let Some(last) = tips.last_mut() {
+                *last = demo_tip.into();
+            }
+            let card = tools_view::notice(&palette()?, &recap_view::period_text(period.span, &dates(period.start()), &dates(period.last_day())), "can't read T3", true, &message, &tips);
+            (recap_view::paint(&card, color), 1)
+        }
+    };
+    let mut out = io::stdout().lock();
+    match out.write_all(format!("{text}\n").as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => Ok(code),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(code),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// `--recap`. Returns the exit code: 0, or 1 when T3's database can't be read.
+fn recap_command(database: &Database, now: f64, which: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> {
+    let local: recap::Local = &crate::platform::local_time;
+    let load = |which: recap::Which| -> Result<recap::Recap, SourceError> {
+        let period = recap::Period::new(now, which, local);
+        match database {
+            Database::Demo => recap::demo(&period, local),
+            Database::Path { path, .. } => recap::load(path, &period, local),
+        }
+    };
+    // The last full week or month; when it has nothing and the current one does, that so far.
+    let month = which.span() == recap::Span::Month;
+    let (span, demo_tip) = if month { ("month", "Just looking? t3-agents --recap --month --demo shows a made-up month.") } else { ("week", "Just looking? t3-agents --recap --demo shows a made-up week.") };
+    let read = if which.so_far() {
+        load(which)
+    } else {
+        load(which).and_then(|last| {
+            if !last.is_empty() {
+                return Ok(last);
+            }
+            let this = load(if month { recap::Which::ThisMonth } else { recap::Which::ThisWeek })?;
+            Ok(if this.is_empty() { last } else { this })
+        })
+    };
+    let source = if matches!(database, Database::Demo) { recap_view::Source::Demo } else { recap_view::Source::Records };
+    let terminal = io::stdout().is_terminal();
+    let color = recap_color(terminal, &|name| std::env::var(name).ok());
+    // Into a pipe, or where the terminal's size can't be asked for: a default terminal's 80 by 24.
+    // The width and the height are each taken where they are known, so a terminal that gives
+    // 60 columns and no rows is still 60 columns, and gets the list.
+    let (known_columns, known_rows) = if terminal { crate::platform::terminal_size() } else { (None, None) };
+    let (columns, rows) = (known_columns.unwrap_or(80), known_rows.unwrap_or(24));
+    // A card that was asked for is drawn whatever the terminal; otherwise its size decides.
+    // `--narrow`, or a terminal under 80 columns when no size was asked for, gets the list.
+    let narrow = size == Some(recap_view::Size::Narrow) || (size.is_none() && columns < recap_view::CARD_COLUMNS);
+    let wide = match size {
+        Some(size) => size == recap_view::Size::Wide,
+        None => columns >= recap_view::WIDE_COLUMNS && rows >= recap_view::WIDE_ROWS,
+    };
+    let palette = || -> Result<terminal::Palette, Box<dyn std::error::Error>> {
+        let (themes, skipped) = theme::Themes::from_environment(theme)?;
+        for line in skipped {
+            let _ = io::stderr().write_all(format!("skipped {line}\n").as_bytes());
+        }
+        Ok(themes.palette())
+    };
+    let mono = color == recap_view::Color::None;
+    let (text, code, drawn) = match read {
+        Ok(week) if json => (serde_json::to_string_pretty(&week)?, 0, None),
+        Ok(week) if week.is_empty() => {
+            let period = recap_view::period_text(week.period, &week.from, &week.to);
+            // "recorded Nov 9 – 15", and for a month, "recorded in October 2026".
+            let within = if month { format!("in {period}") } else { period.clone() };
+            let message = if week.so_far { format!("No agent runs recorded {within} so far.") } else { format!("No agent runs recorded {within}, or this {span} so far.") };
+            let tips = ["Recap reads the runs T3 Code has recorded on this machine.".to_owned(), demo_tip.to_owned()];
+            if narrow {
+                (format!("{message}\n{}", tips.join("\n")), 0, None)
+            } else {
+                (recap_view::paint(&recap_view::notice(&palette()?, &period, "no records", false, &message, &tips), color), 0, Some(recap_view::CARD_COLUMNS))
+            }
+        }
+        Ok(week) if narrow => (recap_view::paint(&recap_view::list(&week, &palette()?, source, mono), color), 0, Some(recap_view::LIST_COLUMNS)),
+        Ok(week) if wide => (recap_view::paint(&recap_view::wide(&week, &palette()?, source, mono), color), 0, Some(recap_view::WIDE_COLUMNS)),
+        Ok(week) => (recap_view::paint(&recap_view::card(&week, &palette()?, source, mono), color), 0, Some(recap_view::CARD_COLUMNS)),
+        Err(error) => {
+            let origin = match database {
+                Database::Path { origin, .. } => *origin,
+                Database::Demo => Origin::Default,
+            };
+            let advice = advice(&error, origin);
+            if json || !terminal || narrow {
+                // As --once does: the advice on stderr, and nothing on stdout.
+                let _ = io::stderr().write_all(advice.as_bytes());
+                return Ok(1);
+            }
+            let period = recap::Period::new(now, which, local);
+            let dates = |stamp: f64| recap::local_date(local, stamp);
+            // The advice's own first line, as a sentence: "No T3 database at PATH."
+            let first = advice.lines().next().unwrap_or_default().trim_start_matches("t3-agents: ");
+            let mut message: String = first.chars().take(1).flat_map(char::to_uppercase).chain(first.chars().skip(1)).collect();
+            if !message.ends_with('.') {
+                message.push('.');
+            }
+            // A path under the home folder is written with ~, as a person would write it.
+            let home = crate::platform::home_dir().map(|h| h.to_string_lossy().into_owned()).filter(|h| h.len() > 1);
+            let short = |text: &str| home.as_deref().map_or_else(|| text.to_owned(), |h| text.replace(h, "~"));
+            let message = short(&message);
+            let mut tips: Vec<String> = advice.lines().skip(1).map(|line| short(line.trim())).collect();
+            if let Some(last) = tips.last_mut() {
+                *last = demo_tip.into();
+            }
+            let card = recap_view::notice(&palette()?, &recap_view::period_text(period.span, &dates(period.start()), &dates(period.last_day())), "can't read T3", true, &message, &tips);
+            (recap_view::paint(&card, color), 1, Some(recap_view::CARD_COLUMNS))
+        }
+    };
+    let mut out = io::stdout().lock();
+    match out.write_all(format!("{text}\n").as_bytes()).and_then(|()| out.flush()) {
+        Ok(()) => {
+            // After the card, so it is the last thing on a screen the card did not fit.
+            if let Some(note) = too_wide(drawn, known_columns, size) {
+                let _ = io::stderr().write_all(note.as_bytes());
+            }
+            Ok(code)
+        }
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(code),
+        Err(error) => Err(error.into()),
+    }
+}
+
+/// What to say after a drawing that is wider than the terminal it was drawn in. A size that
+/// was asked for is drawn whatever the terminal, since a terminal can give the wrong width;
+/// where the width it gives is under the drawing's, every row wraps, and this says why. The
+/// list has no third line: there is no smaller drawing to offer.
+fn too_wide(drawn: Option<usize>, columns: Option<usize>, size: Option<recap_view::Size>) -> Option<String> {
+    let (card, columns) = (drawn?, columns?);
+    if card <= columns {
+        return None;
+    }
+    // Short lines: the terminal this is written for is a narrow one, often a phone.
+    let list = card == recap_view::LIST_COLUMNS;
+    let name = if list { "list" } else { "card" };
+    let mut note = format!("t3-agents: the {name} is {card} columns wide,\nthis terminal is {columns}, so its lines wrap.\n");
+    if !list {
+        match size {
+            Some(recap_view::Size::Wide) => note.push_str("Leave out --wide for what fits here.\n"),
+            Some(recap_view::Size::Compact) => note.push_str("Leave out --compact for what fits here.\n"),
+            Some(recap_view::Size::Narrow) | None => {}
+        }
+    }
+    Some(note)
 }
 
 /// What to try when T3's database can't be read, as `advice()` in `main.ts` writes it.
@@ -808,6 +1194,131 @@ fn pad_start(s: &str, width: usize) -> String {
     }
 }
 
+/// `--trace [ID]`. Returns the exit code: 0; 1 when T3's database can't be read or the id
+/// names no thread or run.
+fn trace_command(database: &Database, now: f64, target: Option<&str>, json: bool, theme: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> {
+    // An id names a run, a thread, or the one thread whose id ends with it (as the Tools view
+    // prints ids). Ending more than one is said, not guessed.
+    let named = |path: &Path, id: &str| -> Result<Result<Option<trace::Trace>, String>, SourceError> {
+        for target in [trace::Target::Run(id.to_owned()), trace::Target::Thread(id.to_owned())] {
+            if let Some(found) = trace::load(path, &target, now)? {
+                return Ok(Ok(Some(found)));
+            }
+        }
+        Ok(match trace::threads_ending(path, id)?.as_slice() {
+            [one] => Ok(trace::load(path, &trace::Target::Thread(one.clone()), now)?),
+            [] => Ok(None),
+            _ => Err(format!("{id:?} is the end of more than one thread id; give more of it.\n")),
+        })
+    };
+    let read = match database {
+        Database::Demo => trace::demo(now).map(Some),
+        Database::Path { path, .. } => match target {
+            None => trace::load(path, &trace::Target::Latest, now),
+            Some(id) => match named(path, id) {
+                Ok(Ok(found)) => Ok(found),
+                Ok(Err(message)) => {
+                    let _ = io::stderr().write_all(message.as_bytes());
+                    return Ok(1);
+                }
+                Err(e) => Err(e),
+            },
+        },
+    };
+    match read {
+        Ok(Some(found)) if json => {
+            let mut out = io::stdout().lock();
+            out.write_all(serde_json::to_string_pretty(&found)?.as_bytes())?;
+            out.write_all(b"\n")?;
+            Ok(0)
+        }
+        Ok(Some(found)) => {
+            let terminal = io::stdout().is_terminal();
+            let color = recap_color(terminal, &|name| std::env::var(name).ok());
+            // The terminal's size, less a row for the prompt after it; into a pipe, 80 by 40.
+            // 60 by 16 at the least. The longest steps get the rows, as on the dashboard.
+            let (columns, rows) = if terminal {
+                let (c, r) = crate::platform::terminal_size();
+                (c.unwrap_or(80), r.unwrap_or(41).saturating_sub(1))
+            } else { (80, 40) };
+            let (columns, rows) = (columns.max(60), rows.max(16));
+            let (themes, skipped) = theme::Themes::from_environment(theme)?;
+            for line in skipped {
+                let _ = io::stderr().write_all(format!("skipped {line}\n").as_bytes());
+            }
+            let view = trace_view::View {
+                selected: None,
+                scroll: 0,
+                // Printed once: nothing on it moves, so the open marks are drawn still.
+                calm: true,
+                mono: color == recap_view::Color::None,
+                spin: 0,
+                demo: matches!(database, Database::Demo),
+                now,
+            };
+            let drawn = trace_view::draw(&found, &themes.palette(), columns, rows, &view, &crate::platform::local_time);
+            let mut out = io::stdout().lock();
+            out.write_all(recap_view::paint(&drawn.canvas, color).as_bytes())?;
+            out.write_all(b"\n")?;
+            Ok(0)
+        }
+        Ok(None) => {
+            let message = match target {
+                Some(id) => format!("No thread or run {id:?} on record.\n"),
+                None => "Nothing to trace yet: T3 Code has no runs recorded on this machine.\n".to_owned(),
+            };
+            let _ = io::stderr().write_all(message.as_bytes());
+            Ok(i32::from(target.is_some()))
+        }
+        Err(error) => {
+            let origin = match database {
+                Database::Path { origin, .. } => *origin,
+                Database::Demo => Origin::Default,
+            };
+            let _ = io::stderr().write_all(advice(&error, origin).as_bytes());
+            Ok(1)
+        }
+    }
+}
+
+#[cfg(test)]
+mod trace_command_tests {
+    use super::*;
+
+    fn env() -> Environment {
+        Environment { themes: true, ..Environment::default() }
+    }
+    fn args(words: &[&str]) -> Vec<String> {
+        words.iter().map(|w| w.to_string()).collect()
+    }
+
+    #[test]
+    fn trace_takes_an_optional_id_and_goes_with_json() {
+        let parse = |words: &[&str]| parse_in(&args(words), &env());
+        let target = |words: &[&str]| match parse(words) {
+            Ok(Command::Trace { target, json, .. }) => (target, json),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(target(&["--trace"]), (None, false));
+        assert_eq!(target(&["--trace", "thread-1"]), (Some("thread-1".into()), false));
+        assert_eq!(target(&["--trace=run-2", "--json"]), (Some("run-2".into()), true));
+        assert_eq!(target(&["--trace", "--json", "--demo"]), (None, true));
+        assert!(parse(&["--trace", "--recap"]).is_err());
+        for incompatible in ["--status", "--tools", "--month", "--this-month", "--narrow"] {
+            assert!(parse(&["--trace", incompatible]).is_err(), "{incompatible}");
+        }
+        assert!(parse(&["--tools", "--narrow"]).is_err());
+    }
+
+    #[test]
+    fn the_original_rejects_trace() {
+        let original = Environment { themes: false, ..Environment::default() };
+        assert!(parse_in(&args(&["--trace"]), &original).unwrap_err().0.contains("Unknown option"));
+        assert!(!usage(false).contains("--trace"));
+        assert!(usage(true).contains("--trace"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -853,8 +1364,78 @@ mod tests {
             assert_eq!(parse_in(&args(&[flag]), &env("/tmp/home", None)), Err(UsageError(format!("Unknown option '{flag}'"))));
         }
         assert_eq!(usage(false), USAGE);
-        assert_eq!(usage(true), format!("{USAGE}{THEME_USAGE}"));
-        assert!(THEME_USAGE.lines().all(|l| l.chars().count() <= 80));
+        assert_eq!(usage(true), format!("{USAGE}{THEME_USAGE}{RECAP_USAGE}{TOOLS_USAGE}{TRACE_USAGE}"));
+        assert!(THEME_USAGE.lines().chain(RECAP_USAGE.lines()).chain(TRACE_USAGE.lines()).all(|l| l.chars().count() <= 80));
+    }
+
+    #[test]
+    fn tools_is_the_products_and_the_original_rejects_it() {
+        let themed = Environment { themes: true, ..env("/tmp/home", None) };
+        for (flag, period) in [("", recap::Which::LastWeek), ("--this-week", recap::Which::ThisWeek), ("--month", recap::Which::LastMonth), ("--this-month", recap::Which::ThisMonth)] {
+            let mut flags = vec!["--tools", "--json", "--demo", "--theme=paper", "--now-ms", "5"];
+            if !flag.is_empty() { flags.push(flag); }
+            assert!(matches!(parse_in(&args(&flags), &themed).unwrap(), Command::Tools { database: Database::Demo, now: Some(5.0), period: asked, json: true, size: None, theme: Some(theme) } if asked == period && theme == "paper"));
+        }
+        assert_eq!(parse_in(&args(&["--tools", "--recap"]), &themed), Err(UsageError("--recap and --tools cannot be used together".into())));
+        for (flag, size) in [("--wide", recap_view::Size::Wide), ("--compact", recap_view::Size::Compact)] {
+            assert!(matches!(parse_in(&args(&["--tools", flag]), &themed).unwrap(), Command::Tools { size: Some(asked), .. } if asked == size));
+        }
+        assert_eq!(parse_in(&args(&["--tools", "--wide", "--compact"]), &themed), Err(UsageError("--wide and --compact cannot be used together".into())));
+        assert_eq!(parse_in(&args(&["--tools"]), &env("/tmp/home", None)), Err(UsageError("Unknown option '--tools'".into())));
+        assert!(usage(true).contains("--tools") && !usage(false).contains("--tools"));
+    }
+
+    #[test]
+    fn recap_is_the_products_and_the_original_rejects_it() {
+        let themed = Environment { themes: true, ..env("/tmp/home", None) };
+        assert_eq!(
+            parse_in(&args(&["--recap", "--demo"]), &themed).unwrap(),
+            Command::Recap { database: Database::Demo, now: None, period: recap::Which::LastWeek, json: false, size: None, theme: None }
+        );
+        match parse_in(&args(&["--recap", "--this-week", "--json", "--theme=paper", "--now-ms", "5"]), &themed).unwrap() {
+            Command::Recap { period: recap::Which::ThisWeek, json: true, now: Some(now), theme: Some(theme), size: None, database: Database::Path { .. } } => {
+                assert_eq!((now, theme.as_str()), (5., "paper"));
+            }
+            other => panic!("{other:?}"),
+        }
+        // A drawing can be asked for by name, one at a time.
+        for (flag, size) in [("--wide", recap_view::Size::Wide), ("--compact", recap_view::Size::Compact), ("--narrow", recap_view::Size::Narrow)] {
+            assert!(matches!(parse_in(&args(&["--recap", flag]), &themed).unwrap(), Command::Recap { size: Some(asked), .. } if asked == size));
+        }
+        for pair in [["--wide", "--compact"], ["--wide", "--narrow"], ["--compact", "--narrow"]] {
+            assert_eq!(parse_in(&args(&["--recap", pair[0], pair[1]]), &themed), Err(UsageError("--wide, --compact and --narrow cannot be used together".into())));
+        }
+        assert_eq!(parse_in(&args(&["--recap", "--wide", "--compact", "--narrow"]), &themed), Err(UsageError("--wide, --compact and --narrow cannot be used together".into())));
+        // A month, the last full one or the current one so far; one period at a time.
+        for (flag, period) in [("--month", recap::Which::LastMonth), ("--this-month", recap::Which::ThisMonth)] {
+            assert!(matches!(parse_in(&args(&["--recap", flag]), &themed).unwrap(), Command::Recap { period: asked, .. } if asked == period));
+        }
+        for pair in [["--month", "--this-month"], ["--this-week", "--month"], ["--this-week", "--this-month"]] {
+            assert_eq!(parse_in(&args(&["--recap", pair[0], pair[1]]), &themed), Err(UsageError("--this-week, --month and --this-month cannot be used together".into())));
+        }
+        // The seven that only mean something with it say so.
+        for flag in ["--json", "--this-week", "--month", "--this-month", "--wide", "--compact", "--narrow"] {
+            assert_eq!(parse_in(&args(&[flag]), &themed), Err(UsageError("--this-week, --month, --this-month, --json, --wide, --compact and --narrow go with --recap or --tools".into())));
+        }
+        assert_eq!(parse_in(&args(&["--recap", "--help"]), &themed).unwrap(), Command::Help);
+        assert!(parse_in(&args(&["--recap=1"]), &themed).is_err());
+        assert!(usage(true).contains("--recap") && !usage(false).contains("--recap"));
+        // With the original's behavior asked for, they are unknown options, as they are to it.
+        for flag in ["--recap", "--this-week", "--month", "--this-month", "--json", "--wide", "--compact", "--narrow"] {
+            assert_eq!(parse_in(&args(&[flag]), &env("/tmp/home", None)), Err(UsageError(format!("Unknown option '{flag}'"))));
+        }
+    }
+
+    #[test]
+    fn color_is_for_terminals_unless_asked_for_or_refused() {
+        let with = |pairs: &'static [(&'static str, &'static str)]| move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).to_owned());
+        use recap_view::Color;
+        assert_eq!(recap_color(true, &with(&[("COLORTERM", "truecolor")])), Color::True);
+        assert_eq!(recap_color(true, &with(&[("TERM", "xterm-256color")])), Color::Indexed);
+        assert_eq!(recap_color(false, &with(&[("COLORTERM", "truecolor")])), Color::None);
+        assert_eq!(recap_color(false, &with(&[("FORCE_COLOR", "1")])), Color::True);
+        assert_eq!(recap_color(true, &with(&[("NO_COLOR", "1"), ("FORCE_COLOR", "1")])), Color::None);
+        assert_eq!(recap_color(true, &with(&[("TERM", "dumb")])), Color::None);
     }
 
     #[test]
@@ -871,6 +1452,30 @@ mod tests {
             parse_in(&args(&["--help", "--demo", "--db", "x"]), &env("/tmp/home", None)),
             Err(UsageError(message)) if message == "--demo and --db cannot be used together"
         ));
+    }
+
+    #[test]
+    fn a_card_wider_than_its_terminal_says_why_its_lines_wrap() {
+        use recap_view::Size;
+        // A phone of 60 columns asked for the 80-column card: it is drawn, and this follows it.
+        let note = too_wide(Some(80), Some(60), Some(Size::Compact)).unwrap();
+        assert_eq!(note, "t3-agents: the card is 80 columns wide,\nthis terminal is 60, so its lines wrap.\nLeave out --compact for what fits here.\n");
+        // Each line fits a phone of 40 columns, for the wide card too.
+        assert!(note.lines().all(|line| line.len() <= 40));
+        let note = too_wide(Some(120), Some(100), Some(Size::Wide)).unwrap();
+        assert_eq!(note, "t3-agents: the card is 120 columns wide,\nthis terminal is 100, so its lines wrap.\nLeave out --wide for what fits here.\n");
+        assert!(note.lines().all(|line| line.len() <= 40));
+        // A card that fits, a terminal that does not give its width, and a list that was not drawn: nothing.
+        assert_eq!(too_wide(Some(80), Some(80), Some(Size::Compact)), None);
+        assert_eq!(too_wide(Some(120), Some(200), Some(Size::Wide)), None);
+        assert_eq!(too_wide(Some(80), None, Some(Size::Compact)), None);
+        assert_eq!(too_wide(None, Some(40), None), None);
+        // The list is 39 columns. Under that, the note names the list and stops, asked for or not.
+        let list_note = "t3-agents: the list is 39 columns wide,\nthis terminal is 30, so its lines wrap.\n";
+        assert_eq!(too_wide(Some(39), Some(30), Some(Size::Narrow)).as_deref(), Some(list_note));
+        assert_eq!(too_wide(Some(39), Some(30), None).as_deref(), Some(list_note));
+        assert_eq!(too_wide(Some(39), Some(39), Some(Size::Narrow)), None);
+        assert!(list_note.lines().all(|line| line.len() <= 40));
     }
 
     #[test]

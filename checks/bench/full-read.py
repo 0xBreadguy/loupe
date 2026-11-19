@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""What one full read costs, per query, on real-shaped payloads.
+"""What one full read costs, per query, on skewed synthetic payloads.
 
-The lab tier `real` (`scale-db.ts --tier real --schema t3`) has the recorded row
-counts and payload sizes, but its payloads are a few keys and one long filler
-string, which SQLite parses far faster than T3's nested JSON. `build` copies that
-tier and rewrites every turn item's filler into densely nested JSON of the same
-byte length: arrays of small objects, numbers, short strings with escapes, the
-way tool results, command output chunks and reasoning summaries are shaped. The
-fields the reader selects (startedAt, toolName, exitCode, title, label, input,
+The lab tier `real` (`scale-db.ts --tier real --schema t3`) uses invented row
+counts and payload sizes. Its payloads have a few keys and a long filler string.
+`build` copies that tier and rewrites every turn item's filler into densely
+nested JSON of the same byte length. It uses arrays of small objects, numbers
+and escaped strings, like tool results, command output and reasoning summaries.
+The fields the reader selects (startedAt, toolName, exitCode, title, label, input,
 fileName, steps, schema, status) keep their exact values, so the dense database
 must give the same snapshot as the lab tier; `build` checks that.
 
@@ -21,6 +20,8 @@ Process start and the two warm-up reads are outside it; peak memory includes
 them. Load average is recorded before and after.
 
 Synthetic data only. Every child gets an empty T3CODE_HOME and an explicit --db.
+Regenerate an existing lab base with the current generator before building the
+dense copy for a new baseline.
 
     python3 checks/bench/full-read.py build
     python3 checks/bench/full-read.py run --binary before=PATH --binary after=PATH \
@@ -36,12 +37,6 @@ GEN = ROOT / "checks/generated/fullread"
 LAB = ROOT / "checks/generated/scale/t3/real.sqlite"
 DENSE = GEN / "dense.sqlite"
 ITEMS = "orchestration_v2_projection_turn_items"
-
-def home():
-    """An empty T3 home for the children, beside the other generated files (not /tmp)."""
-    GEN.mkdir(parents=True, exist_ok=True)
-    return tempfile.mkdtemp(prefix="home-", dir=GEN)
-
 
 # ── Dense payloads ───────────────────────────────────────────────────────────
 
@@ -124,12 +119,23 @@ def dense(kept, size, family, pool, r):
 
 
 def build(args):
-    GEN.mkdir(parents=True, exist_ok=True)
     lab = Path(args.lab)
-    if not lab.exists():
-        subprocess.run(NODE + [str(ROOT / "checks/scripts/scale-db.ts"), "--tier", "real", "--schema", "t3",
-                               "--db", str(lab)], check=True, cwd=ROOT)
     out = Path(args.out)
+    if lab.resolve() == out.resolve():
+        raise ValueError("the lab base and dense output must be different files")
+    if not lab.exists():
+        with tempfile.TemporaryDirectory(prefix="t3-full-read-home-") as home:
+            subprocess.run(NODE + [str(ROOT / "checks/scripts/scale-db.ts"), "--tier", "real", "--schema", "t3",
+                                   "--db", str(lab.resolve())], check=True, cwd=ROOT,
+                           env={**os.environ, "T3CODE_HOME": home})
+    out.parent.mkdir(parents=True, exist_ok=True)
+    environment_id = lab.parent / "environment-id"
+    dense_environment_id = out.parent / "environment-id"
+    if environment_id.resolve() != dense_environment_id.resolve() and environment_id.is_file():
+        if not dense_environment_id.exists():
+            shutil.copyfile(environment_id, dense_environment_id)
+        elif dense_environment_id.read_bytes() != environment_id.read_bytes():
+            raise ValueError("choose an output directory with a matching or absent environment-id")
     for suffix in ("", "-wal", "-shm"):
         Path(str(out) + suffix).unlink(missing_ok=True)
     src = sqlite3.connect(f"file:{lab}?mode=ro", uri=True)
@@ -158,14 +164,15 @@ def build(args):
                       "bytes_after": total_after, "rows_with_other_size": misses}))
     # The reader must not see a difference: compare snapshots from the core binary.
     binary = Path(args.binary)
-    env = {**os.environ, "T3CODE_HOME": home()}
     snaps = []
-    for db in (lab, out):
-        p = subprocess.run([str(binary), "--db", str(db), "--now-ms", NOW, "--dump-snapshot"],
-                           capture_output=True, text=True, env=env, check=True)
-        snap = json.loads(p.stdout)
-        snap.pop("path", None)
-        snaps.append(snap)
+    with tempfile.TemporaryDirectory(prefix="t3-full-read-home-") as home:
+        env = {**os.environ, "T3CODE_HOME": home}
+        for db in (lab, out):
+            p = subprocess.run([str(binary), "--db", str(db), "--now-ms", NOW, "--dump-snapshot"],
+                               capture_output=True, text=True, env=env, check=True)
+            snap = json.loads(p.stdout)
+            snap.pop("path", None)
+            snaps.append(snap)
     # --dump-snapshot prints an empty snapshot stamped at 0 when the read fails.
     same = snaps[0] == snaps[1] and snaps[0]["at"] != 0 and len(snaps[0]["agents"]) > 0
     print(json.dumps({"snapshot_equal_to_lab": same, "agents": len(snaps[0]["agents"])}))
@@ -184,7 +191,9 @@ def one(binary, db, ops, env):
     if proc.returncode != 0:
         raise RuntimeError(f"{binary} exited {proc.returncode}: {err.decode()[:400]}")
     data = json.loads(out)
-    calls = max(1, data["operations"])
+    if data["errors"] or not data["operations"]:
+        raise RuntimeError(f"{binary} reported {data['errors']} errors in {data['operations']} reads of {db}")
+    calls = data["operations"]
     queries = {k: (v["prepare_ns"] + v["step_ns"]) / 1e6 / calls for k, v in data["phases"]["queries"].items()}
     rows = {k: v["rows"] // calls for k, v in data["phases"]["queries"].items()}
     phases = {k: v / 1e6 / calls for k, v in data["phases"].get("phases_ns", {}).items()}
@@ -200,14 +209,15 @@ def summary(values):
 def run(args):
     binaries = [b.split("=", 1) for b in args.binary]
     dbs = [d.split("=", 1) for d in (args.db or [f"lab={LAB}", f"dense={DENSE}"])]
-    env = {**os.environ, "T3CODE_HOME": home()}
     load_before = os.getloadavg()
     results = {db: {name: [] for name, _ in binaries} for db, _ in dbs}
-    for trial in range(args.trials):
-        order = binaries if trial % 2 == 0 else binaries[::-1]
-        for db_name, db in dbs:
-            for name, binary in order:
-                results[db_name][name].append(one(binary, db, args.ops, env))
+    with tempfile.TemporaryDirectory(prefix="t3-full-read-home-") as home:
+        env = {**os.environ, "T3CODE_HOME": home}
+        for trial in range(args.trials):
+            order = binaries if trial % 2 == 0 else binaries[::-1]
+            for db_name, db in dbs:
+                for name, binary in order:
+                    results[db_name][name].append(one(binary, db, args.ops, env))
     load_after = os.getloadavg()
     report = {"now": NOW, "trials": args.trials, "ops_per_trial": args.ops,
               "load_before": load_before, "load_after": load_after, "dbs": {}}
@@ -250,7 +260,7 @@ def main():
     b.add_argument("--binary", default=str(ROOT / "target/release/t3-agents-core"))
     r = sub.add_parser("run")
     r.add_argument("--binary", action="append", required=True, help="NAME=PATH, repeatable")
-    r.add_argument("--db", action="append", help="NAME=PATH, repeatable (default: lab real and dense)")
+    r.add_argument("--db", action="append", help="NAME=PATH, repeatable (default: skewed lab tier and dense copy)")
     r.add_argument("--trials", type=int, default=5)
     r.add_argument("--ops", type=int, default=7)
     r.add_argument("--out")

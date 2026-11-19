@@ -21,6 +21,21 @@ test("a status line parses into bounded values", () => {
     [["Fix the build", "waiting", "opus 5.5", 0.364], ["Refactor", "running", "gpt 6.1-sol", null]])
 })
 
+test("additive ask totals preserve the version 1 widget contract", () => {
+  const legacy = JSON.parse(line({ running: 1, waiting: 0, agents: [
+    { title: "Working with an open question", state: "running", now: "shell" },
+  ] }))
+  const expected = S.parse(JSON.stringify(legacy))
+  const current = { ...legacy, openAsks: 3, estimatedAsks: 2, agents: [
+    { ...legacy.agents[0], openAsks: 1, estimatedAsks: 0 },
+  ] }
+  assert.deepEqual(S.parse(JSON.stringify(current)), expected)
+  assert.ok(S.litDots(expected, 0, true), "an open question can coexist with work")
+  const failed = { v: 1, error: "No T3 database" }
+  assert.deepEqual(S.parse(JSON.stringify({ ...failed, openAsks: 0, estimatedAsks: 0 })),
+    S.parse(JSON.stringify(failed)))
+})
+
 test("markup-shaped and control text is neutralized before it reaches a tooltip", () => {
   const s = S.parse(line({ agents: [{ title: '<img src="https://example.invalid/t">\u202e\x1b[31mevil\n', state: "<b>", ctx: 9, model: "<i>m</i>" }] }))
   const a = s.agents[0]

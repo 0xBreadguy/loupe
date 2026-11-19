@@ -1,8 +1,9 @@
 //! Kept-open, read-only snapshot reader, with conservative full-read fallback.
 //!
 //! Privacy: source.rs's column/JSON allowlist, plus approved projection rowids.
-//! No event payload, prompt, message body, result or reasoning is read. This
-//! event feed reads only sequence/thread_id (stream id, kind and version in the
+//! No event payload, prompt, message body, result or reasoning is returned by a
+//! query. The estimated ask function sees eligible assistant text within SQL.
+//! The event feed reads only sequence/thread_id (stream id, kind and version in the
 //! real log), projection metadata watermarks, and the number of rows in T3's
 //! migration ledger, no column of it.
 //! Verified suffixes assemble from the typed cache, with conservative fallback
@@ -240,12 +241,13 @@ fn open(path: &Path) -> Result<Connection, SourceError> {
     .map_err(|e| error(path, e))?;
     db.busy_timeout(Duration::from_millis(250))
         .map_err(|e| error(path, e))?;
+    crate::asks::register(&db).map_err(|e| error(path, e))?;
     // The scale databases are hundreds of megabytes of unread payload padding.
     // Leave them on disk: a mapped file stays in this process's resident set
     // after the baseline scan, and the parsed cache is much smaller.
     // A changed poll re-reads a thread through its indexes and mostly touches
-    // payload pages no page cache of this size would hold; 500 KiB measured the
-    // same poll time as 2,000 KiB on the real-shaped tier, and 1.5 MiB less heap.
+    // payload pages that a small page cache cannot hold. Keep that cache small
+    // to leave more memory for the parsed rows.
     db.execute_batch("PRAGMA query_only=ON; PRAGMA mmap_size=0; PRAGMA cache_size=-500")
         .map_err(|e| error(path, e))?;
     // The same projections are prepared on every changed poll.
@@ -823,10 +825,9 @@ mod cache {
         parent_node_id: Option<Arc<str>>,
     }
     /// Node rows straight from SQLite. Decoding through `source::all` built a
-    /// JSON object per row, about 17 MB of short-lived allocations on the
-    /// real-shaped tier, interleaved with the node boxes that stay; their holes
-    /// kept that much heap resident after the read. Accepts and rejects exactly
-    /// what `source::all` plus serde did: text is lossy UTF-8, NULL and blob
+    /// temporary JSON object per row, interleaved with the node boxes that stay.
+    /// Those allocations kept extra heap resident after the read. Accepts and
+    /// rejects what `source::all` plus serde did: text is lossy UTF-8, NULL and blob
     /// are absent, a number in an id column is an error.
     fn node_rows(
         db: &Connection,
@@ -1021,6 +1022,7 @@ mod cache {
         status: String,
         created_at: Option<String>,
         resolved_at: Option<String>,
+        async_input: i64,
     }
     /// Label, command, file and todo-list steps, read by rowid for a row inside
     /// a selection. They are always read, kept and dropped together.
@@ -1245,6 +1247,7 @@ mod cache {
                     && a.status == b.status
                     && a.created_at == b.created_at
                     && a.resolved_at == b.resolved_at
+                    && a.async_input == b.async_input
             }
             (Data::Item(a), Data::Item(b)) => a.same_projected(b),
             _ => false,
@@ -1294,8 +1297,8 @@ mod cache {
         projects: BTreeMap<String, Project>,
         pub rows: usize,
     }
-    // Exactly the oracle's projection expressions, plus the explicitly approved
-    // rowid identity. No explicit primary-key columns or extra JSON fields.
+    // Narrow projection expressions plus rowid identity. Request capability
+    // is added by request_query after checking schema compatibility.
     pub(super) fn queries() -> Vec<(&'static str, String)> {
         TABLES.iter().map(|&table| {
             let fields = match table {
@@ -1307,11 +1310,14 @@ mod cache {
                 "runtime_requests" => "node_id,kind,status,created_at,resolved_at".into(),
                 // Keys only. Label, command, file and steps are read by rowid
                 // for rows that enter a selection.
-                "turn_items" => format!("{ITEM_KEYS},ordinal"),
+                "turn_items" => format!("{},ordinal", source::item_keys()),
                 _ => unreachable!(),
             };
             (table, format!("SELECT rowid AS cache_rowid,thread_id,{fields} FROM orchestration_v2_projection_{table}"))
         }).collect()
+    }
+    fn request_query(fields: &str) -> String {
+        format!("SELECT rowid AS cache_rowid,thread_id,{fields} FROM orchestration_v2_projection_runtime_requests")
     }
     fn payload_sql(table: &str) -> String {
         format!("{} AS payload", source::projection(table))
@@ -1321,12 +1327,7 @@ mod cache {
     pub(super) fn run_query() -> String {
         format!("{} WHERE run_id=?", queries()[7].1)
     }
-    /// The oracle's item key expressions, without label, command or file.
-    const ITEM_KEYS: &str = "thread_id,run_id,node_id,provider_thread_id,type,status,updated_at,\
- json_extract(payload_json,'$.startedAt') AS started_at,\
- json_extract(payload_json,'$.toolName') AS tool,\
- json_extract(payload_json,'$.exitCode') AS exit_code";
-    /// By-rowid text read. Same allowlisted expressions as `source::ITEM_FIELDS`,
+    /// By-rowid text read. Same allowlisted expressions as the full reader,
     /// plus ordinal and the todo-list steps expression the key scan omits.
     pub(super) fn item_text_query(n: usize) -> String {
         let marks = if n == 0 {
@@ -1336,7 +1337,7 @@ mod cache {
         };
         format!(
             "SELECT rowid,{fields},ordinal,CASE WHEN type='todo_list' THEN json_extract(payload_json,'$.steps') END AS steps FROM orchestration_v2_projection_turn_items WHERE rowid IN ({marks})",
-            fields = source::ITEM_FIELDS
+            fields = source::item_fields()
         )
     }
     fn decode(table: usize, value: Value, pool: &mut Pool) -> Result<Row, serde_json::Error> {
@@ -1522,7 +1523,7 @@ mod cache {
         }
         Ok(out)
     }
-    /// By-rowid text. Column order is rowid, `ITEM_FIELDS`, ordinal, steps.
+    /// By-rowid text. Column order is rowid, the full item fields, ordinal, steps.
     fn load_item_text(db: &Connection, path: &Path, ids: &[i64]) -> Result<Vec<ItemText>, FallbackReason> {
         use rusqlite::{params_from_iter, types::ValueRef};
         if ids.is_empty() {
@@ -1587,7 +1588,11 @@ mod cache {
         ) -> Result<Self, SourceError> {
             let mut tables = Vec::new();
             let mut count = 0;
-            for (index, (_, sql)) in queries().into_iter().enumerate() {
+            for (index, (_, mut sql)) in queries().into_iter().enumerate() {
+                if index == 6 {
+                    let fields = source::request_fields(db).map_err(|e| error(path, e))?;
+                    sql = request_query(&fields);
+                }
                 let mut decoded = Vec::new();
                 // One bound id per indexed read, independent of SQLite's variable
                 // limit and of the number of threads in a burst.
@@ -1686,8 +1691,7 @@ mod cache {
         )?;
         (oracle == per_thread).then_some(oracle)
     }
-    const REQUEST_FILTER: &str =
-        "resolved_at IS NULL AND status IN ('pending','open','waiting','requested')";
+    use source::REQUEST_FILTER;
     fn distinct_owners(db: &Connection, table: &str) -> rusqlite::Result<BTreeSet<String>> {
         let sql = format!("SELECT DISTINCT thread_id FROM orchestration_v2_projection_{table}");
         let mut stmt = db.prepare_cached(&sql)?;
@@ -1740,7 +1744,7 @@ mod cache {
         // single scan plus LIMIT's stable temporary sorter is proved here.
         let sql = format!(
             "SELECT {} FROM {table} WHERE thread_id IN ({}) AND updated_at>=? AND type NOT IN ('checkpoint','todo_list') ORDER BY updated_at DESC LIMIT 8000",
-            source::ITEM_FIELDS,
+            source::item_fields(),
             vec!["?"; count.max(1)].join(",")
         );
         let params = vec![SqlValue::Text(String::new()); count.max(1) + 1];
@@ -1778,8 +1782,9 @@ mod cache {
         let table = "orchestration_v2_projection_runtime_requests";
         // Both loops apply the identical predicate, including the status IN loop.
         // Require their entire index constraint to match as well as the index name.
+        let fields = source::request_fields(db).ok()?;
         let oracle_sql = format!(
-            "SELECT thread_id,node_id,kind,status,created_at FROM {table} WHERE thread_id IN ({}) AND {REQUEST_FILTER}",
+            "SELECT thread_id,{fields} FROM {table} WHERE thread_id IN ({}) AND {REQUEST_FILTER}",
             vec!["?"; count.max(1)].join(",")
         );
         for constraint in [" (thread_id=?)", " (thread_id=? AND status=?)"] {
@@ -1794,7 +1799,7 @@ mod cache {
                 db,
                 table,
                 constraint,
-                owner_query(6, &queries()[6].1),
+                owner_query(6, &request_query(&fields)),
                 vec![SqlValue::Text(String::new())],
             );
             if let (Some(a), Some(b)) = (oracle, owner) {
@@ -1871,7 +1876,7 @@ mod cache {
         };
         let sql = format!(
             "SELECT {} FROM {table} WHERE (run_id IN ({}) OR (run_id IS NULL AND thread_id IN ({}))) AND type IN ({}) ORDER BY updated_at DESC,ordinal DESC LIMIT 3000",
-            source::ITEM_FIELDS,
+            source::item_fields(),
             list(runs),
             list(threads),
             source::TOOLISH
@@ -2925,7 +2930,7 @@ mod cache {
                     if v.resolved_at.is_none()
                         && ["pending", "open", "waiting", "requested"].contains(&v.status.as_str())
                     {
-                        requests.push(json!({"thread_id":r.owner,"node_id":v.node_id,"kind":v.kind,"status":v.status,"created_at":v.created_at}));
+                        requests.push(json!({"thread_id":r.owner,"node_id":v.node_id,"kind":v.kind,"status":v.status,"created_at":v.created_at,"async_input":v.async_input}));
                     }
                 }
             }
@@ -4303,7 +4308,7 @@ mod cache {
             shell: &crate::model::Agent,
             routes: &Routes,
             known: &HashSet<String>,
-            requests: &[(String, String, Option<String>)],
+            requests: &[(String, String, Option<String>, bool)],
             items: Option<&Vec<i64>>,
             events: Option<&Vec<i64>>,
             plans: Option<&Vec<i64>>,
@@ -4311,9 +4316,9 @@ mod cache {
             span_order: Option<&EncounterOrder>,
         ) -> Result<crate::model::Agent, FallbackReason> {
             let mut agent = shell.clone();
-            for (target, kind, created) in requests {
+            for (target, kind, created, async_input) in requests {
                 if target == &agent.id {
-                    source::attach_request(&mut agent, kind, created.as_deref());
+                    source::attach_request(&mut agent, kind, created.as_deref(), *async_input);
                 }
             }
             for id in items.into_iter().flatten() {
@@ -4702,7 +4707,12 @@ mod cache {
                             dirty.insert(target.clone());
                         }
                     }
-                    request_rows.push((target.clone(), v.kind.clone(), v.created_at.clone()));
+                    request_rows.push((
+                        target.clone(),
+                        v.kind.clone(),
+                        v.created_at.clone(),
+                        v.async_input == 1,
+                    ));
                     next_request_targets.insert(row.id, target);
                 }
                 for (id, old) in &self.idx.request_targets {
@@ -5160,6 +5170,11 @@ mod cache {
                 &agent.context.updated_at,
             ] {
                 strings.opt(text);
+            }
+            if let Some(storage) = &agent.storage {
+                strings.owned(&storage.project_id);
+                strings.opt(&storage.project_root);
+                strings.opt(&storage.worktree);
             }
             if let Some(ids) = &agent.subagent_ids {
                 for id in ids {
@@ -5968,7 +5983,34 @@ impl Reader {
                 s
             } else {
                 match assembled {
-                    Some(s) => s,
+                    Some(mut snapshot) => {
+                        // Thread ask counts depend on rows outside the cached item
+                        // window. The verified suffix covers card, run and message events.
+                        let owners: Vec<_> = changed_owners.iter().cloned().collect();
+                        let mut cards = HashMap::new();
+                        let mut estimates = HashMap::new();
+                        for batch in owners.chunks(500) {
+                            let counts = (|| -> rusqlite::Result<()> {
+                                cards.extend(source::read_ask_cards(&self.db, Some(batch))?);
+                                estimates.extend(source::read_estimated_asks(&self.db, Some(batch))?);
+                                Ok(())
+                            })();
+                            if let Err(e) = counts {
+                                if let (Some(cache), Some(undo)) = (self.cache.as_mut(), undo.take()) {
+                                    cache.restore(undo);
+                                }
+                                return Err(error(&self.path, e));
+                            }
+                        }
+                        counters.cache_rows_read += cards.len() + estimates.len();
+                        source::apply_thread_asks(
+                            &mut snapshot,
+                            &cards,
+                            &estimates,
+                            self.previous.as_ref().map(|previous| (previous, &changed_owners)),
+                        );
+                        snapshot
+                    }
                     None => match source::read_tracked(&self.db, &self.path, now, &mut report) {
                         Ok(mut snapshot) => {
                             if self.status_only {
@@ -6036,6 +6078,10 @@ impl Reader {
                     view_snapshot(&mut oracle);
                 }
                 serde_json::to_value(&snapshot).unwrap() != serde_json::to_value(&oracle).unwrap()
+                    || snapshot.agents.iter().zip(&oracle.agents)
+                        .any(|(a, b)| a.open_asks != b.open_asks
+                            || a.estimated_asks != b.estimated_asks
+                            || a.storage != b.storage)
             } else {
                 false
             };
@@ -6311,22 +6357,17 @@ mod privacy_tests {
                 "ordinal",
                 "requested_at",
                 "completed_at",
+                "status",
             ],
             "orchestration_v2_projection_subagents"
             | "orchestration_v2_projection_provider_threads" => &["payload_json", "thread_id"],
             "orchestration_v2_projection_nodes" => {
                 &["node_id", "parent_node_id", "run_id", "thread_id"]
             }
-            // The oracle's history CTE contains SELECT *, so SQLite authorizes
-            // these internal fields too. None crosses its outer projection.
             "orchestration_v2_projection_provider_turns" => &[
-                "provider_turn_id",
                 "thread_id",
                 "provider_thread_id",
-                "node_id",
-                "run_attempt_id",
                 "ordinal",
-                "status",
                 "started_at",
                 "completed_at",
                 "payload_json",
@@ -6339,6 +6380,17 @@ mod privacy_tests {
                 "status",
                 "created_at",
                 "resolved_at",
+                "payload_json",
+            ],
+            "orchestration_v2_projection_messages" => &[
+                "thread_id",
+                "message_id",
+                "node_id",
+                "role",
+                "streaming",
+                "created_at",
+                "updated_at",
+                "payload_json",
             ],
             "orchestration_v2_projection_turn_items" => &[
                 "thread_id",
@@ -6552,6 +6604,31 @@ mod privacy_tests {
         assert_eq!(next.next.cursor, 2);
         assert_eq!(next.threads, BTreeSet::from(["b".to_owned()]));
         reader.db.execute_batch("ROLLBACK").unwrap();
+    }
+
+    #[test]
+    fn only_integer_command_exit_codes_cross_the_dashboard_projection() {
+        let db = support::Db::new();
+        db.db.execute_batch(r#"
+            INSERT INTO orchestration_v2_projection_turn_items
+                (turn_item_id,thread_id,ordinal,type,status,updated_at,payload_json)
+            VALUES ('tool','a',1,'dynamic_tool','failed','','{"exitCode":"EXIT_SENTINEL"}'),
+                   ('bad-command','a',2,'command_execution','failed','','{"exitCode":"EXIT_SENTINEL"}'),
+                   ('valid-command','a',3,'command_execution','failed','','{"exitCode":17}'),
+                   ('numeric-tool','a',4,'dynamic_tool','failed','','{"exitCode":18}'),
+                   ('oversized','a',5,'command_execution','failed','','{"exitCode":2147483648}'),
+                   ('boolean','a',6,'command_execution','failed','','{"exitCode":true}');
+        "#).unwrap();
+        let keys = format!("{} ORDER BY ordinal", cache::queries()[7].1);
+        let items = format!("SELECT {} FROM orchestration_v2_projection_turn_items ORDER BY ordinal", source::item_fields());
+        for sql in [keys, items] {
+            let mut stmt = db.db.prepare(&sql).unwrap();
+            let exit = stmt.column_index("exit_code").unwrap();
+            let values = stmt.query_map([], |row| row.get::<_, rusqlite::types::Value>(exit))
+                .unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+            use rusqlite::types::Value::{Integer, Null};
+            assert_eq!(values, [Null, Null, Integer(17), Null, Null, Null], "{sql}");
+        }
     }
 
     #[test]

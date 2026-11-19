@@ -25,12 +25,20 @@ it's already open with its app id, which foot always sets and
 | `t` | lane window: 15 min, 30 min, 1 h, 3 h |
 | `J` `K` / `PgDn` `PgUp`, wheel over details | scroll the details |
 | `p` / `r` | pause updates / refresh now |
+| `s` | Storage: disk use by project and thread |
 | `m` | calm mode: nothing animates (on by default when Omarchy's animations are off) |
 | `x` | CRT effects, purely for fun (off in calm mode) |
 | `c` / `C` | next / previous theme, saved for next time ([themes](themes.md)) |
+| `w` | [trace](features.md#trace) the selected agent's task: every step on one clock; `w` or `Esc` goes back |
 | `?` / `h` | help and legend (scroll it with `↑` `↓` / `j` `k` or the wheel) |
-| `Esc` | close the help, or quit |
+| `Esc` | close help, return from Storage, or quit |
 | `q` | quit |
+
+In Storage, use the arrows or wheel to select a row, Space to fold a project,
+Enter to open an eligible thread in T3 Code, and `r` to measure again. Press `s`
+or Esc to return to the dashboard. Disk measurements are available with the live
+dashboard on Linux. The demo uses sample sizes, and an explicit `--db` leaves
+filesystem measurements unavailable.
 
 The numpad works too: its Enter opens threads, and with Num Lock off its arrows,
 Home, End and Page Up/Down act like the main keys.
@@ -40,6 +48,8 @@ Home, End and Page Up/Down act like the main keys.
 | `⠹` | running (`◉` in calm mode) |
 | `◔` | queued or starting |
 | `◆` | needs you; blinks until you've seen it (selected it, or opened it in T3), also on a folded parent |
+| `◇1` | one recorded ask that can stay open while the thread works |
+| `~2` | two estimated asks in an agent reply since you last wrote |
 | `◌` | running, but nothing new for 2 minutes; `◌ stalled` and warm after 8 |
 | `△` | a tool call running over 5 minutes |
 | `—` | no value, with the reason beside it |
@@ -65,7 +75,14 @@ Options:
 | `--theme NAME` | a [theme](themes.md): a built-in, a file, `omarchy`, or `dark:NAME,light:NAME` |
 | `--themes` | list the themes and say which one is in use |
 | `--theme-check NAME` | a theme's colors, contrast and colorblind separation |
+| `--recap` | [last week on one card](features.md#recap); with `--this-week`, the current week so far; with `--month` or `--this-month`, [a month](features.md#a-month); with `--json`, the numbers; `--wide`, `--compact` or `--narrow` picks [the card's size](features.md#the-wide-card) |
+| `--tools` | [what agents ran last week and what failed](features.md#tools); with `--this-week`, `--month`, `--this-month` or `--json`, as `--recap`; `--wide` or `--compact` picks the report's size |
+| `--trace [ID]` | [one task on a time axis](features.md#trace): the latest, a thread's latest (its id, or the end of it), or the task that holds a run; with `--json`, the spans |
 | `--help` | list the options |
+
+Recap and Tools read directly by default. Set `T3_AGENTS_CACHE=1` to reuse
+facts for finished runs on supported Linux filesystems.
+`T3_AGENTS_NO_CACHE=1` takes precedence.
 
 By default it reads `~/.t3/userdata/statev2.sqlite`. If your T3 data lives
 somewhere else, set `T3CODE_HOME` to that folder (it reads

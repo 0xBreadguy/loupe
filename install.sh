@@ -113,6 +113,42 @@ has_original_marker() { [[ -f $1 && ! -L $1 ]] && grep -qF -e "$original_marker"
 
 if ((uninstall)); then
   removed=0
+  # The persistent lock inode is shared with live cache users. Never unlink it: a
+  # new process could otherwise lock a different inode while uninstall is running.
+  cache_base=${XDG_CACHE_HOME:-$HOME/.cache}
+  [[ $cache_base == /* ]] || cache_base="$HOME/.cache"
+  cache_dir="$cache_base/$name"
+  cache_owner="$cache_dir/insights.owner"
+  cache_lock="$cache_dir/insights.lock"
+  if [[ -L $cache_base || -L $cache_dir ]]; then
+    printf 'Leaving cache at %s: its directory is a symbolic link.\n' "$cache_dir" >&2
+  elif [[ -d $cache_dir && -f $cache_owner && ! -L $cache_owner ]] &&
+       [[ $(cat -- "$cache_owner") == 't3-agents insights cache v1' ]]; then
+    if [[ -f $cache_lock && ! -L $cache_lock ]] && command -v flock >/dev/null &&
+       { exec {cache_fd}<"$cache_lock"; } && flock -n -x "$cache_fd"; then
+      database="$cache_dir/insights.sqlite3"
+      # A marker alone does not prove that a database has not been replaced.
+      # Check the SQLite header and our application_id before unlinking anything.
+      if [[ -f $database && ! -L $database ]] && command -v od >/dev/null && command -v tr >/dev/null &&
+         [[ $(od -An -tx1 -N16 -- "$database" | tr -d ' \n') == 53514c69746520666f726d6174203300 ]] &&
+         [[ $(od -An -tx1 -j68 -N4 -- "$database" | tr -d ' \n') == 54534143 ]]; then
+        for path in "$database" "$database-wal" "$database-shm" "$database-journal"; do
+          if [[ -f $path && ! -L $path ]]; then
+            rm -f -- "$path"
+            printf 'Removed %s\n' "$path"
+            removed=1
+          fi
+        done
+        rm -f -- "$cache_owner"
+      else
+        printf 'Leaving cache at %s: the database is missing or is not owned by T3 Agents.\n' "$cache_dir" >&2
+      fi
+      flock -u "$cache_fd"
+      exec {cache_fd}<&-
+    else
+      printf 'Leaving cache at %s: it is in use or cannot be locked; remove it after closing the program.\n' "$cache_dir" >&2
+    fi
+  fi
   for path in "$launcher" "$desktop_file"; do
     [[ -e $path ]] || continue
     if has_marker "$path"; then
@@ -233,6 +269,7 @@ trap 'rm -f -- "$launcher_tmp"' EXIT
   printf 'name=%q # command name and app-id suffix\napp_id=%q # app id of the dashboard window\ntitle=%q # display name\nstatus_error=%q # JSON reason when the program is gone\n' \
     "$name" "$app_id" "$title" "$status_error"
   cat <<'SH'
+export T3_AGENTS_INSTALL_NAME="$name"
 app="${XDG_DATA_HOME:-$HOME/.local/share}/$name"
 program="$app/t3-agents-term"
 if [[ ! -x $program ]]; then

@@ -1,0 +1,11 @@
+ T3 Agents  TOOLS  Nov 9 – 15  can't read T3                  t3-agents --tools
+
+
+  Can't read the T3 database at ~/.t3/userdata/statev2.sqlite: database is
+  locked.
+
+  · Is T3 Code installed, and has it been opened at least once?
+  · T3 data somewhere else? Start with --db PATH, or set T3CODE_HOME to its
+    folder.
+  · Just looking? t3-agents --tools --demo shows a made-up week.
+

@@ -5,6 +5,7 @@
 use crate::{
     model::Snapshot,
     source::{self, SourceError},
+    trace::{self, Target, Trace},
 };
 use rusqlite::{Connection, params_from_iter, types::Value as SqlValue};
 use serde::Deserialize;
@@ -206,7 +207,7 @@ impl Writer<'_> {
             .as_object_mut()
             .expect("authored payload object")
             .insert("startedAt".into(), json!(iso(start)));
-        self.row(&format!("{PREFIX}turn_items"),json!({"item_id":format!("item-{n}"),"thread_id":w.thread,"run_id":w.run,"node_id":null,"provider_thread_id":w.provider,"type":kind,"status":status,"updated_at":iso(updated),"ordinal":n,"payload_json":payload}))
+        self.row(&format!("{PREFIX}turn_items"),json!({"turn_item_id":format!("item-{n}"),"thread_id":w.thread,"run_id":w.run,"node_id":null,"provider_thread_id":w.provider,"type":kind,"status":status,"updated_at":iso(updated),"ordinal":n,"payload_json":payload}))
     }
 }
 struct Scene<'a> {
@@ -333,7 +334,10 @@ impl Scene<'_> {
             if t > self.now {
                 continue;
             }
-            let c = call(spec);
+            let mut c = call(spec);
+            if c.kind == "user_input_request" && status == "pending" {
+                c.payload["requestId"] = json!(format!("req-{}", r.id));
+            }
             let open = status == "running" || status == "pending";
             let done = self.now.min(t + ran * MIN);
             self.w
@@ -600,10 +604,19 @@ CREATE TABLE orchestration_v2_projection_subagents(subagent_id TEXT PRIMARY KEY,
 CREATE TABLE orchestration_v2_projection_nodes(node_id TEXT PRIMARY KEY,thread_id TEXT,parent_node_id TEXT,run_id TEXT);
 CREATE TABLE orchestration_v2_projection_provider_threads(provider_thread_id TEXT PRIMARY KEY,thread_id TEXT,payload_json TEXT);
 CREATE TABLE orchestration_v2_projection_provider_turns(thread_id TEXT,provider_thread_id TEXT,ordinal INTEGER,payload_json TEXT,started_at TEXT,completed_at TEXT);
-CREATE TABLE orchestration_v2_projection_turn_items(item_id TEXT PRIMARY KEY,thread_id TEXT,run_id TEXT,node_id TEXT,provider_thread_id TEXT,type TEXT,status TEXT,updated_at TEXT,ordinal INTEGER,payload_json TEXT);
+CREATE TABLE orchestration_v2_projection_turn_items(turn_item_id TEXT PRIMARY KEY,thread_id TEXT,run_id TEXT,node_id TEXT,provider_thread_id TEXT,type TEXT,status TEXT,updated_at TEXT,ordinal INTEGER,payload_json TEXT);
 CREATE TABLE orchestration_v2_projection_runtime_requests(request_id TEXT PRIMARY KEY,thread_id TEXT,node_id TEXT,kind TEXT,status TEXT,created_at TEXT,resolved_at TEXT);";
 
 pub fn snapshot(now: f64, epoch: f64) -> Result<Snapshot, SourceError> {
+    source::synthetic_snapshot(&projection(now, epoch)?, now)
+}
+
+/// Read task history at the dashboard snapshot's point in the demo cycle.
+pub fn trace(now: f64, epoch: f64, target: &Target) -> Result<Option<Trace>, SourceError> {
+    trace::read_from(&projection(now, epoch)?, std::path::Path::new("synthetic:demo"), target, now)
+}
+
+fn projection(now: f64, epoch: f64) -> Result<Connection, SourceError> {
     if !now.is_finite() || !epoch.is_finite() {
         return Err(error("invalid demo clock"));
     }
@@ -642,7 +655,7 @@ pub fn snapshot(now: f64, epoch: f64) -> Result<Snapshot, SourceError> {
         scene.thread(role, None).map_err(error)?;
     }
     db.execute_batch("COMMIT").map_err(error)?;
-    source::synthetic_snapshot(&db, now)
+    Ok(db)
 }
 
 #[cfg(test)]

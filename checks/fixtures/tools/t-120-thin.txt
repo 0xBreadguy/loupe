@@ -1,0 +1,79 @@
+ T3 Agents  TOOLS  Nov 9 – 15, 2026  7 of 7 days recorded                                             t3-agents --tools
+
+  CALLS                         CALL TIME                     FAILED                        LONGEST CALL
+  ▄  ▄  ▄▄                       ▄   ▄▄▄▄                     ▄  ▄                          ▄▄▄    ▄  ▄  ▄▄
+  █▄▄█ █  █                     ▀█   █▄▄                      █▄▄█                           ▄▄▀   █▄▄█ ▀▄▄█
+     █ ▀▄▄▀                     ▄█▄  ▄▄▄▀ m                      █                          ▄▄▄▀ m    █  ▄▄▀ s
+  26 of them commands           leaves out 3 calls            10% of calls                  cargo · codex
+
+ HOW LONG THEY TOOK ──────────────────────────────────────────────  14% of calls took a minute or more: 88% of the time
+         under 1s              1–10s                 10–60s                1–10 min              over 10 min
+ calls   █████████▉      70%   █▏               8%   █▏               8%   █▉              14%                     –
+ time    ▏               <1%   ▏                1%   █▌              11%   ████████████▍   88%                     –
+
+ BY KIND ─────────────────────────────────────────────────────────────────────────────────────────────────────  by time
+                                        calls                time              typical  longest  failed
+ ❯ commands                                26 ████████████    12m ████████████     <1s    3m49s       4   15%
+ ◈ other tools                              5 ██▎              3m ███              <1s    3m00s    none
+ ⊕ web searches                             2 ▉                7s ▏                 3s       3s    none
+ ± file changes                             6 ██▊              1s ▏                <1s      <1s    none
+ ◎ reads                                    1 ▌               <1s ▏                <1s      <1s    none
+
+ COMMANDS BY PROGRAM ───────────────────────────────────────────────────────────────  75 programs on the list · by time
+                                        calls                time              typical  longest  failed
+   not on the list                          2 ██▋              5m ████████████   2m42s    3m15s    none
+   cargo                                    3 ████             5m ██████████▋    2m24s    3m49s       2  too few to say
+   python3                                  4 █████▍           2m ████             25s    1m18s    none
+   git                                      9 ████████████    14s ▌                <1s      13s       1  too few to say
+   sed                                      4 █████▍          <1s ▏                <1s      <1s    none
+   ls                                       1 █▍              <1s ▏                <1s      <1s    none
+   rg                                       2 ██▋             <1s ▏                <1s      <1s       1  too few to say
+   mkdir                                    1 █▍          unknown                    –        –    none
+   also inside other command lines  echo 4 · head 4 · tail 3 · cat 2 · grep 1 · mkdir 1
+
+ WHY COMMANDS FAILED ────────────────────────────────────────────────────────────────────  3 of the 4 have an exit code
+   exit 1                     1 ████████████  an error, or a test that failed         git 1
+   found nothing              1 ████████████  rg or grep, exit 1                      rg 1
+   another code               1 ████████████  any code not listed here                cargo 1
+   no exit code               1 ████████████  grok 1                                  cargo 1
+   Of grok's 3 commands, 1 has an exit code. Where a code was recorded, a command was marked failed exactly when its
+   code was not 0.
+
+ TOOLS BY NAME ─────────────────────────────────────────────────────────────────────────────────────  3 tools · by time
+                                        calls                time              typical  longest  failed
+ ◈ delegate_task t3-code                    1 ███              3m ████████████   3m00s    3m00s    none
+ ◈ update_plan                              4 ████████████    <1s ▏                <1s      <1s    none
+ ◎ view_image                               1 ███             <1s ▏                <1s      <1s    none
+   no name  file changes 6 · web searches 2
+
+ PROVIDERS ─────────────────────────────────────────────────────────────────  each decides for itself what failed means
+ ● codex                          23 commands       3 marked failed          37 calls · 15m
+ ● grok                            3 commands       1 marked failed       3 calls · unknown
+   └ 3 calls marked finished all at once: their time is not known
+
+ LONGEST CALLS ────────────────────────────────────────────────────────────────────────────  the 10 longest of the week
+                                       length  provider        started                                           thread
+ ❯ cargo                                3m49s  ● codex         Mon 03:23                                       a2f8efcd
+ ❯ not on the list                      3m15s  ● codex         Thu 09:09                                       9a3af75e
+ ◈ delegate_task t3-code                3m00s  ● codex         Mon 03:21                                       a2f8efcd
+ ❯ not on the list                      2m08s  ● codex         Thu 09:03                                       9a3af75e
+ ❯ python3                              1m18s  ● codex         Mon 16:42                                       7f75fc75
+ ❯ cargo                                  58s  ● codex         Mon 03:24       exit 101                        a2f8efcd
+ ❯ python3                                25s  ● codex         Mon 03:21                                       a2f8efcd
+ ❯ git                                    13s  ● codex         Mon 03:28                                       a2f8efcd
+ ⊕ web search                              3s  ● codex         Mon 16:44                                       7f75fc75
+ ❯ python3                                 3s  ● codex         Mon 16:46                                       7f75fc75
+
+ HOW THIS IS COUNTED ─────────────────────────────────────────────────────────────────────────────────────────────────
+ Time adds up each call's own length. Calls in a thread can overlap; counted once, they come to 13m on the clock.
+ Recap's 'tools' hours are counted another way.
+
+ 3 calls were marked finished all at once, though they started at different times, most likely when a run stopped. When
+ each really finished is not known, so their time is not counted and they are not among the longest: totals of time can
+ only be too small.
+
+ A line like "cd app && cargo test | tail" is one call, named for its main program, cargo: its time, failure and exit
+ code are the whole line's. 38% of command lines ran two or more programs on the list. Programs are named from a list
+ of 75 common ones; a command with none of them is "not on the list".
+
+ Only program and tool names and exit codes are read. Numbers may be cached in your cache folder; nothing is sent.

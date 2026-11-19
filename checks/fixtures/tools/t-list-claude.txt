@@ -1,0 +1,43 @@
+T3 AGENTS · TOOLS · Nov 9 – 15 · 7 of 7 days recorded
+
+calls        8,209  6,462 of them commands
+call time    28h  the same on the clock
+failed       133  2% of calls
+how long     78% of calls under a second: 1% of the time
+             4% of calls a minute or more: 80% of the time
+
+by kind      commands 6,462 · 24h · 111 failed (2%)
+             other tools 738 · 3.5h · 16 failed (2%)
+             web searches 175 · 19m · 2 failed (1%)
+             reads 682 · 4m · 4 failed (1%)
+             searches 152 · 1m · none failed
+
+programs     cargo 197 · 6.0h · 6 failed (3%)
+             python3 1,645 · 5.9h · 25 failed (2%)
+             grep 402 · 3.0h · 11 failed (3%)
+             node 133 · 2.4h · 4 failed (3%)
+             npm 106 · 1.5h · 4 failed (4%)
+             not on the list 268 · 1.1h · 10 failed (4%)
+             git 840 · 29m · 5 failed (1%)
+             rg 315 · 8m · 20 failed (6%)
+             sed 840 · 3m · 2 failed (<1%)
+             39 more 1,716 · 3.7h
+             75 programs on the list
+
+why failed   none of the 111 marked failed has an exit code
+             Of claude's 6,462 commands, none has an exit
+               code.
+
+tools        AskUserQuestion 4 · 2.0h · none failed
+             t3_thread_wait 14 · 49m · none failed
+             WebFetch 47 · 8m · 1 failed (2%)
+             Read 682 · 4m · 4 failed (1%)
+             Edit 210 · 2m · 9 failed (4%)
+             49 more 615 · 31m
+             no name  web searches 175
+
+providers    claude 6,462 commands · 111 marked failed
+
+longest      AskUserQuestion 1h36m · claude · fa76ac55
+             cargo 1h27m · claude · 06aaaf46 · failed
+             t3_thread_wait 38m · claude · 3d359e60

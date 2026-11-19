@@ -128,3 +128,13 @@ pub fn release_memory() {
         libc::malloc_trim(0);
     }
 }
+
+/// The terminal's columns and its rows, when standard output is one. Each is known on its own:
+/// a terminal that gives its width and no height is still that wide.
+pub fn terminal_size() -> (Option<usize>, Option<usize>) {
+    // SAFETY: `winsize` is plain data and the ioctl only writes into it.
+    let mut size: libc::winsize = unsafe { std::mem::zeroed() };
+    let ok = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ as _, &mut size) } == 0;
+    let known = |cells: u16| (ok && cells > 0).then_some(cells as usize);
+    (known(size.ws_col), known(size.ws_row))
+}

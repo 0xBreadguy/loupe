@@ -1,0 +1,39 @@
+T3 AGENTS · TOOLS · Nov 9 – 15 · 7 of 7 days recorded
+
+calls        40  26 of them commands
+call time    15m  leaves out 3 calls
+failed       4  10% of calls
+how long     70% of calls under a second: <1% of the time
+             14% of calls a minute or more: 88% of the time
+
+by kind      commands 26 · 12m · 4 failed (15%)
+             other tools 5 · 3m · none failed
+             web searches 2 · 7s · none failed
+             file changes 6 · 1s · none failed
+             reads 1 · <1s · none failed
+
+programs     not on the list 2 · 5m · none failed
+             cargo 3 · 5m · 2 failed (too few to say)
+             python3 4 · 2m · none failed
+             git 9 · 14s · 1 failed (too few to say)
+             sed 4 · <1s · none failed
+             3 more 4 · <1s
+             75 programs on the list
+
+why failed   3 of the 4 have an exit code
+             1 exit 1 · 1 found nothing · 1 another code
+             1 no exit code (grok 1)
+             Of grok's 3 commands, 1 has an exit code.
+
+tools        delegate_task 1 · 3m · none failed
+             update_plan 4 · <1s · none failed
+             view_image 1 · <1s · none failed
+             no name  file changes 6 · web searches 2
+
+providers    codex 23 commands · 3 marked failed
+             grok 3 commands · 1 marked failed
+             └ 3 calls marked finished all at once
+
+longest      cargo 3m49s · codex · a2f8efcd
+             not on the list 3m15s · codex · 9a3af75e
+             delegate_task 3m00s · codex · a2f8efcd

@@ -39,7 +39,7 @@ fn status_line_matches_frozen_oracle() {
                 }
                 let output = support::run(BINARY, &args, &home, &[]);
                 assert_eq!(output.status.code(), Some(0), "{label}: exit; {}", support::stdout_text(&output));
-                let actual = line(&output);
+                let actual = support::legacy_status(&line(&output));
                 if actual != expected {
                     failures.push(format!("{label}\n  recorded: {expected}\n  rust:     {actual}"));
                 }
@@ -73,7 +73,7 @@ fn status_line_matches_frozen_oracle() {
                 let expected = expected.replace("{path}", path_text);
                 let output = support::run(BINARY, &["--status", "--db", path_text], &home, &[]);
                 assert_eq!(output.status.code(), Some(0), "{label}: exit");
-                let actual = line(&output);
+                let actual = support::legacy_status(&line(&output));
                 if actual != expected {
                     failures.push(format!("{label}\n  recorded: {expected}\n  rust:     {actual}"));
                 }
@@ -83,7 +83,7 @@ fn status_line_matches_frozen_oracle() {
                 let args: Vec<&str> = args.iter().map(String::as_str).collect();
                 let output = support::run(BINARY, &args, &home, &[]);
                 assert_eq!(output.status.code(), Some(0), "{label}: exit; {}", support::stdout_text(&output));
-                let actual = support::stdout_text(&output);
+                let actual = support::legacy_status(&support::stdout_text(&output));
                 if actual != expected {
                     let recorded: Vec<&str> = expected.lines().collect();
                     let rust: Vec<&str> = actual.lines().collect();

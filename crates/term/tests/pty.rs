@@ -430,9 +430,12 @@ fn layout() -> (t3_agents_core::ui::Surface, String) {
     (surface, selected)
 }
 
+// These comparisons use the full-color cells from --frame-json.
+const FRAME_TERMINAL: &[(&str, &str)] = &[("TERM", "xterm-256color"), ("COLORTERM", "truecolor")];
+
 #[test]
 fn keys_match_frame_json_and_resize_repaints() {
-    let mut pty = Pty::spawn(COLS, ROWS, &[]);
+    let mut pty = Pty::spawn(COLS, ROWS, FRAME_TERMINAL);
     pty.wait_syncs(1);
     let quiet = pty.buf.len();
     std::thread::sleep(Duration::from_millis(200));
@@ -481,7 +484,7 @@ fn mouse_press_and_wheel_reach_the_model() {
     let press_at = (hit.rect.x, hit.rect.y);
     let pick = format!("pick:{}", hit.id);
 
-    let mut pty = Pty::spawn(COLS, ROWS, &[]);
+    let mut pty = Pty::spawn(COLS, ROWS, FRAME_TERMINAL);
     pty.wait_syncs(1);
     pty.send(&sgr_press(press_at.0, press_at.1));
     pty.wait_syncs(2);
@@ -504,7 +507,7 @@ fn mouse_press_and_wheel_reach_the_model() {
             }
         }
     }
-    let mut pty = Pty::spawn(COLS, ROWS, &[]);
+    let mut pty = Pty::spawn(COLS, ROWS, FRAME_TERMINAL);
     pty.wait_syncs(1);
     pty.send(&sgr_wheel(outside.0, outside.1, true));
     pty.wait_syncs(2);
@@ -517,7 +520,7 @@ fn mouse_press_and_wheel_reach_the_model() {
     // Help covers the window. At 233×55 the page fits, so this uses a shorter
     // grid where three rows of wheel scroll actually move the text.
     let (hcols, hrows) = help_size();
-    let mut pty = Pty::spawn(hcols, hrows, &[]);
+    let mut pty = Pty::spawn(hcols, hrows, FRAME_TERMINAL);
     pty.wait_syncs(1);
     pty.send(b"?");
     pty.wait_syncs(2);
@@ -542,7 +545,7 @@ fn mouse_press_and_wheel_reach_the_model() {
 
     // The demo's detail fits at 233×55. A shorter window makes it scroll.
     let (cols, rows, dx, dy) = detail_point();
-    let mut pty = Pty::spawn(cols, rows, &[]);
+    let mut pty = Pty::spawn(cols, rows, FRAME_TERMINAL);
     pty.wait_syncs(1);
     let before = pty.buf.len();
     pty.send(&sgr_wheel(dx, dy, true));
@@ -810,4 +813,355 @@ fn without_themes_nothing_is_asked_and_c_is_not_a_key() {
     assert!(!out.contains("\x1b[?2031h") && !out.contains("\x1b]11;?"), "{out}");
     assert!(!out.contains("theme:"), "{out}");
     assert!(!home.0.join(".config/t3-agents").exists());
+}
+
+#[test]
+fn storage_demo_opens_rescans_and_returns_through_the_product_entry() {
+    let home = Home::new("storage");
+    let t3 = home.0.join("t3");
+    let env = [
+        ("HOME", home.0.to_str().unwrap()),
+        ("T3CODE_HOME", t3.to_str().unwrap()),
+        ("TERM", "dumb"),
+        ("T3_FIXED_NOW", "1795026000000"),
+    ];
+    let mut pty = Pty::spawn_args(
+        80,
+        28,
+        &["--demo", "--calm", "--theme", "frontier"],
+        &env,
+        OUTSIDE,
+    );
+    pty.wait_syncs(1);
+    pty.send(b"?");
+    pty.wait_for(b"storage: disk use by project and thread", 1);
+    pty.send(b"s");
+    pty.wait_for(b"folders \xc2\xb7 scan", 1);
+    pty.send(b"r");
+    pty.wait_for(b"folders \xc2\xb7 scan", 2);
+    pty.send(b"h");
+    pty.wait_for(b"STORAGE HELP", 1);
+    pty.send(b"\x1b");
+    pty.wait_for(b"folders \xc2\xb7 scan", 3);
+    pty.send(b"\x1b");
+    pty.wait_for(b"AGENTS", 2);
+    pty.send(b"sq");
+    assert!(pty.wait().success());
+    pty.assert_restored();
+}
+
+#[test]
+fn storage_reopen_keeps_the_last_measurement_until_rescan() {
+    let home = Home::new("storage-reopen");
+    let t3 = home.0.join("t3");
+    let env = [
+        ("HOME", home.0.to_str().unwrap()),
+        ("T3CODE_HOME", t3.to_str().unwrap()),
+        ("TERM", "dumb"),
+        ("T3_FIXED_NOW", "1795026000000"),
+    ];
+    let mut pty = Pty::spawn_args(
+        80,
+        28,
+        &["--demo", "--calm", "--theme", "frontier"],
+        &env,
+        OUTSIDE,
+    );
+    pty.wait_syncs(1);
+    pty.send(b"s");
+    // The diff can split the finished word. The same prefix the product-entry
+    // test uses is contiguous and does not match "scanning…" or "last scan".
+    pty.wait_for(b"folders \xc2\xb7 scan", 1);
+    pty.send(b"\x1b");
+    pty.wait_for(b"AGENTS", 2);
+    pty.send(b"s");
+    pty.wait_for(b"last scan", 1);
+    // A PTY read can end after the heading but before the measured rows.
+    let heading = pty.buf.windows(9).position(|w| w == b"last scan").unwrap();
+    pty.wait_syncs(sync_ends(&pty.buf[..heading]) + 1);
+    let rest = String::from_utf8_lossy(&pty.buf[heading..]);
+    assert!(rest.contains("MB"), "{rest}");
+    pty.send(b"r");
+    pty.wait_for(b"folders \xc2\xb7 scan", 2);
+    pty.send(b"q");
+    assert!(pty.wait().success());
+    pty.assert_restored();
+}
+
+/// The demo with every product view, its bytes read into a virtual screen as they arrive, so a
+/// step is checked against what the terminal shows rather than against a byte in the stream.
+struct Shown {
+    pty: Pty,
+    screen: Screen,
+    fed: usize,
+    _home: Home,
+}
+
+impl Shown {
+    fn open(tag: &str, cols: u16, rows: u16) -> Self {
+        let home = Home::new(tag);
+        let t3 = home.0.join("t3");
+        let env = [
+            ("HOME", home.0.to_str().unwrap()),
+            ("T3CODE_HOME", t3.to_str().unwrap()),
+            ("TERM", "dumb"),
+            ("T3_FIXED_NOW", "1795026000000"),
+        ];
+        let pty = Pty::spawn_args(cols, rows, &["--demo", "--calm", "--theme", "frontier"], &env, OUTSIDE);
+        Self { pty, screen: Screen::new(cols as usize, rows as usize), fed: 0, _home: home }
+    }
+
+    fn feed(&mut self) -> bool {
+        let eof = self.pty.pump();
+        self.screen.apply(&self.pty.buf[self.fed..]);
+        self.fed = self.pty.buf.len();
+        eof
+    }
+
+    fn rows(&self) -> Vec<String> {
+        self.screen.cells.chunks(self.screen.w).map(|row| row.iter().map(|c| c.text.as_str()).collect()).collect()
+    }
+
+    fn dump(&self) -> String {
+        self.rows().join("\n")
+    }
+
+    /// Wait until the screen shows `what`.
+    fn until(&mut self, what: &str, ok: impl Fn(&[String]) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        while Instant::now() < deadline {
+            let eof = self.feed();
+            if ok(&self.rows()) {
+                return;
+            }
+            assert!(!eof, "the program ended before {what}; screen:\n{}", self.dump());
+            select_fd(self.pty.master, false, 30);
+        }
+        panic!("{}x{}: timed out waiting for {what}; screen:\n{}", self.screen.w, self.screen.h, self.dump());
+    }
+
+    /// Read until nothing more arrives for a moment, then check the screen still shows `what`:
+    /// for keys a view ignores, which draw nothing.
+    fn still(&mut self, what: &str, ok: impl Fn(&[String]) -> bool) {
+        let mut quiet = Instant::now() + Duration::from_millis(250);
+        while Instant::now() < quiet {
+            let before = self.pty.buf.len();
+            assert!(!self.feed(), "the program ended; expected {what}");
+            if self.pty.buf.len() != before {
+                quiet = Instant::now() + Duration::from_millis(250);
+            }
+            select_fd(self.pty.master, false, 20);
+        }
+        assert!(ok(&self.rows()), "{}x{}: expected {what} to stay; screen:\n{}", self.screen.w, self.screen.h, self.dump());
+    }
+
+    fn key(&mut self, bytes: &[u8], what: &str, ok: impl Fn(&[String]) -> bool) {
+        self.pty.send(bytes);
+        self.until(what, ok);
+    }
+
+    /// Resize after the screen has settled; the program repaints everything at the new size.
+    fn resize(&mut self, cols: u16, rows: u16, what: &str, ok: impl Fn(&[String]) -> bool) {
+        self.still("the screen before a resize", |_| true);
+        self.pty.resize(cols, rows);
+        self.screen.resize(cols as usize, rows as usize);
+        self.until(what, ok);
+    }
+
+    fn quit(mut self, key: &[u8]) {
+        self.pty.send(key);
+        let status = self.pty.wait();
+        assert!(status.success(), "quit status {status}");
+        self.pty.assert_restored();
+    }
+}
+
+fn header(rows: &[String]) -> &str {
+    rows.first().map_or("", String::as_str)
+}
+fn footer(rows: &[String]) -> &str {
+    rows.iter().rev().find(|r| !r.trim().is_empty()).map_or("", String::as_str)
+}
+fn on_dashboard(rows: &[String]) -> bool {
+    header(rows).contains("DEMO")
+        && !header(rows).contains("STORAGE")
+        && rows.iter().any(|r| r.starts_with(" AGENTS"))
+        && !rows.iter().any(|r| r.contains("T3 Agents · help"))
+        && footer(rows).contains("demo data · made up")
+}
+fn on_help(rows: &[String]) -> bool {
+    rows.iter().any(|r| r.contains("╭─ T3 Agents · help")) && !header(rows).contains("TRACE")
+}
+fn on_storage(rows: &[String]) -> bool {
+    header(rows).contains("STORAGE") && rows.iter().any(|r| r.starts_with(" BY PROJECT")) && footer(rows).contains("s back")
+}
+fn on_storage_help(rows: &[String]) -> bool {
+    rows.iter().any(|r| r.starts_with(" STORAGE HELP")) && footer(rows).contains("s back")
+}
+fn on_trace_help(rows: &[String]) -> bool {
+    header(rows).contains("TRACE") && rows.iter().any(|r| r.contains("TRACE HELP"))
+        && rows.iter().any(|r| r.contains("task")) && rows.iter().any(|r| r.contains("delegate"))
+        && footer(rows).split_whitespace().eq(["q", "quit"])
+}
+fn on_trace(rows: &[String]) -> bool {
+    header(rows).contains("TRACE") && header(rows).contains("made up")
+        && !rows.iter().any(|r| r.contains("TRACE HELP")) && footer(rows).contains("w back")
+}
+#[test]
+fn partial_trace_help_is_not_a_completed_navigation_frame() {
+    let rows = ["T3 Agents  TRACE  Example · made up", "TRACE HELP", "previous task", "open a delegate", "w back"]
+        .map(str::to_owned);
+    assert!(!on_trace(&rows));
+    assert!(!on_trace_help(&rows));
+}
+
+/// A size notice, whole: the full minimum with its full stop, so a clipped "60 × 1" fails.
+fn notice(rows: &[String], title: &str, size: &str, keys: &str) -> bool {
+    header(rows).trim_end() == format!(" {title}")
+        && rows.get(2).is_some_and(|r| r.trim() == format!("Enlarge the terminal to at least {size}."))
+        && rows.get(3).is_some_and(|r| r.trim() == keys)
+}
+fn trace_small(rows: &[String]) -> bool {
+    notice(rows, "T3 Agents", "60 × 16", "w back   q quit")
+}
+
+#[test]
+fn demo_trace_shows_the_selected_waiting_task() {
+    let mut v = Shown::open("demo-row-trace", 120, 40);
+    v.until("dashboard", on_dashboard);
+    v.key(b"w", "search trace with its pending question", |rows| {
+        on_trace(rows)
+            && header(rows).contains("Plan the search index rebuild")
+            && header(rows).contains("needs you 27m")
+            && rows[1].contains("opus 5.5")
+            && rows.iter().any(|r| r.contains("question"))
+    });
+    v.quit(b"q");
+}
+
+#[test]
+fn demo_trace_shows_a_different_selected_running_task() {
+    let mut v = Shown::open("demo-running-trace", 120, 40);
+    v.until("dashboard", on_dashboard);
+    v.pty.send(b"jj");
+    v.key(b"w", "streaming export trace", |rows| {
+        on_trace(rows)
+            && header(rows).contains("Add streaming export to the CLI")
+            && header(rows).contains("running 29m")
+            && rows[1].contains("grok-4.7")
+    });
+    v.quit(b"q");
+}
+
+#[test]
+fn demo_trace_shows_no_history_for_a_delegate_without_its_own_run() {
+    let mut v = Shown::open("demo-unavailable-trace", 120, 40);
+    v.until("dashboard", on_dashboard);
+    v.pty.send(b"j");
+    v.key(b"w", "no task history for Survey index sizes", |rows| {
+        rows.iter().any(|r| r.trim() == "Nothing to trace")
+    });
+    v.key(b"w", "dashboard", on_dashboard);
+    v.quit(b"q");
+}
+
+#[test]
+fn storage_demo_shows_sample_headroom_at_narrow_and_wide_sizes() {
+    let mut v = Shown::open("storage-headroom", 55, 24);
+    v.until("dashboard", on_dashboard);
+    v.key(b"s", "sample headroom", |rows| {
+        on_storage(rows)
+            && rows.iter().any(|r| r.contains("demo data"))
+            && rows.iter().any(|r| r.contains("free of"))
+    });
+    v.resize(120, 40, "sample headroom wide", |rows| {
+        rows.iter().any(|r| r.contains("demo data"))
+            && rows.iter().any(|r| r.contains("free of"))
+            && !rows.iter().any(|r| r.contains("from the file system"))
+    });
+    v.quit(b"q");
+}
+
+/// Dashboard, help, Storage and Trace reach each other and come back by their keys at 55 × 24,
+/// 60 × 20, 80 × 24 and 120 × 40, with each view's footer. At 55 columns Trace does not fit,
+/// and its notice must still go back with Esc or w rather than leave the user only `q`.
+#[test]
+fn combined_navigation_returns_to_each_view_at_every_size() {
+    for (cols, rows) in [(80u16, 24u16), (55, 24), (60, 20), (120, 40)] {
+        let fits = cols >= 60 && rows >= 16;
+        let traced = move |r: &[String]| if fits { on_trace(r) } else { trace_small(r) };
+        let mut v = Shown::open(&format!("nav-{cols}x{rows}"), cols, rows);
+        v.until("the dashboard", on_dashboard);
+
+        v.key(b"?", "help", on_help);
+        v.key(b"\x1b", "Esc closing help, not quitting", on_dashboard);
+
+        v.key(b"s", "Storage", on_storage);
+        v.key(b"?", "Storage's help", on_storage_help);
+        v.key(b"\x1b", "Esc closing Storage's help", on_storage);
+        v.key(b"\x1b", "Esc back to the dashboard", on_dashboard);
+        v.key(b"?", "help", on_help);
+        v.key(b"s", "s from help opening Storage with help closed", on_storage);
+        v.key(b"s", "s back to the dashboard", on_dashboard);
+
+        v.key(b"w", "Trace", traced);
+        v.key(b"?", "help over Trace", |r| {
+            if fits {
+                on_trace_help(r)
+            } else {
+                r.iter().any(|line| line.contains("TRACE HELP"))
+                    && r.iter().any(|line| line.contains("Esc") && line.contains("close help"))
+            }
+        });
+        v.key(b"\x1b", "Esc closing help back to Trace", traced);
+        v.pty.send(b"s");
+        v.still("Trace: s is not a key there", traced);
+        v.key(b"w", "w back to the dashboard (not Storage)", on_dashboard);
+        v.key(b"w", "Trace again", traced);
+        v.key(b"\x1b", "Esc back to the dashboard", on_dashboard);
+
+        v.key(b"w", "Trace before quitting", traced);
+        v.quit(b"q");
+    }
+}
+
+/// The size floors, crossed in place: the dashboard and Storage need 48 × 14, Trace 60 × 16.
+/// Each view repaints whole on the way down and on the way back, keeps its place, and its
+/// notice says the full minimum and the way back.
+#[test]
+fn view_size_floors_hold_across_resizes() {
+    let dash_small = |r: &[String]| notice(r, "T3 Agents", "48 × 14", "q quit");
+    let storage_small = |r: &[String]| notice(r, "T3 Agents · Storage", "48 × 14", "s back   q quit");
+    let mut v = Shown::open("floors", 60, 16);
+    v.until("the dashboard at 60 × 16", on_dashboard);
+    v.key(b"w", "Trace at 60 × 16", on_trace);
+    v.resize(59, 16, "Trace's notice at 59 × 16", trace_small);
+    v.resize(60, 16, "Trace again at 60 × 16", on_trace);
+    v.resize(60, 15, "Trace's notice at 60 × 15", trace_small);
+    v.key(b"\x1b", "Esc from Trace's notice to the dashboard at 60 × 15", on_dashboard);
+
+    v.key(b"s", "Storage at 60 × 15", on_storage);
+    v.resize(48, 14, "Storage at 48 × 14", on_storage);
+    v.resize(47, 14, "Storage's notice at 47 × 14", storage_small);
+    v.resize(48, 13, "Storage's notice at 48 × 13", storage_small);
+    v.key(b"s", "s from Storage's notice to the dashboard's", dash_small);
+    v.resize(48, 14, "the dashboard at 48 × 14", on_dashboard);
+    v.resize(47, 14, "the dashboard's notice at 47 × 14", dash_small);
+    v.key(b"w", "Trace's notice opened below its floor", trace_small);
+    v.resize(120, 40, "Trace at 120 × 40", on_trace);
+    v.key(b"w", "the dashboard at 120 × 40", on_dashboard);
+    v.quit(b"q");
+}
+
+// Deliberate product differences from the oracle: contextual return keys and complete minima.
+#[test]
+fn contextual_notices_and_demo_storage_are_honest() {
+    let mut v = Shown::open("context-notices", 120, 40);
+    v.until("dashboard", on_dashboard);
+    v.key(b"s", "demo Storage", |r| on_storage(r) && !r.iter().any(|line| line.contains("from the file system")));
+    v.resize(30, 14, "narrow Storage minimum", |r| r.iter().any(|line| line.contains("48 × 14")));
+    v.key(b"s", "narrow dashboard", |r| r.iter().any(|line| line.contains("48 × 14")));
+    v.key(b"w", "narrow Trace minimum", |r| r.iter().any(|line| line.contains("60 × 16")) && r.iter().any(|line| line.contains("w back")));
+    v.resize(10, 14, "very narrow Trace notice", |r| r.get(2).is_some_and(|line| !line.chars().any(|ch| ch.is_ascii_digit())));
+    v.quit(b"q");
 }

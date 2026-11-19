@@ -1,8 +1,8 @@
 // Scale-lab correctness cross-check per tier: the TypeScript Source snapshot
 // against `t3-agents-core --db PATH --now-ms N --dump-snapshot`, normalized the
 // way checks/scripts/demo-parity.mjs does it (recursive null stripping, root
-// path ignored). Nothing else is excluded: anything that differs is a real finding and
-// is printed with its path.
+// path ignored). The product suppresses private fields on secret and link cards.
+// Apply that rule only to the reference so a disclosure in Rust fails the check.
 //
 //   node checks/scripts/scale-parity.mjs [--schema t3|demo] [tiers...]
 //   node checks/scripts/scale-parity.mjs --db PATH [PATH...] [--now-ms N]
@@ -72,6 +72,15 @@ let failures = 0
 for (const path of dbs) {
   const tier = dbs.length > 1 ? path.split('/').pop().replace('.sqlite', '') : path
   const expected = normalized(new Source(path).snapshot(NOW), true)
+  // Keep the items, ownership, ordering and timings. A card contributes metadata only.
+  for (const agent of expected.agents) {
+    for (const card of [...agent.items, ...agent.recentFailures, agent.now]) {
+      if (card?.type !== 'secret_request' && card?.type !== 'link_request') continue
+      card.label = ''
+      delete card.tool
+      delete card.exit_code
+    }
+  }
   const result = spawnSync(binary, ['--db', path, '--now-ms', String(NOW), '--dump-snapshot'], { encoding: 'utf8', timeout: 300000, maxBuffer: 1024 * 1024 * 1024 })
   if (result.status !== 0) {
     report.tiers[tier] = { error: (result.stderr || result.error?.message || 'spawn failed').slice(0, 500) }

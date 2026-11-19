@@ -12,6 +12,11 @@ fn equal(a: &Snapshot, b: &Snapshot) {
         serde_json::to_value(a).unwrap(),
         serde_json::to_value(b).unwrap()
     );
+    for (a, b) in a.agents.iter().zip(&b.agents) {
+        assert_eq!(a.open_asks, b.open_asks, "{}", a.id);
+        assert_eq!(a.estimated_asks, b.estimated_asks, "{}", a.id);
+        assert_eq!(a.storage, b.storage, "{}", a.id);
+    }
 }
 fn poll(
     reader: &mut Reader,
@@ -35,7 +40,10 @@ fn poll(
         for a in &u.snapshot.agents {
             if let Some(b) = p.agents.iter().find(|b| b.id == a.id) {
                 let same =
-                    serde_json::to_value(&**a).unwrap() == serde_json::to_value(&**b).unwrap();
+                    serde_json::to_value(&**a).unwrap() == serde_json::to_value(&**b).unwrap()
+                        && a.open_asks == b.open_asks
+                        && a.estimated_asks == b.estimated_asks
+                        && a.storage == b.storage;
                 assert_eq!(Arc::ptr_eq(a, b), same);
                 assert_eq!(ids.contains(&a.id), !same);
                 if !same {
@@ -60,6 +68,49 @@ fn poll(
     }
     *previous = Some(u.snapshot.clone());
     u
+}
+
+#[test]
+fn storage_metadata_refreshes_even_when_the_display_cwd_stays_the_same() {
+    use serde_json::json;
+
+    let mut db = Db::new();
+    let root = db.path.parent().unwrap().to_owned();
+    let worktree = root.join("worktrees/explicit");
+    let payload = json!({"worktreePath": worktree, "settledOverride": "settled"});
+    db.thread("a", 0, payload.clone());
+    let mut reader = Reader::open(&db.path).unwrap().with_self_check(true);
+    let mut previous = None;
+    let initial = poll(&mut reader, &db, NOW, &mut previous);
+    let agent = &initial.snapshot.agents[0];
+    assert!(agent.shelf.as_ref().unwrap().settled);
+    let storage = agent.storage.as_ref().unwrap();
+    assert_eq!(storage.project_id, "p");
+    assert_eq!(storage.worktree.as_deref(), worktree.to_str());
+    assert_eq!(storage.project_root.as_deref(), Some("/synthetic"));
+    let wire = serde_json::to_value(&**agent).unwrap();
+    assert!(wire.get("storage").is_none());
+
+    let project_root = root.join("project");
+    db.db
+        .execute("UPDATE projection_projects SET workspace_root=?", [project_root.to_str().unwrap()])
+        .unwrap();
+    // A normal changed thread poll loads the updated project projection too.
+    db.thread("a", 1, payload);
+    let updated = poll(&mut reader, &db, NOW, &mut previous);
+    let agent = &updated.snapshot.agents[0];
+    assert_eq!(serde_json::to_value(&**agent).unwrap(), wire);
+    assert_eq!(
+        agent.storage.as_ref().unwrap().project_root.as_deref(),
+        project_root.to_str()
+    );
+    assert_eq!(updated.changed, Changed::Agents(vec!["a".into()]));
+
+    db.thread("a", 2, json!({}));
+    let updated = poll(&mut reader, &db, NOW, &mut previous);
+    let agent = &updated.snapshot.agents[0];
+    assert_eq!(agent.cwd, project_root.to_str().unwrap());
+    assert!(agent.storage.as_ref().unwrap().worktree.is_none());
 }
 #[test]
 fn seeded_transactions_and_clock_steps() {
@@ -3000,4 +3051,207 @@ fn the_status_only_reader_follows_the_ledger_and_commits_without_an_event() {
     db.silent(2);
     assert_eq!(check(&mut reader, &db, "after the migration").served, Served::Incremental);
     assert_eq!(reader.mismatches(), 0);
+}
+
+#[test]
+fn exact_runtime_asks_follow_the_request_node_and_activity_survives_message_mode() {
+    use t3_agents_core::{
+        model::{State, blocks_activity, needs_you, running, wants_attention},
+        ui,
+    };
+
+    let mut db = Db::new();
+    db.write("parent", 1);
+    db.thread("child", 2, serde_json::json!({
+        "lineage": {"relationshipToParent":"subagent", "parentThreadId":"parent"}
+    }));
+    db.touch("parent", 3, r#"
+        INSERT INTO orchestration_v2_projection_runs
+          (run_id,thread_id,ordinal,provider,status,requested_at,payload_json)
+        VALUES
+          ('run-p','parent',1,'codex','running','','{"id":"run-p","threadId":"parent","status":"running"}'),
+          ('run-c','child',1,'codex','running','','{"id":"run-c","threadId":"child","status":"running"}');
+        INSERT INTO orchestration_v2_projection_subagents
+          (subagent_id,thread_id,parent_node_id,child_thread_id,provider,origin,status,updated_at,payload_json)
+        VALUES ('delegate','parent','root','child','codex','native','running','',
+          '{"id":"delegate","threadId":"parent","childThreadId":"child","status":"running"}');
+        INSERT INTO orchestration_v2_projection_runtime_requests
+          (runtime_request_id,thread_id,node_id,kind,status,created_at,resolved_at,payload_json)
+        VALUES
+          ('ask','parent','delegate','user_input','pending','2026-11-12T11:01:00Z',NULL,
+            '{"responseCapability":{"type":"message","providerSessionId":"SYNTHETIC_PRIVATE"},"questions":["SYNTHETIC_PRIVATE"]}'),
+          ('approval','parent','root','approval','open','2026-11-12T11:01:00Z',NULL,
+            '{"responseCapability":{"type":"message"}}'),
+          ('wrong-state','parent','root','user_input','open','2026-11-12T11:01:00Z',NULL,'{}'),
+          ('resolved','parent','root','user_input','pending','2026-11-12T11:01:00Z','done','{}');
+        INSERT INTO orchestration_v2_projection_turn_items
+          (turn_item_id,thread_id,run_id,node_id,ordinal,type,status,updated_at,payload_json)
+        VALUES
+          ('working','child','run-c',NULL,1,'command_execution','running','2026-11-12T11:02:00Z','{}'),
+          ('question','child','run-c',NULL,2,'user_input_request','waiting','2026-11-12T11:03:00Z',
+            '{"questions":["SYNTHETIC_PRIVATE"]}');
+    "#);
+    let mut reader = Reader::open(&db.path).unwrap().with_self_check(true);
+    let mut previous = None;
+    let initial = poll(&mut reader, &db, NOW, &mut previous);
+    let parent = |s: &Snapshot| Arc::clone(s.agents.iter().find(|a| a.id == "parent").unwrap());
+    let child = |s: &Snapshot| Arc::clone(s.agents.iter().find(|a| a.id == "child").unwrap());
+    let agent = child(&initial.snapshot);
+    assert_eq!(agent.parent.as_deref(), Some("parent"));
+    assert_eq!(agent.open_asks.nonblocking, 1);
+    assert_eq!(agent.open_asks.blocking, 0);
+    assert_eq!(agent.asked.as_deref(), Some("2026-11-12T11:01:00Z"));
+    assert!(agent.requests.is_empty());
+    assert!(wants_attention(&agent) && running(&agent) && !needs_you(&agent) && !blocks_activity(&agent));
+    assert_eq!(agent.now.as_ref().unwrap().kind, "command_execution");
+    let root = parent(&initial.snapshot);
+    assert_eq!(root.requests, ["approval"]);
+    assert_eq!(root.open_asks, Default::default());
+    assert!(needs_you(&root) && !running(&root));
+    assert!(!format!("{initial:?}").contains("SYNTHETIC_PRIVATE"));
+    assert_eq!(initial.served, Served::Full);
+    let mut dashboard = State::new(Snapshot::default());
+    dashboard.apply(initial.snapshot, &initial.changed);
+    dashboard.pick_at("parent", NOW);
+    dashboard.action("n");
+    assert_eq!(dashboard.selected.as_deref(), Some("child"));
+    let draw = |s: &State| {
+        let (grid, frame) = ui::draw_grid(s, 120, 40, &s.palette);
+        let row = frame.hits.iter().find(|hit| hit.id == "child").unwrap().rect.y as usize;
+        let text = |cells: &[t3_agents_core::terminal::Cell]| -> String {
+            cells.iter().map(|c| c.ch).collect()
+        };
+        (text(&grid.cells[row * 120..][..120]), text(&grid.cells[frame.detail.y as usize * 120..]))
+    };
+    let (row, detail) = draw(&dashboard);
+    assert!(row.contains("◉") && row.contains("◇ 1 question open"), "{row}");
+    assert!(detail.contains("RUNNING") && detail.contains("the run keeps going"));
+
+    db.touch("parent", 4, r#"UPDATE orchestration_v2_projection_runtime_requests
+        SET payload_json=json_set(payload_json,'$.responseCapability.type','live')
+        WHERE runtime_request_id='ask'"#);
+    let live = poll(&mut reader, &db, NOW, &mut previous);
+    assert_eq!(live.served, Served::Incremental);
+    let agent = child(&live.snapshot);
+    assert_eq!(agent.open_asks.blocking, 1);
+    assert_eq!(agent.open_asks.nonblocking, 0);
+    assert_eq!(agent.requests, ["user_input"]);
+    assert!(needs_you(&agent) && !running(&agent) && blocks_activity(&agent));
+    dashboard.apply(live.snapshot, &live.changed);
+    let (row, detail) = draw(&dashboard);
+    assert!(row.contains("◆") && !row.contains("◇"), "{row}");
+    assert!(detail.contains("NEEDS YOU") && detail.contains("now  ◆ user input request"));
+
+    db.touch("parent", 5, "UPDATE orchestration_v2_projection_runtime_requests SET status='cancelled' WHERE runtime_request_id='ask'");
+    let cleared = poll(&mut reader, &db, NOW, &mut previous);
+    assert_eq!(cleared.served, Served::Incremental);
+    let agent = child(&cleared.snapshot);
+    assert_eq!(agent.open_asks, Default::default());
+    assert!(running(&agent) && !needs_you(&agent));
+    assert_eq!(parent(&cleared.snapshot).requests, ["approval"]);
+    dashboard.apply(cleared.snapshot, &cleared.changed);
+    assert!(draw(&dashboard).0.contains("◉"));
+    dashboard.action("n");
+    assert_eq!(dashboard.selected.as_deref(), Some("parent"));
+}
+
+#[test]
+fn exact_cards_use_their_own_run_and_clear_links_only_on_later_human_messages() {
+    use t3_agents_core::model::{AskCards, State, blocks_activity, needs_you, running, wants_attention};
+
+    let mut db = Db::with_schema(include_str!("../../../checks/fixtures/t3-schema-main-096.sql"));
+    db.write("a", 1);
+    db.write("b", 2);
+    db.touch("a", 3, r#"
+        INSERT INTO orchestration_v2_projection_runs
+          (run_id,thread_id,ordinal,provider,status,requested_at,completed_at,payload_json)
+        VALUES
+          ('old','a',1,'codex','completed','','2026-11-10T11:03:00Z',
+            '{"id":"old","threadId":"a","status":"completed"}'),
+          ('secret-run','a',2,'codex','running','',NULL,
+            '{"id":"secret-run","threadId":"a","status":"running"}'),
+          ('latest','a',3,'codex','running','',NULL,
+            '{"id":"latest","threadId":"a","status":"running"}');
+        INSERT INTO orchestration_v2_projection_turn_items
+          (turn_item_id,thread_id,run_id,node_id,ordinal,type,status,updated_at,payload_json)
+        VALUES
+          ('dead-secret','a','old','n',1,'secret_request','waiting','2026-11-10T11:01:00Z','{}'),
+          ('secret','a','secret-run','n',2,'secret_request','waiting','2026-11-10T11:01:00Z','{}'),
+          ('link','a','old','n',3,'link_request','waiting','2026-11-10T11:03:00Z',
+            '{"startedAt":"2026-11-10T11:01:00Z"}'),
+          ('active-link','a','latest','n',4,'link_request','waiting','2026-11-12T11:02:00Z',
+            '{"title":"SYNTHETIC_PRIVATE","label":"SYNTHETIC_PRIVATE","url":"SYNTHETIC_PRIVATE"}'),
+          ('work','a','latest','n',5,'command_execution','running','2026-11-12T11:01:00Z','{}');
+        INSERT INTO orchestration_v2_projection_messages
+          (message_id,thread_id,role,streaming,created_at,updated_at,payload_json)
+        VALUES
+          ('equal','a','user',0,'2026-11-10T11:01:00Z','2026-11-10T11:01:00Z','{"createdBy":"user","text":"SYNTHETIC_PRIVATE"}'),
+          ('assistant','a','assistant',0,'2026-11-12T11:55:00Z','2026-11-12T11:55:00Z','{"createdBy":"user"}'),
+          ('agent','a','user',0,'2026-11-12T11:55:00Z','2026-11-12T11:55:00Z','{"createdBy":"agent"}'),
+          ('unknown','a','user',0,'2026-11-12T11:55:00Z','2026-11-12T11:55:00Z','{}'),
+          ('compaction','a','user',0,'2026-11-12T11:55:00Z','2026-11-12T11:55:00Z','{"createdBy":"user","idleCompaction":"beforeCacheExpires"}'),
+          ('other','b','user',0,'2026-11-12T11:55:00Z','2026-11-12T11:55:00Z','{"createdBy":"user"}');
+    "#);
+    let mut reader = Reader::open(&db.path).unwrap().with_self_check(true);
+    let mut previous = None;
+    let a = |s: &Snapshot| Arc::clone(s.agents.iter().find(|a| a.id == "a").unwrap());
+    let initial = poll(&mut reader, &db, NOW, &mut previous);
+    let agent = a(&initial.snapshot);
+    assert_eq!(agent.open_asks.cards, AskCards { secret: 1, link: 2 });
+    assert!(needs_you(&agent) && blocks_activity(&agent) && !running(&agent));
+    assert_eq!(agent.now.as_ref().unwrap().kind, "command_execution");
+    assert!(!format!("{initial:?}").contains("SYNTHETIC_PRIVATE"));
+
+    db.write("b", 4);
+    let unrelated = poll(&mut reader, &db, NOW, &mut previous);
+    assert_eq!(unrelated.served, Served::Incremental);
+    assert!(Arc::ptr_eq(&agent, &a(&unrelated.snapshot)));
+
+    db.touch("a", 5, "UPDATE orchestration_v2_projection_runs SET status='completed',
+        completed_at='2026-11-12T11:53:00Z' WHERE run_id='secret-run'");
+    let ended = poll(&mut reader, &db, NOW, &mut previous);
+    assert_eq!(ended.served, Served::Incremental);
+    let agent = a(&ended.snapshot);
+    assert_eq!(agent.open_asks.cards, AskCards { secret: 0, link: 2 });
+    assert!(wants_attention(&agent) && running(&agent) && !needs_you(&agent) && !blocks_activity(&agent));
+
+    // The message event can clear a link without changing any cached turn item
+    // or the thread shell itself.
+    db.db.execute_batch(r#"
+        BEGIN;
+        INSERT INTO orchestration_v2_projection_messages
+          (message_id,thread_id,role,streaming,created_at,updated_at,payload_json)
+        VALUES ('follow-up','a','user',0,'2026-11-10T11:01:00Z','2026-11-10T11:02:00Z','{"createdBy":"user","text":"SYNTHETIC_PRIVATE"}');
+        INSERT INTO orchestration_v2_events(event_id,thread_id,event_type,occurred_at,payload_json)
+          VALUES('reply','a','message.updated','','{}');
+        UPDATE orchestration_v2_projection_metadata SET last_sequence=(SELECT max(sequence) FROM orchestration_v2_events)
+          WHERE projection_name='thread-projections';
+        COMMIT;
+    "#).unwrap();
+    let replied = poll(&mut reader, &db, NOW, &mut previous);
+    assert_eq!(replied.served, Served::Incremental);
+    assert_eq!(a(&replied.snapshot).open_asks.cards.link, 1);
+    assert_eq!(replied.changed, Changed::Agents(vec!["a".into()]));
+
+    db.touch("a", 7, "UPDATE orchestration_v2_projection_runs SET status='completed',
+        completed_at='2026-11-12T11:54:00Z', payload_json=json_set(payload_json,'$.status','completed')
+        WHERE run_id='latest'");
+    let idle = poll(&mut reader, &db, NOW, &mut previous);
+    let agent = a(&idle.snapshot);
+    assert_eq!(agent.open_asks.cards.link, 1);
+    assert!(needs_you(&agent) && !running(&agent));
+    let mut state = State::new(idle.snapshot);
+    state.scope = "active".into();
+    assert!(state.rows().iter().any(|row| row.id == "a"));
+
+    db.touch("a", 8, "UPDATE orchestration_v2_projection_turn_items SET status='completed'
+        WHERE turn_item_id='active-link'");
+    let linked = poll(&mut reader, &db, NOW, &mut previous);
+    assert_eq!(linked.served, Served::Incremental);
+    let agent = a(&linked.snapshot);
+    assert_eq!(agent.open_asks, Default::default());
+    assert!(!needs_you(&agent) && !wants_attention(&agent));
+    let mut state = State::new(linked.snapshot);
+    state.scope = "active".into();
+    assert!(state.rows().iter().all(|row| row.id != "a"));
 }

@@ -18,7 +18,7 @@ on:
         type: boolean
         default: true
       macos:
-        description: Run the unverified macOS job
+        description: Run the macOS preview checks
         type: boolean
         default: false
       windows:
@@ -69,27 +69,12 @@ jobs:
       - name: Rust workspace and parity gates
         run: checks/scripts/ci.sh
 
-  # macOS and Windows. Neither is supported yet, and the repository's author has no machine for
-  # either. They compile the Rust workspace for the runner's own target and run its tests.
-  # macOS, as of 2026-11-17: everything compiles, the core's tests pass, and inside tmux the
-  # presenter draws the recorded screens; its PTY tests hang and its exit tests do not start.
-  # Windows has never run.
-  #
-  # Each runs only when started by hand with its box ticked. To turn one on for every push and
-  # pull request, delete its `if:` line. To make its tests blocking once they are green, delete
-  # the `continue-on-error` line on the test step.
-  #
-  # What each can show:
-  #   check  The tree type-checks for that OS: the platform modules, the Windows stubs and, on
-  #          macOS, the pipe, pselect and ioctl code the presenter runs.
-  #   test   The unit tests that can run there. On macOS that includes the presenter's PTY
-  #          harness, including the idle-CPU test that catches a wait which spins. On Windows
-  #          the PTY harness is compiled out (no openpty) and the presenter is a stub.
-  # Neither runs the parity gates: they compare against the Node app and need tmux.
+  # Manual platform checks. macOS builds the preview and runs the workspace tests,
+  # including the presenter on a PTY. Windows type-checks the platform stubs.
   portability-macos:
     if: github.event_name == 'workflow_dispatch' && inputs.macos
     runs-on: macos-latest
-    # The PTY tests hang here (2026-11-17). A minute on this runner is billed as ten.
+    # Bound the manual job, including time spent in terminal tests.
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@v7
@@ -111,11 +96,16 @@ jobs:
       - name: tmux, for the recorded real-terminal check
         shell: bash
         run: brew install tmux && tmux -V
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: oracle/package-lock.json
+      - name: Generate synthetic terminal fixtures
+        run: |
+          npm ci --prefix oracle
+          node --experimental-ffi --disable-warning=ExperimentalWarning checks/scripts/fixtures.ts
       - name: cargo test
-        # Not yet green on this OS: one presenter test reads a fixture only the Linux job generates
-        # (it needs Node and the original app). Every other test is expected to pass. Delete the
-        # next line once the step has gone green.
-        continue-on-error: true
         shell: bash
         run: cargo test --release --locked --no-fail-fast
 

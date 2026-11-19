@@ -1,0 +1,54 @@
+T3 AGENTS · TOOLS · Nov 9 – 15 · 7 of 7 days recorded
+
+calls        27,754  18,474 of them commands
+call time    77h  leaves out 308 calls
+failed       956  3% of calls
+how long     80% of calls under a second: 1% of the time
+             3% of calls a minute or more: 77% of the time
+
+by kind      commands 18,474 · 68h · 832 failed (5%)
+             other tools 3,141 · 6.7h · 81 failed (3%)
+             web searches 500 · 51m · 4 failed (1%)
+             file changes 2,100 · 34m · 15 failed (1%)
+             searches 1,124 · 22m · none failed
+             reads 2,415 · 16m · 24 failed (1%)
+
+programs     python3 4,701 · 19h · 246 failed (5%)
+             cargo 562 · 14h · 56 failed (10%)
+             grep 1,151 · 8.1h · 77 failed (7%)
+             node 381 · 6.5h · 20 failed (5%)
+             not on the list 766 · 4.3h · 88 failed (11%)
+             git 2,400 · 1.4h · 51 failed (2%)
+             rg 900 · 24m · 108 failed (12%)
+             sed 2,400 · 9m · 9 failed (<1%)
+             40 more 5,213 · 15h
+             75 programs on the list
+
+why failed   678 of the 832 have an exit code
+             289 exit 1 · 145 exit 2 · 128 found nothing
+             63 another code · 32 stopped · 12 files differ
+             6 not installed · 2 timed out · 1 could not run
+             154 no exit code (claude 150 · grok 4)
+             Of claude's 7,573 commands, 29 have an exit
+               code.
+
+tools        AskUserQuestion 10 · 2.7h · none failed
+             t3_thread_wait 37 · 1.1h · 1 failed (3%)
+             delegate_task 225 · 30m · 17 failed (8%)
+             Read 1,950 · 12m · 19 failed (1%)
+             Edit 600 · 5m · 18 failed (3%)
+             75 more 3,168 · 2.4h
+             no name  file changes 2,100 · file searches 690
+               web searches 500
+
+providers    claude 7,573 commands · 151 marked failed
+             codex 8,116 commands · 573 marked failed
+             └ 6 calls marked finished all at once
+             opencode 2,361 commands · 78 marked failed
+             grok 410 commands · 30 marked failed
+             └ 299 calls marked finished all at once
+             not recorded 14 commands · none marked failed
+
+longest      python3 2h08m · codex · 594abb01 · timed out
+             AskUserQuestion 1h36m · claude · 5ed63f28
+             cargo 1h27m · claude · dca80ad3 · failed

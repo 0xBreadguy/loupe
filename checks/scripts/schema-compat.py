@@ -15,7 +15,8 @@ a = p.parse_args()
 (ROOT/'checks/generated/schema-compat').mkdir(parents=True, exist_ok=True)
 work = Path(tempfile.mkdtemp(prefix='run-', dir=ROOT/'checks/generated/schema-compat'))
 home = work/'empty-t3-home'; home.mkdir()
-env = {'PATH':os.environ['PATH'], 'T3CODE_HOME':str(home), 'TZ':'UTC', 'NO_COLOR':'1'}
+env = {k: os.environ[k] for k in ('TMPDIR', 'SQLITE_TMPDIR') if k in os.environ}
+env.update(PATH=os.environ['PATH'], T3CODE_HOME=str(home), TZ='UTC', NO_COLOR='1')
 node = ['node','--experimental-ffi','--disable-warning=ExperimentalWarning']
 binary = Path(os.environ.get('T3_NATIVE_BINARY', ROOT/'target/release/t3-agents-core')).resolve()
 now = '1794484800000'
@@ -43,6 +44,14 @@ def full(db):
     return normalize(ts), normalize(rust)
 def compare(db):
     ts, rust = full(db)
+    # The Rust reader deliberately projects card metadata without card content.
+    # Redact the oracle side only, so an accidental Rust disclosure fails parity.
+    for agent in ts.get('snapshot', {}).get('agents', []):
+        for item in [*agent['items'], *agent['recentFailures'], agent.get('now')]:
+            if item and item.get('type') in ('secret_request', 'link_request'):
+                item['label'] = ''
+                item.pop('tool', None)
+                item.pop('exit_code', None)
     if a.negative == 'parity' and 'snapshot' in rust: rust['snapshot']['agents'][0]['title'] = 'injected difference'
     if a.negative == 'message' and 'error' in rust: rust['error'] += ' injected difference'
     assert ts == rust, {'db':str(db), 'ts':ts if 'error' in ts else 'snapshot', 'rust':rust if 'error' in rust else 'snapshot', 'finding':'full readers differ'}
@@ -54,6 +63,15 @@ for version in versions:
     db = sqlite3.connect(dbpath)
     fixture = ROOT/'checks/fixtures'/('t3-schema-'+version+'.sql')
     db.executescript(fixture.read_text())
+    messages = 'orchestration_v2_projection_messages'
+    if version == 'legacy-054':
+        assert not db.execute(f'PRAGMA table_info({messages})').fetchall(), version
+    else:
+        indexes = {row[1] for row in db.execute(f'PRAGMA index_list({messages})')}
+        for name in ('thread_created', 'run', 'node', 'latest_user'):
+            assert f'{messages}_{name}_idx' in indexes, (version, 'missing message index', name)
+        columns = {row[1] for row in db.execute(f'PRAGMA table_info({messages})')}
+        assert ('search_text' in columns) == (version != 'older-074'), version
     for (table,) in source.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall():
         if table == 'effect_sql_migrations': continue
         columns = [row[1] for row in db.execute(f'PRAGMA table_info({table})')]

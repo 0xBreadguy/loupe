@@ -1,0 +1,98 @@
+ T3 Agents  TOOLS  Nov 9 – 15  demo data · made up            t3-agents --tools
+
+  CALLS                      CALL TIME                  FAILED
+  ▄▄▄   ▄▄                   ▄▄▄▄ ▄▄▄▄                   ▄▄  ▄▄▄▄  ▄▄
+   ▄▄▀ ▀▄▄▀                    ▄▀   ▄▀                  ▀▄▄█ █▄▄  █▄▄
+  █▄▄▄ ▀▄▄▀ K                 █    █   h                 ▄▄▀ ▄▄▄▀ ▀▄▄▀
+  18,474 of them commands    leaves out 308 calls       3% of calls
+
+ HOW LONG THEY TOOK ───────  3% of calls took a minute or more: 77% of the time
+         under 1s      1–10s         10–60s        1–10 min      over 10 min
+ calls   █████▋   80%  ▊        10%  ▌         7%  ▎         3%  ▏        <1%
+ time    ▏         1%  ▎         4%  █▎       18%  ███▏     45%  ██▎      31%
+
+ BY KIND ─────────────────────────────────────────────────────────────  by time
+                          calls           time         failed
+ ❯ commands              18,474 ███████    68h ███████    832    5%
+ ◈ other tools            3,141 █▎        6.7h ▋           81    3%
+ ⊕ web searches             500 ▎          51m ▏            4    1%
+ ± file changes           2,100 ▊          34m ▏           15    1%
+ ⊛ searches               1,124 ▍          22m ▏         none
+ ◎ reads                  2,415 ▉          16m ▏           24    1%
+
+ COMMANDS BY PROGRAM ───────────────────────  75 programs on the list · by time
+                          calls           time         failed
+   python3                4,701 ███████    19h ███████    246    5%
+   cargo                    562 ▉          14h █████▎      56   10%
+   grep                   1,151 █▊        8.1h ███         77    7%
+   node                     381 ▋         6.5h ██▌         20    5%
+   not on the list          766 █▏        4.3h █▋          88   11%
+   pytest                   151 ▎         3.3h █▎          38   25%
+   npm                      300 ▌         2.7h █           20    7%
+   git                    2,400 ███▋      1.4h ▌           51    2%
+   rg                       900 █▍         24m ▏          108   12%
+   sed                    2,400 ███▋        9m ▏            9   <1%
+   cat                    1,500 ██▎         4m ▏           15    1%
+   37 more                3,262           8.6h            104    3%
+   also inside other command lines  head 3,626 · echo 2,130 · tail 1,991
+
+ WHY COMMANDS FAILED ────────────────────────  678 of the 832 have an exit code
+   exit 1                   289 ███████  an error, or a test that failed
+   exit 2                   145 ███▌     often a wrong option or a missing file
+   found nothing            128 ███▏     rg or grep, exit 1
+   another code              63 █▌       any code not listed here
+   stopped                   32 ▊        interrupted, killed or crashed
+   files differ              12 ▎        diff, exit 1
+   not installed              6 ▏        no such program, exit 127
+   timed out                  2 ▏        timeout stopped it, exit 124
+   could not run              1 ▏        found but not runnable, exit 126
+   no exit code             154 ███▊     claude 150 · grok 4
+   Of claude's 7,573 commands, 29 have an exit code. Where a code was recorded,
+   a command was marked failed exactly when its code was not 0.
+
+ TOOLS BY NAME ────────────────────────────────────────────  79 tools · by time
+                          calls           time         failed
+ ◈ AskUserQuestion           10 ▏         2.7h ███████   none
+ ◈ t3_thread_wait            37 ▏         1.1h ███          1    3%
+ ◈ delegate_task            225 ▊          30m █▎          17    8%
+ ◈ WebFetch                 135 ▌          24m █            6    4%
+ ◎ Read                   1,950 ███████    12m ▌           19    1%
+ ◈ Edit                     600 ██▏         5m ▎           18    3%
+ ◎ read                     420 █▌          3m ▏            5    1%
+   73 more                2,613           1.9h             39    1%
+   no name  file changes 2,100 · file searches 690 · web searches 500
+
+ PROVIDERS ─────────────────────────  each decides for itself what failed means
+ ● claude          7,573 commands     151 marked failed      12,221 calls · 31h
+ ● codex           8,116 commands     573 marked failed      11,157 calls · 35h
+   └ 6 calls marked finished all at once: their time is not known
+ ● opencode        2,361 commands      78 marked failed      3,623 calls · 9.6h
+ ● grok              410 commands      30 marked failed        739 calls · 1.3h
+   └ 299 calls marked finished all at once: their time is not known
+   not recorded       14 commands    none marked failed          14 calls · 25s
+
+ LONGEST CALLS ─────────────────────────────────────  the 5 longest of the week
+                     length provider       started                       thread
+ ❯ python3            2h08m ● codex        Wed 08:07     timed out     594abb01
+ ◈ AskUserQuestion    1h36m ● claude       Mon 06:01                   5ed63f28
+ ❯ cargo              1h27m ● claude       Wed 23:18     failed        dca80ad3
+ ❯ not on the list    1h14m ● codex        Mon 22:53                   31b954b4
+ ❯ pytest             1h03m ● opencode     Wed 04:31     exit 1        3229ef32
+
+ HOW THIS IS COUNTED ─────────────────────────────────────────────────────────
+ Time adds up each call's own length. Calls in a thread can overlap; counted
+ once, they come to 72h on the clock. Recap's 'tools' hours are counted another
+ way.
+
+ 305 calls were marked finished all at once, though they started at different
+ times, most likely when a run stopped. When each really finished is not known,
+ so their time is not counted and they are not among the longest: totals of
+ time can only be too small. 3 more calls never ended and add no time.
+
+ A line like "cd app && cargo test | tail" is one call, named for its main
+ program, cargo: its time, failure and exit code are the whole line's. 57% of
+ command lines ran two or more programs on the list. Programs are named from a
+ list of 75 common ones; a command with none of them is "not on the list".
+
+ Only program and tool names and exit codes are read. Numbers may be cached in
+ your cache folder; nothing is sent.

@@ -1,0 +1,51 @@
+ T3 Agents  TOOLS  Nov 9 – 15  7 of 7 days recorded           t3-agents --tools
+
+  CALLS                      CALL TIME                  FAILED
+  ▄▄▄▄
+  █▄▄                        unknown                    none
+  ▄▄▄▀
+  3 of them commands         no length is known         of 5 calls
+
+ HOW LONG THEY TOOK ───────────────────────────────  no call has a known length
+         under 1s      1–10s         10–60s        1–10 min      over 10 min
+ calls              –             –             –             –             –
+ time               –             –             –             –             –
+
+ BY KIND ─────────────────────────────────────────────────────────────  by time
+                          calls           time         failed
+ ❯ commands                   3 ██████ unknown           none
+ ◎ reads                      1 ██▍    unknown           none
+ ± file changes               1 ██▍    unknown           none
+
+ COMMANDS BY PROGRAM ───────────────────────  75 programs on the list · by time
+                          calls           time         failed
+   cargo                      2 ██████ unknown           none
+   not on the list            1 ███▌   unknown           none
+
+ WHY COMMANDS FAILED ─────────────────────────────────────────────────────────
+   No command was marked failed.
+
+ TOOLS BY NAME ──────────────────────────────────────────────  1 tool · by time
+                          calls           time         failed
+ ◎ view_image                 1 ██████ unknown           none
+   no name  file changes 1
+
+ PROVIDERS ─────────────────────────  each decides for itself what failed means
+ ● codex               3 commands    none marked failed       5 calls · unknown
+
+ LONGEST CALLS ───────────────────────────────────────────────────────────────
+   No call has a known length.
+
+ HOW THIS IS COUNTED ─────────────────────────────────────────────────────────
+ Time adds up each call's own length; no call here has one. Recap's 'tools'
+ hours are counted another way.
+
+ 5 calls never ended and add no time.
+
+ A line like "cd app && cargo test | tail" is one call, named for its main
+ program, cargo: its time, failure and exit code are the whole line's. No
+ command line ran two or more programs on the list. Programs are named from a
+ list of 75 common ones; a command with none of them is "not on the list".
+
+ Only program and tool names and exit codes are read. Numbers may be cached in
+ your cache folder; nothing is sent.

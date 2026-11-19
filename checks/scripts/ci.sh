@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-export T3CODE_HOME
-T3CODE_HOME=$(mktemp -d)
-trap 'rm -rf "$T3CODE_HOME"' EXIT
+scratch=$(mktemp -d)
+trap 'rm -rf -- "$scratch"' EXIT
+export T3CODE_HOME="$scratch/t3"
+mkdir -p "$T3CODE_HOME" "$scratch/oracle-home"
 
 step() {
   local name=$1 start=$SECONDS status
@@ -22,6 +23,11 @@ dashboard() { (cd oracle && "$@"); }
 
 step 'Install dashboard dependencies' dashboard npm ci
 step 'Build Rust workspace' cargo build --release --locked
+step 'Prose ask counts' checks/scripts/asks-count.sh
+if [[ $(uname -s) == Linux ]]; then
+  step 'Linux storage inventory against independent metadata walk' checks/scripts/storage-walker.sh
+fi
+step 'Ask privacy and numeric output' checks/scripts/asks-privacy.sh
 step 'Generate fixtures' node_gate fixtures.ts
 step 'Generate replay' node_gate replay.ts
 step 'Rust tests' cargo test --release --locked
@@ -43,14 +49,22 @@ step 'Cross-machine parity UTC' env TZ=UTC node --experimental-ffi --disable-war
 step 'Text parity' node_gate text-parity.ts
 step 'Status parity' node_gate status-parity.ts
 step 'CLI parity' node_gate cli-parity.ts
+step 'Recap command line' python3 checks/scripts/recap-check.py
+step 'Recap cache' python3 checks/scripts/insights-cache-check.py
+step 'Recap and Tools sharing one cache' python3 checks/scripts/recap-tools-cache-check.py
 step 'Status watcher on changing databases' node_gate status-live-parity.ts
 step 'Installer and launcher parity' node_gate install-parity.mjs
 step 'T3 schema versions 054 to 096' python3 checks/scripts/schema-compat.py
+step 'Tools report against an independent count' python3 checks/scripts/tools-check.py
+step 'Tools report, one connection and SQLite'"'"'s parser' env T3_AGENTS_READ_THREADS=1 T3_AGENTS_SKIM=off python3 checks/scripts/tools-check.py
 step 'Real terminal parity (tmux)' node_gate terminal-parity.ts
 # The Rust layout of grapheme clusters against the original renderer's own buffer.
 step 'Cluster layout fuzz (20,000 seeded strings)' node_gate cluster-fuzz.ts
 step 'Terminal capability parity (fake foot on a pty)' node_gate terminal-caps-parity.ts
 step 'Grid parity: Asia/Kolkata' env GATE_TZ=Asia/Kolkata node --experimental-ffi --disable-warning=ExperimentalWarning checks/scripts/grid-parity.ts
-step 'Dashboard tests' dashboard npm test
+# The reference expects absolute paths for fixtures outside its home. This also
+# holds when TMPDIR is on a home volume instead of the system temporary disk.
+step 'Dashboard tests' dashboard env -i HOME="$scratch/oracle-home" PATH="$PATH" \
+  TMPDIR="${TMPDIR:-/tmp}" T3CODE_HOME="$T3CODE_HOME" npm test
 step 'Dashboard type check' dashboard npm run check
 step 'Whitespace check' git diff --check

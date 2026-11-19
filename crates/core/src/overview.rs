@@ -194,20 +194,6 @@ fn status(a: &Agent, pc: Option<&model::Pace>, s: &State, p: &Palette) -> (char,
         _ => ('·', p.dim),
     }
 }
-fn waiting_since(a: &Agent) -> Option<f64> {
-    let item = a.items.iter().find(|i| {
-        model::category(&i.kind, i.tool.as_deref()) == "ask"
-            && matches!(
-                i.status.as_str(),
-                "running" | "starting" | "preparing" | "queued" | "waiting" | "pending" | "active"
-            )
-    });
-    model::ms(a.asked.as_deref())
-        .or_else(|| item.and_then(|i| model::ms(i.started_at.as_deref())))
-        .or_else(|| item.and_then(|i| model::ms(Some(&i.updated_at))))
-        .or_else(|| model::ms(a.updated.as_deref()))
-}
-
 pub fn face_for(w: i32, h: i32) -> Face {
     let (_, tw) = tile_grid(w, 6);
     if h >= 44 && tw - 3 >= big_width("100%", Face::Shadow) {
@@ -233,14 +219,14 @@ fn whole(s: &str) -> String {
     terminal::whole(s)
 }
 
-pub(crate) fn draw_header_kpis_limits(
+pub(crate) fn draw_header(
     c: &mut Canvas,
     s: &State,
     p: &Palette,
-    prepared: &Prepared,
-) -> Overview {
+    linked: Option<&Agent>,
+    storage: bool,
+) {
     let w = c.w as i32;
-    let h = c.h as i32;
     c.fill(0, 0, w, 1, p.panel);
     let mut x = 1 + c.text_bold(1, 0, "T3 Agents", p.bright) + 2;
     if s.paused {
@@ -269,16 +255,14 @@ pub(crate) fn draw_header_kpis_limits(
     if s.calm {
         x += 2 + c.text(x + 2, 0, "calm", p.text2);
     }
-    if s.demo {
+    if storage {
+        x += 2 + c.text_bg(x + 2, 0, " STORAGE ", p.bg, p.text2, true);
+    }
+    if s.demo && (!storage || x + 8 < w - 9) {
         x += 1 + c.text_bg(x + 1, 0, " DEMO ", p.bg, p.text2, true);
     }
     let room = w - x - 34;
-    if let Some(linked) = s
-        .linked
-        .as_ref()
-        .and_then(|id| prepared.by_id.get(id.as_str()).map(|i| &s.snap.agents[*i]))
-        .filter(|_| room >= 12)
-    {
+    if let Some(linked) = linked.filter(|_| room >= 12) {
         x += 1 + c.text(x + 1, 0, "▎", p.fg);
         x += c.text(x, 0, "T3 ", p.dim);
         c.text(
@@ -314,6 +298,21 @@ pub(crate) fn draw_header_kpis_limits(
     } else if w - 11 - width(&window) > x + 1 {
         c.right(w - 11, 0, &window, p.dim);
     }
+}
+
+pub(crate) fn draw_header_kpis_limits(
+    c: &mut Canvas,
+    s: &State,
+    p: &Palette,
+    prepared: &Prepared,
+) -> Overview {
+    let h = c.h as i32;
+    let w = c.w as i32;
+    let linked = s
+        .linked
+        .as_ref()
+        .and_then(|id| prepared.by_id.get(id.as_str()).map(|i| s.snap.agents[*i].as_ref()));
+    draw_header(c, s, p, linked, false);
     let mut result = draw_kpis(c, 1, s, p, face_for(w, h), h >= 30, prepared);
     let limited: Vec<&Provider> = s.usage.iter().filter(|u| !u.limits.is_empty()).collect();
     if !limited.is_empty() {
@@ -437,8 +436,22 @@ fn draw_kpis(
     let waiting: Vec<&Agent> = agents
         .iter()
         .map(|a| &**a)
-        .filter(|a| model::needs_you(a))
+        .filter(|a| model::wants_attention(a))
         .collect();
+    let mut stopped = 0;
+    let mut open_while_working = 0;
+    let mut open_idle = 0;
+    for a in &waiting {
+        let count = model::pending_count(a);
+        if model::needs_you(a) {
+            stopped += count;
+        } else if model::running(a) {
+            open_while_working += count;
+        } else {
+            open_idle += count;
+        }
+    }
+    let pending = stopped + open_while_working + open_idle;
     let (count, tw) = tile_grid(w, 6);
     let spark_w = (if count == 3 { w - 2 * (tw + 1) } else { tw } - 3).max(1);
     let size = ((window / spark_w as f64 / 1000.).round() * 1000.).max(1000.);
@@ -497,7 +510,7 @@ fn draw_kpis(
         },
         Tile {
             label: "NEEDS YOU",
-            value: waiting.len().to_string(),
+            value: pending.to_string(),
             color: if waiting.is_empty() { p.dim } else { p.hot },
             quiet: waiting.is_empty(),
             alert: !waiting.is_empty(),
@@ -604,7 +617,7 @@ fn draw_kpis(
         let ww = if n == count - 1 { w - x } else { tw };
         c.fill(x, y, ww, height, p.panel);
         if t.alert {
-            let steady = s.calm || waiting.iter().all(|a| s.acked.contains(&a.id));
+            let steady = s.calm || waiting.iter().all(|a| !model::needs_you(a) || s.acked.contains(&a.id));
             let edge = if steady || (now as i64).rem_euclid(1000) < 550 {
                 p.hot
             } else {
@@ -711,6 +724,22 @@ fn draw_kpis(
                 }
             }
             1 => {
+                let open = open_while_working + open_idle;
+                if open > 0 {
+                    let active = if open_idle == 0 { "working" } else { "open" };
+                    let async_text = format!("◇{open} {active}");
+                    let mut x = sx;
+                    if stopped > 0 {
+                        let count = format!("◆{stopped}");
+                        x += c.text_bold(x, sy, &fit(&count, sw), p.hot);
+                        if width(&count) + width(" stopped · ") + width(&async_text) <= sw {
+                            x += c.text(x, sy, " stopped", p.hot);
+                        }
+                        x += c.text(x, sy, &fit(" · ", sx + sw - x), p.dim);
+                    }
+                    c.text(x, sy, &fit(&async_text, sx + sw - x), p.hot);
+                    continue;
+                }
                 let first = waiting
                     .iter()
                     .min_by(|a, b| {
@@ -718,9 +747,9 @@ fn draw_kpis(
                             .contains(&a.id)
                             .cmp(&s.acked.contains(&b.id))
                             .then_with(|| {
-                                waiting_since(a)
+                                model::waiting_since(a)
                                     .unwrap_or(now)
-                                    .total_cmp(&waiting_since(b).unwrap_or(now))
+                                    .total_cmp(&model::waiting_since(b).unwrap_or(now))
                             })
                     })
                     .copied();
@@ -741,11 +770,12 @@ fn draw_kpis(
                     let title = request
                         .map(|i| i.display(&s.home))
                         .unwrap_or_else(|| a.title.clone());
-                    let mut tail = waiting_since(a)
+                    let mut tail = model::waiting_since(a)
                         .map(|at| format!(" {}", short_duration((now - at).max(0.) / 1000.)))
                         .unwrap_or_default();
-                    if waiting.len() > 1 {
-                        tail += &format!(" +{} more", waiting.len() - 1);
+                    let more = pending - model::pending_count(a);
+                    if more > 0 {
+                        tail += &format!(" +{more} more");
                     }
                     let room = sw - 2 - width(&tail);
                     let what = if room >= 4 {

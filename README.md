@@ -7,7 +7,7 @@
 # T3 Agents
 
 [![test](https://github.com/0xBreadguy/t3-agents/actions/workflows/test.yml/badge.svg)](https://github.com/0xBreadguy/t3-agents/actions/workflows/test.yml)
-[![Release 1.2.0](https://img.shields.io/badge/release-1.2.0-2ea44f)](https://github.com/0xBreadguy/t3-agents/releases/latest)
+[![Release 1.3.0](https://img.shields.io/badge/release-1.3.0-2ea44f)](https://github.com/0xBreadguy/t3-agents/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-2024%20edition-b7410e?logo=rust&logoColor=white)
 ![Omarchy bar widget](https://img.shields.io/badge/Omarchy-bar%20widget-5c6b73)
@@ -26,7 +26,7 @@ bar.
 
 | | |
 | --- | --- |
-| **Linux**, x86-64 and ARM | Supported. glibc 2.34 or later: Ubuntu 22.04, Debian 12, Fedora 35, or newer |
+| **Linux**, x86-64 and ARM | Supported. Linux archives are built on Ubuntu 22.04. See `BUILD-INFO` for the required glibc version. |
 | **macOS** 11 or later, Apple silicon and Intel | Preview. It runs, but there's no installer or menu bar item yet |
 | **Windows** | Not supported |
 | **Bar widget** | Omarchy only |
@@ -38,7 +38,7 @@ bar.
 Linux:
 
 ```sh
-v=1.2.0 t=$(uname -m)-unknown-linux-gnu
+v=1.3.0 t=$(uname -m)-unknown-linux-gnu
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/t3-agents-$v-$t.tar.gz"
 tar -xzf "t3-agents-$v-$t.tar.gz"
 cd "t3-agents-$v-$t" && ./install.sh --binary ./t3-agents-term
@@ -50,7 +50,7 @@ first.
 macOS:
 
 ```sh
-v=1.2.0 f=t3-agents-$v-universal-apple-darwin
+v=1.3.0 f=t3-agents-$v-universal-apple-darwin
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/$f.tar.gz"
 tar -xzf "$f.tar.gz"
 "$f/t3-agents-term" --demo
@@ -88,14 +88,24 @@ removing are all in [docs/install.md](docs/install.md).
   your terminal between light and dark, `c` steps through them, and your own
   theme is one small file.
 - **Calm mode,** for when you want nothing moving.
+- **A recap.** `t3-agents --recap` puts last week on one card: agent hours and
+  where they went, tasks, output, and the models that did it. `--month` does
+  the same for last month.
+- **A tools report.** `t3-agents --tools` lists what agents ran last week and
+  what failed, by program, with how long it all took.
+- **A trace of any task.** Press `w` on an agent to see its task on a clock:
+  every step, every wait on you, every delegate, live.
+- **Open asks.** Each agent’s row counts requests you can answer and shows a
+  separate estimate for questions in its messages.
+- **Storage on Linux.** Press `s` to see disk use by project and thread. The
+  dashboard warns when space is running low.
 - **A bar widget** on Omarchy: a count in the bar, and a card of who's doing
   what when you click it.
 
 ![The bar widget's card on stock Omarchy, with demo data](docs/bar-widget.png)
 
 It's one small Rust program. It only reads T3's data, never writes it, and
-makes no network connections. On Linux it sits at about 0.6% of a CPU core and 14 MB on the
-demo.
+makes no network connections.
 
 ## Docs
 

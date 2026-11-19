@@ -1,0 +1,37 @@
+T3 AGENTS · TOOLS · Nov 9 – 15 · 7 of 7 days recorded
+
+calls        40  31 of them commands
+call time    7m  leaves out 8 calls
+failed       none  of 40 calls
+how long     69% of calls under a second: 2% of the time
+             3% of calls a minute or more: 60% of the time
+
+by kind      commands 31 · 7m · none failed
+             file changes 4 · 4s · none failed
+             reads 3 · <1s · none failed
+             other tools 2 · <1s · none failed
+
+programs     npm 3 · 5m · none failed
+             not on the list 2 · 1m · none failed
+             python3 3 · 24s · none failed
+             git 6 · 4s · none failed
+             rg 4 · 1s · none failed
+             sed 5 · <1s · none failed
+             cargo 8 · unknown · none failed
+             75 programs on the list
+
+why failed   no command was marked failed
+
+tools        read 3 · <1s · none failed
+             update_plan 2 · <1s · none failed
+             no name  file changes 4
+
+providers    codex 22 commands · none marked failed
+             openrouter-qwen3-coder-480b 9 commands
+               none marked failed
+             └ 8 calls marked finished all at once
+
+longest      npm 4m10s · openrouter-qwen3-coder-480b
+               d7f8b05a
+             npm 48s · codex · 9a0b4d63
+             not on the list 32s · codex · 9a0b4d63

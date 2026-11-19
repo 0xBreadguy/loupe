@@ -1,0 +1,78 @@
+ T3 Agents  TOOLS  Nov 9 – 15  7 of 7 days recorded           t3-agents --tools
+
+  CALLS                      CALL TIME                  FAILED
+   ▄▄    ▄▄▄                 ▄▄▄   ▄▄                    ▄   ▄▄▄  ▄▄▄
+  ▀▄▄▀    ▄▄▀                 ▄▄▀ ▀▄▄▀                  ▀█    ▄▄▀  ▄▄▀
+  ▀▄▄▀ ▄ █▄▄▄ K              █▄▄▄ ▀▄▄▀ h                ▄█▄  ▄▄▄▀ ▄▄▄▀
+  6,462 of them commands     the same on the clock      2% of calls
+
+ HOW LONG THEY TOOK ───────  4% of calls took a minute or more: 80% of the time
+         under 1s      1–10s         10–60s        1–10 min      over 10 min
+ calls   █████▌   78%  ▊        10%  ▌         8%  ▎         3%  ▏        <1%
+ time    ▏         1%  ▎         3%  █▏       16%  ██▉      42%  ██▋      38%
+
+ BY KIND ─────────────────────────────────────────────────────────────  by time
+                          calls           time         failed
+ ❯ commands               6,462 ███████    24h ███████    111    2%
+ ◈ other tools              738 ▊         3.5h █           16    2%
+ ⊕ web searches             175 ▎          19m ▏            2    1%
+ ◎ reads                    682 ▊           4m ▏            4    1%
+ ⊛ searches                 152 ▏           1m ▏         none
+
+ COMMANDS BY PROGRAM ───────────────────────  75 programs on the list · by time
+                          calls           time         failed
+   cargo                    197 ▉         6.0h ███████      6    3%
+   python3                1,645 ███████   5.9h ██████▉     25    2%
+   grep                     402 █▊        3.0h ███▌        11    3%
+   node                     133 ▋         2.4h ██▊          4    3%
+   npm                      106 ▌         1.5h █▊           4    4%
+   not on the list          268 █▏        1.1h █▎          10    4%
+   pytest                    52 ▎          48m █            7   13%
+   git                      840 ███▋       29m ▋            5    1%
+   rg                       315 █▍          8m ▏           20    6%
+   sed                      840 ███▋        3m ▏            2   <1%
+   cat                      525 ██▎         1m ▏         none
+   37 more                1,139           2.9h             17    1%
+   also inside other command lines  head 1,637 · echo 876 · tail 859 · cat 823
+
+ WHY COMMANDS FAILED ─────────────────────────────────────────────────────────
+   None of the 111 commands marked failed has an exit code, so why they failed
+   is not known. Of claude's 6,462 commands, none has an exit code.
+
+ TOOLS BY NAME ────────────────────────────────────────────  54 tools · by time
+                          calls           time         failed
+ ◈ AskUserQuestion            4 ▏         2.0h ███████   none
+ ◈ t3_thread_wait            14 ▏          49m ██▉       none
+ ◈ WebFetch                  47 ▌           8m ▌            1    2%
+ ◈ request_secret             9 ▏           8m ▌         none
+ ◎ Read                     682 ███████     4m ▎            4    1%
+ ◈ Edit                     210 ██▏         2m ▏            9    4%
+ ◈ TodoWrite                102 █          13s ▏         none
+   47 more                  504            22m              6    1%
+   no name  web searches 175
+
+ PROVIDERS ─────────────────────────  each decides for itself what failed means
+ ● claude          6,462 commands     111 marked failed       8,209 calls · 28h
+
+ LONGEST CALLS ─────────────────────────────────────  the 5 longest of the week
+                     length provider       started                       thread
+ ◈ AskUserQuestion    1h36m ● claude       Thu 04:16                   fa76ac55
+ ❯ cargo              1h27m ● claude       Mon 03:00     failed        06aaaf46
+ ◈ t3_thread_wait       38m ● claude       Tue 08:19                   3d359e60
+ ❯ npm                  31m ● claude       Tue 20:12                   dac06551
+ ❯ node                 23m ● claude       Mon 05:38                   18a9d30f
+
+ HOW THIS IS COUNTED ─────────────────────────────────────────────────────────
+ Time adds up each call's own length. Calls in a thread can overlap; counted
+ once, they come to 28h on the clock. Recap's 'tools' hours are counted another
+ way.
+
+ 2 calls never ended and add no time.
+
+ A line like "cd app && cargo test | tail" is one call, named for its main
+ program, cargo: its time, failure and exit code are the whole line's. 71% of
+ command lines ran two or more programs on the list. Programs are named from a
+ list of 75 common ones; a command with none of them is "not on the list".
+
+ Only program and tool names and exit codes are read. Numbers may be cached in
+ your cache folder; nothing is sent.

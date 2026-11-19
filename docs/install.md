@@ -17,7 +17,7 @@ nothing of yours.
 ## Linux, from a release
 
 ```sh
-v=1.2.0 t=$(uname -m)-unknown-linux-gnu
+v=1.3.0 t=$(uname -m)-unknown-linux-gnu
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/t3-agents-$v-$t.tar.gz"
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/SHA256SUMS"
 sha256sum -c --ignore-missing SHA256SUMS
@@ -25,9 +25,9 @@ tar -xzf "t3-agents-$v-$t.tar.gz"
 cd "t3-agents-$v-$t" && ./install.sh --binary ./t3-agents-term
 ```
 
-There's an archive for x86-64 and one for ARM, and `uname -m` picks yours. The
-program needs glibc 2.34 or later and nothing else: SQLite is compiled in.
-`BUILD-INFO` in the archive says exactly what it was built from.
+There's an archive for x86-64 and one for ARM, and `uname -m` picks yours. Compare
+the highest glibc symbol version in the archive’s `BUILD-INFO` with your system’s
+`ldd --version`. If yours is older, build from source. SQLite is compiled in.
 
 On Linux, every route installs the same three things, for your user only: one
 program in `~/.local/share/t3-agents/`, a `t3-agents` command in `~/.local/bin`
@@ -71,7 +71,7 @@ icon stays visible either way.
 ## macOS (preview)
 
 ```sh
-v=1.2.0 f=t3-agents-$v-universal-apple-darwin
+v=1.3.0 f=t3-agents-$v-universal-apple-darwin
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/$f.tar.gz"
 tar -xzf "$f.tar.gz"
 "$f/t3-agents-term" --demo
@@ -148,5 +148,11 @@ remove everything on Omarchy:
 ```sh
 ~/.config/omarchy/plugins/0xbreadguy.t3-agents/install.sh --uninstall
 omarchy plugin remove 0xbreadguy.t3-agents
-rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/t3-agents"   # the build folder, if you built from source
+rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/t3-agents/target"   # optional, for the default source build
 ```
+
+If you enabled the Insights cache, uninstall checks the named install’s cache
+folder. It removes its own idle database, journal files and ownership marker.
+It leaves the lock file in place. If a report is using the cache, close the
+report and run uninstall again. Uninstall also leaves an unrecognized database
+or a symlinked cache folder alone.

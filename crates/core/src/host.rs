@@ -5,7 +5,11 @@
 //! wake at all for a fixed snapshot in calm mode). A presenter supplies the clock;
 //! the Rune window's `Tx` and the terminal front door both implement [`Clock`].
 use crate::{clock, demo, integration, live, model, model::State, overview, source, terminal, theme};
-use std::{path::PathBuf, sync::mpsc, time::Duration};
+use std::{
+    path::{Path, PathBuf},
+    sync::mpsc,
+    time::Duration,
+};
 
 /// What the host loop needs from a presenter. `instant` snaps the presenter's own
 /// motion; `wake_after` schedules the next poll; `clock` is seconds since the
@@ -36,6 +40,17 @@ pub struct Host {
     pub t3_title: Option<String>,
     /// T3's database read on a background thread, once a presenter starts it.
     pub live: Option<live::Handle>,
+    /// Measure worktree and temp devices on each dashboard refresh.
+    /// Off for `--demo`, a user-supplied `--db`, and tests. Those set
+    /// [`model::State::headroom`] directly, or [`Self::headroom_inject`].
+    pub watch_headroom: bool,
+    /// T3's managed worktrees folder in real mode.
+    pub managed_worktrees: Option<PathBuf>,
+    /// The effective T3 temp folder in real mode, captured at launch.
+    pub temporary: Option<PathBuf>,
+    /// When set, a due refresh copies this instead of probing the filesystem.
+    pub headroom_inject: Option<Vec<crate::headroom::WarningVolume>>,
+    last_headroom: f64,
 }
 
 impl Host {
@@ -61,6 +76,11 @@ impl Host {
             titles: None,
             t3_title: None,
             live: None,
+            watch_headroom: false,
+            managed_worktrees: None,
+            temporary: None,
+            headroom_inject: None,
+            last_headroom: -1e9,
         }
     }
     /// Omarchy's usage files and current theme, under the user's state directory.
@@ -113,6 +133,40 @@ pub fn start_live(h: &mut Host, interval: f64, wake: impl Fn() + Send + 'static)
         let interval = Duration::from_secs_f64(interval.max(0.5));
         h.live = Some(live::spawn(path, interval, wake));
     }
+}
+
+/// Reread free space on the dashboard interval, including when the database snapshot
+/// did not change. Drawing and Storage reuse [`model::State::headroom`].
+fn refresh_headroom(s: &mut State, h: &mut Host) -> bool {
+    if !h.watch_headroom || s.paused {
+        return false;
+    }
+    let interval = s.interval.max(0.5);
+    if h.last_headroom >= 0. && h.last_time - h.last_headroom < interval {
+        return false;
+    }
+    h.last_headroom = h.last_time;
+    let next = if let Some(injected) = &h.headroom_inject {
+        injected.clone()
+    } else if let (Some(root), Some(temporary)) = (&h.managed_worktrees, &h.temporary) {
+        crate::headroom::sample(root, local_worktrees(&s.snap), temporary)
+    } else {
+        return false;
+    };
+    if next == s.headroom {
+        return false;
+    }
+    s.headroom = next;
+    true
+}
+
+fn local_worktrees(snapshot: &model::Snapshot) -> impl Iterator<Item = &Path> {
+    snapshot.agents.iter().filter_map(|agent| {
+        if agent.remote.is_some() {
+            return None;
+        }
+        agent.storage.as_ref()?.worktree.as_deref().map(Path::new)
+    })
 }
 
 /// The same agents, pointer for pointer. The state never edits the agents it is handed.
@@ -183,7 +237,6 @@ pub fn input_now(s: &State, h: &Host) -> f64 {
 /// Enter or `o` on a row: open its thread in T3 Code, or say why not. A remote row opens
 /// on its own machine; a native agent opens its owning thread here.
 pub fn open_selected(s: &mut State, h: &Host) {
-    let at = input_now(s, h);
     let Some(agent) = s
         .snap
         .agents
@@ -194,12 +247,30 @@ pub fn open_selected(s: &mut State, h: &Host) {
         return;
     };
     let title = s.thread_to_open().unwrap().title.clone();
+    open_agent(s, h, &agent, &title);
+}
+
+/// Open an inventory row without changing or acknowledging the dashboard selection.
+pub fn open_local_thread(s: &mut State, h: &Host, thread_id: &str) {
+    if let Some(agent) = s
+        .snap
+        .agents
+        .iter()
+        .find(|a| a.thread_id == thread_id && a.storage.is_some() && a.remote.is_none())
+        .cloned()
+    {
+        open_agent(s, h, &agent, &agent.title);
+    }
+}
+
+fn open_agent(s: &mut State, h: &Host, agent: &model::Agent, title: &str) {
+    let at = input_now(s, h);
     if s.demo {
         s.note(format!("Demo: would open {title} in T3 Code"), false, at);
         return;
     }
     let local = h.db.as_deref().and_then(integration::environment_id);
-    match integration::agent_thread_link(&agent, local.as_deref()) {
+    match integration::agent_thread_link(agent, local.as_deref()) {
         Some(link) => match integration::open_link(&link) {
             Ok(_) => s.note(format!("Opening in T3 · {title}"), false, at),
             Err(e) => s.note(format!("Cannot open in T3: {e}"), true, at),
@@ -365,6 +436,9 @@ pub fn poll_host(s: &mut State, time: f64, clock: &mut impl Clock, h: &mut Host)
             changed = true;
         }
     }
+    // Free space moves without a database write. This still runs when the live reader
+    // had nothing new to apply.
+    changed |= refresh_headroom(s, h);
     if time - h.last_usage >= 5. {
         h.last_usage = time;
         if let Some(path) = &h.usage {
@@ -462,6 +536,11 @@ mod tests {
             titles: None,
             t3_title: None,
             live: None,
+            watch_headroom: false,
+            managed_worktrees: None,
+            temporary: None,
+            headroom_inject: None,
+            last_headroom: -1e9,
         }
     }
 
@@ -469,6 +548,35 @@ mod tests {
         let snap: Snapshot =
             serde_json::from_str(include_str!("../../../checks/fixtures/demo.json")).unwrap();
         State::new(snap)
+    }
+
+    #[test]
+    fn headroom_uses_explicit_local_checkouts_only() {
+        use std::sync::Arc;
+
+        let displayed_cwd = "/synthetic/project";
+        let mut local = model::Agent {
+            cwd: displayed_cwd.into(),
+            storage: Some(model::ThreadStorage {
+                project_id: "project".into(),
+                project_root: Some(displayed_cwd.into()),
+                worktree: None,
+            }),
+            ..model::Agent::default()
+        };
+        let without_checkout = local.clone();
+        local.storage.as_mut().unwrap().worktree = Some("/synthetic/checkout".into());
+        let mut remote = local.clone();
+        remote.remote = Some(serde_json::json!({"environmentId": "remote"}));
+        remote.storage.as_mut().unwrap().worktree = Some("/synthetic/remote".into());
+        let snapshot = model::Snapshot {
+            agents: vec![Arc::new(without_checkout), Arc::new(local), Arc::new(remote)],
+            ..model::Snapshot::default()
+        };
+        assert_eq!(
+            local_worktrees(&snapshot).collect::<Vec<_>>(),
+            [Path::new("/synthetic/checkout")]
+        );
     }
 
     #[test]

@@ -4,6 +4,7 @@
 //! no authentication tables, prompts, message bodies, results, tool output or
 //! reasoning bodies are selected into Rust. The only command text is the same
 //! bounded command-execution excerpt the terminal dashboard displays.
+//! Estimated asks return a count from the SQLite assistant-text function.
 use crate::model::{self, Agent, Context, Event, Item, Point, Shelf, Snapshot, Step};
 use rusqlite::{
     Connection, OpenFlags, params_from_iter,
@@ -216,6 +217,7 @@ pub fn snapshot(path: &Path, now: f64) -> Result<Snapshot, SourceError> {
     })?;
     db.busy_timeout(Duration::from_millis(250))
         .map_err(|e| db_error(path, e))?;
+    crate::asks::register(&db).map_err(|e| db_error(path, e))?;
     db.execute_batch("PRAGMA query_only=ON; BEGIN")
         .map_err(|e| db_error(path, e))?;
     let result = read(&db, path, now);
@@ -438,13 +440,27 @@ pub(crate) fn iso(stamp: f64) -> String {
         millis.rem_euclid(1000)
     )
 }
-pub(crate) const ITEM_FIELDS:&str="thread_id,run_id,node_id,provider_thread_id,type,status,updated_at,
+// The dashboard's exit-code model is i32. Reject other item kinds and malformed
+// values in SQL so both readers receive only a command exit code or NULL.
+const ITEM_EXIT_CODE: &str = "CASE WHEN type='command_execution'
+ AND json_type(payload_json,'$.exitCode')='integer'
+ AND json_extract(payload_json,'$.exitCode') BETWEEN -2147483648 AND 2147483647
+ THEN json_extract(payload_json,'$.exitCode') END AS exit_code";
+
+pub(crate) fn item_keys() -> String {
+    format!("thread_id,run_id,node_id,provider_thread_id,type,status,updated_at,
  json_extract(payload_json,'$.startedAt') AS started_at,
- json_extract(payload_json,'$.toolName') AS tool,
- json_extract(payload_json,'$.exitCode') AS exit_code,
- substr(COALESCE(json_extract(payload_json,'$.title'),json_extract(payload_json,'$.toolName'),json_extract(payload_json,'$.label'),''),1,240) AS label,
+ CASE WHEN type NOT IN ('secret_request','link_request') THEN json_extract(payload_json,'$.toolName') END AS tool,
+ {ITEM_EXIT_CODE}")
+}
+
+pub(crate) fn item_fields() -> String {
+    format!("{},
+ CASE WHEN type IN ('secret_request','link_request') THEN ''
+ ELSE substr(COALESCE(json_extract(payload_json,'$.title'),json_extract(payload_json,'$.toolName'),json_extract(payload_json,'$.label'),''),1,240) END AS label,
  CASE WHEN type='command_execution' THEN substr(json_extract(payload_json,'$.input'),1,240) ELSE '' END AS command,
- CASE WHEN type='file_change' THEN substr(json_extract(payload_json,'$.fileName'),1,240) ELSE '' END AS file";
+ CASE WHEN type='file_change' THEN substr(json_extract(payload_json,'$.fileName'),1,240) ELSE '' END AS file", item_keys())
+}
 pub(crate) const TOOLISH: &str = "'command_execution','dynamic_tool','file_change','web_search','subagent','handoff','notification','user_input_request','secret_request','link_request','reasoning','assistant_message'";
 pub(crate) fn read(db: &Connection, path: &Path, now: f64) -> Result<Snapshot, SourceError> {
     read_tracked(db, path, now, &mut ReadReport::default())
@@ -507,6 +523,7 @@ pub(crate) fn read_tracked(
         });
     }
     let params = strings(ids.clone());
+    let item_fields = item_fields();
     let where_ids = format!("WHERE thread_id IN ({})", marks(ids.len()));
     let mut latest = HashMap::new();
     let mut latest_order = Vec::new();
@@ -568,21 +585,9 @@ pub(crate) fn read_tracked(
     .into_iter()
     .map(|r| (str_at(&r, "project_id").into(), r))
     .collect();
-    let asked = query(
-        &format!("SELECT name FROM pragma_table_info('{PREFIX}runtime_requests')"),
-        &[],
-    )?
-    .iter()
-    .any(|r| str_at(r, "name") == "created_at");
+    let request_fields = request_fields(db).map_err(|e| db_error(path, e))?;
     let requests = query(
-        &format!(
-            "SELECT thread_id,node_id,kind,status,{} FROM {PREFIX}runtime_requests {where_ids} AND resolved_at IS NULL AND status IN ('pending','open','waiting','requested')",
-            if asked {
-                "created_at"
-            } else {
-                "NULL AS created_at"
-            }
-        ),
+        &format!("SELECT thread_id,{request_fields} FROM {PREFIX}runtime_requests {where_ids} AND {REQUEST_FILTER}"),
         &params,
     )?;
     let mut seen = HashSet::new();
@@ -614,7 +619,7 @@ pub(crate) fn read_tracked(
     let read_items = timing::phase("read_items");
     let items = query(
         &format!(
-            "SELECT {ITEM_FIELDS} FROM {PREFIX}turn_items WHERE (run_id IN ({run_marks}) OR (run_id IS NULL AND thread_id IN ({}))) AND type IN ({TOOLISH}) ORDER BY updated_at DESC,ordinal DESC LIMIT 3000",
+            "SELECT {item_fields} FROM {PREFIX}turn_items WHERE (run_id IN ({run_marks}) OR (run_id IS NULL AND thread_id IN ({}))) AND type IN ({TOOLISH}) ORDER BY updated_at DESC,ordinal DESC LIMIT 3000",
             marks(runless.len())
         ),
         &item_params,
@@ -626,14 +631,14 @@ pub(crate) fn read_tracked(
     let read_events = timing::phase("read_events");
     let events = query(
         &format!(
-            "SELECT {ITEM_FIELDS} FROM {PREFIX}turn_items {where_ids} AND updated_at>=? AND type NOT IN ('checkpoint','todo_list') ORDER BY updated_at DESC LIMIT 8000"
+            "SELECT {item_fields} FROM {PREFIX}turn_items {where_ids} AND updated_at>=? AND type NOT IN ('checkpoint','todo_list') ORDER BY updated_at DESC LIMIT 8000"
         ),
         &since_params,
     )?;
     drop(read_events);
     let history = query(
         &format!(
-            "SELECT provider_thread_id,thread_id,started_at,completed_at,json_extract(payload_json,'$.tokenUsage.usedTokens') AS used,json_extract(payload_json,'$.tokenUsage.maxTokens') AS max,json_extract(payload_json,'$.model') AS model FROM (SELECT *,ROW_NUMBER() OVER(PARTITION BY provider_thread_id ORDER BY ordinal DESC) AS rank FROM {PREFIX}provider_turns {where_ids}) WHERE rank<=160"
+            "SELECT provider_thread_id,thread_id,started_at,completed_at,json_extract(payload_json,'$.tokenUsage.usedTokens') AS used,json_extract(payload_json,'$.tokenUsage.maxTokens') AS max,json_extract(payload_json,'$.model') AS model FROM (SELECT provider_thread_id,thread_id,started_at,completed_at,payload_json,ROW_NUMBER() OVER(PARTITION BY provider_thread_id ORDER BY ordinal DESC) AS rank FROM {PREFIX}provider_turns {where_ids}) WHERE rank<=160"
         ),
         &params,
     )?;
@@ -657,11 +662,259 @@ pub(crate) fn read_tracked(
         _ => query(&plans_sql, &run_params)?,
     };
     drop(read_plans);
-    report.rows = rows.get();
-    assemble(
+    let cards = read_ask_cards(db, None).map_err(|e| db_error(path, e))?;
+    let estimates = read_estimated_asks(db, None).map_err(|e| db_error(path, e))?;
+    report.rows = rows.get() + cards.len() + estimates.len();
+    let mut snapshot = assemble(
         threads, latest, subs, providers, turns, nodes, projects, requests, items, events, history,
         spans, plans, path, now,
+    )?;
+    apply_thread_asks(&mut snapshot, &cards, &estimates, None);
+    Ok(snapshot)
+}
+
+// T3 runtime requests use pending; retain the legacy aliases for approvals and
+// other request kinds. Only the capability discriminator crosses the SQL boundary.
+pub(crate) const REQUEST_FILTER: &str = "resolved_at IS NULL AND
+    status IN ('pending','open','waiting','requested') AND (kind<>'user_input' OR status='pending')";
+
+fn columns(db: &Connection, table: &str) -> rusqlite::Result<HashSet<String>> {
+    db.prepare_cached("SELECT name FROM pragma_table_info(?1)")?
+        .query_map([table], |row| row.get(0))?
+        .collect()
+}
+
+pub(crate) fn request_fields(db: &Connection) -> rusqlite::Result<String> {
+    let fields = columns(db, &format!("{PREFIX}runtime_requests"))?;
+    let created_at = if fields.contains("created_at") {
+        "created_at"
+    } else {
+        "NULL"
+    };
+    let capability = if fields.contains("payload_json") {
+        "CASE WHEN kind='user_input' THEN
+             CASE WHEN json_valid(payload_json)
+                  THEN json_extract(payload_json,'$.responseCapability.type') IS 'message'
+                  ELSE 0 END
+         ELSE 0 END"
+    } else {
+        "0"
+    };
+    Ok(format!("node_id,kind,status,{created_at} AS created_at,resolved_at,{capability} AS async_input"))
+}
+
+/// Thread-owned card counts, independent of latest-run selection and item caps.
+/// ProjectionStore.ts's shell uses these four live statuses and compares
+/// human message updated_at to the card's startedAt (or updated_at).
+pub(crate) fn read_ask_cards(
+    db: &Connection,
+    owners: Option<&[String]>,
+) -> rusqlite::Result<HashMap<String, model::AskCards>> {
+    let (owner_filter, args) = match owners {
+        Some([]) => return Ok(HashMap::new()),
+        Some(ids) => (
+            format!("AND thread_id IN ({})", marks(ids.len())),
+            strings(ids.to_vec()),
+        ),
+        None => (String::new(), Vec::new()),
+    };
+    let runs = columns(db, &format!("{PREFIX}runs"))?;
+    let messages = columns(db, &format!("{PREFIX}messages"))?;
+    let run_status = if runs.contains("status") {
+        "r.status"
+    } else {
+        "CASE WHEN json_valid(r.payload_json) THEN json_extract(r.payload_json,'$.status') END"
+    };
+    // Run payload id is already in the allowlist. Use it only as the join key.
+    let secret = format!("SELECT i.thread_id, 'secret' AS kind
+        FROM {PREFIX}runs r CROSS JOIN {PREFIX}turn_items i
+        WHERE r.thread_id IN (SELECT thread_id FROM owners)
+          AND {run_status} IN ('preparing','starting','running','waiting')
+          AND i.thread_id=r.thread_id AND i.run_id=json_extract(r.payload_json,'$.id')
+          AND i.type='secret_request' AND i.status='waiting' AND i.node_id IS NOT NULL");
+    // Older/synthetic schemas may lack message provenance. In that case links
+    // clear on an explicit state transition, with no inferred human reply.
+    let human_reply = if ["thread_id", "role", "updated_at", "payload_json"]
+        .iter()
+        .all(|name| messages.contains(*name))
+    {
+        format!("AND NOT EXISTS (
+            SELECT 1 FROM {PREFIX}messages m
+            WHERE m.thread_id=i.thread_id AND m.role='user'
+              AND m.updated_at > COALESCE(
+                  CASE WHEN json_valid(i.payload_json)
+                       THEN json_extract(i.payload_json,'$.startedAt') END, i.updated_at)
+              AND CASE WHEN json_valid(m.payload_json) THEN
+                  json_extract(m.payload_json,'$.createdBy')='user'
+                  AND json_extract(m.payload_json,'$.idleCompaction') IS NULL END
+        )")
+    } else {
+        String::new()
+    };
+    let sql = format!("WITH owners AS (
+            SELECT thread_id FROM {PREFIX}threads
+            WHERE deleted_at IS NULL AND archived_at IS NULL {owner_filter}
+        ), cards AS (
+            {secret}
+            UNION ALL
+            SELECT i.thread_id, 'link' AS kind FROM {PREFIX}turn_items i
+            WHERE i.thread_id IN (SELECT thread_id FROM owners)
+              AND i.type='link_request' AND i.status='waiting' AND i.node_id IS NOT NULL
+              {human_reply}
+        )
+        SELECT thread_id, COUNT(*) FILTER (WHERE kind='secret'),
+               COUNT(*) FILTER (WHERE kind='link') FROM cards GROUP BY thread_id");
+    db.prepare_cached(&sql)?
+        .query_map(params_from_iter(&args), |row| {
+            Ok((
+                row.get(0)?,
+                model::AskCards {
+                    secret: row.get::<_, i64>(1)? as u64,
+                    link: row.get::<_, i64>(2)? as u64,
+                },
+            ))
+        })?
+        .collect()
+}
+
+/// Get the latest positive estimate per active thread. Message bodies stay in
+/// SQLite and only eligible assistant prose reaches the count function.
+pub(crate) fn read_estimated_asks(
+    db: &Connection,
+    owners: Option<&[String]>,
+) -> rusqlite::Result<HashMap<String, u64>> {
+    let _phase = timing::phase("read_estimated_asks");
+    let (owner_filter, args) = match owners {
+        Some([]) => return Ok(HashMap::new()),
+        Some(ids) => (
+            format!("AND t.thread_id IN ({})", marks(ids.len())),
+            strings(ids.iter().cloned()),
+        ),
+        None => (String::new(), Vec::new()),
+    };
+    let messages = columns(db, &format!("{PREFIX}messages"))?;
+    if !["thread_id", "message_id", "role", "streaming", "created_at", "payload_json"]
+        .iter()
+        .all(|name| messages.contains(*name))
+    {
+        return Ok(HashMap::new());
+    }
+    let items = columns(db, &format!("{PREFIX}turn_items"))?;
+    // Conversation messages have no phase in the T3 contract. ProjectionStore.ts
+    // joins message items via $.messageId; keep migration 094's partial-index
+    // predicate and expression intact. Force the installed index when present:
+    // otherwise SQLite can prefer a reverse ordinal scan of the whole thread.
+    let item_phase = if ["thread_id", "type", "ordinal", "payload_json"]
+        .iter()
+        .all(|name| items.contains(*name))
+    {
+        let index = format!("{PREFIX}turn_items_message_ordinal_idx");
+        let has_index: bool = db.prepare_cached(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='index' AND name=?1)",
+        )?.query_row([&index], |r| r.get(0))?;
+        let order = "ORDER BY i.ordinal DESC,i.rowid DESC LIMIT 1";
+        if has_index {
+            format!("(SELECT json_extract(i.payload_json,'$.phase')
+                FROM {PREFIX}turn_items i INDEXED BY {index}
+                WHERE i.thread_id=m.thread_id AND i.type IN ('user_message', 'assistant_message')
+                  AND json_valid(i.payload_json)
+                  AND json_extract(i.payload_json, '$.messageId')=+m.message_id
+                  AND CASE i.type WHEN 'assistant_message' THEN 1 ELSE 0 END
+                {order})")
+        } else {
+            // The adapters store the same node ID on both projections. Older
+            // installations can seek by node. Disable the competing thread
+            // index on that path so SQLite doesn't scan the thread by ordinal.
+            let phase = |owner_filter: &str| format!("(SELECT
+                    CASE WHEN json_valid(i.payload_json) THEN json_extract(i.payload_json,'$.phase') END
+                FROM {PREFIX}turn_items i
+                WHERE {owner_filter} AND i.type='assistant_message'
+                  AND CASE WHEN json_valid(i.payload_json)
+                           THEN json_extract(i.payload_json, '$.messageId')=m.message_id END
+                {order})");
+            let by_message = phase("i.thread_id=m.thread_id");
+            if messages.contains("node_id") && items.contains("node_id") {
+                let by_node = phase("i.node_id=m.node_id AND +i.thread_id=m.thread_id");
+                format!("CASE WHEN m.node_id IS NOT NULL THEN {by_node} ELSE {by_message} END")
+            } else {
+                by_message
+            }
+        }
+    } else {
+        "NULL".into()
+    };
+    // The thread-created index supplies both ordered walks. The human cutoff
+    // is inclusive for assistants at the exact same timestamp, as in the
+    // count-only prototype. IDs deterministically order equal-time assistants.
+    // LIMIT -1 keeps the ordered walk lazy and prevents the outer filter from
+    // evaluating the classifier twice. JSONB keeps arrays/objects distinct
+    // from string text when the function checks the SQLite argument type.
+    let sql = format!("WITH estimates AS MATERIALIZED (
+        SELECT t.thread_id, (
+          SELECT estimate FROM (
+            SELECT CASE WHEN m.role='assistant' AND m.streaming=0 AND json_valid(m.payload_json)
+                THEN CASE WHEN COALESCE({item_phase}, json_extract(m.payload_json,'$.phase'),
+                                        'final_answer') IN ('commentary','final_answer')
+                     THEN t3_ask_count(jsonb_extract(m.payload_json,'$.text')) END
+                END AS estimate
+            FROM {PREFIX}messages m
+            WHERE m.thread_id=t.thread_id AND m.role='assistant' AND m.streaming=0
+              AND julianday(m.created_at) IS NOT NULL
+              AND m.created_at >= COALESCE((
+                  SELECT h.created_at FROM {PREFIX}messages h
+                  WHERE h.thread_id=t.thread_id AND h.role='user'
+                    AND julianday(h.created_at) IS NOT NULL
+                    AND CASE WHEN json_valid(h.payload_json) THEN
+                        json_extract(h.payload_json,'$.createdBy')='user'
+                        AND json_extract(h.payload_json,'$.idleCompaction') IS NULL END
+                  ORDER BY h.created_at DESC,h.message_id DESC LIMIT 1
+              ), '')
+            ORDER BY m.created_at DESC,m.message_id DESC LIMIT -1
+          ) WHERE estimate > 0 LIMIT 1
+        ) AS estimate
+        FROM {PREFIX}threads t
+        WHERE t.deleted_at IS NULL AND t.archived_at IS NULL {owner_filter}
     )
+    SELECT thread_id, estimate FROM estimates WHERE estimate > 0");
+    db.prepare_cached(&sql)?
+        .query_map(params_from_iter(&args), |row| {
+            Ok((row.get(0)?, row.get::<_, i64>(1)? as u64))
+        })?
+        .collect()
+}
+
+pub(crate) fn apply_thread_asks(
+    snapshot: &mut Snapshot,
+    cards: &HashMap<String, model::AskCards>,
+    estimates: &HashMap<String, u64>,
+    unchanged: Option<(&Snapshot, &std::collections::BTreeSet<String>)>,
+) {
+    let previous = unchanged.map(|(snapshot, _)| {
+        snapshot
+            .agents
+            .iter()
+            .filter(|a| a.open_asks.cards != model::AskCards::default() || a.estimated_asks > 0)
+            .map(|a| (a.id.as_str(), (a.open_asks.cards, a.estimated_asks)))
+            .collect::<HashMap<_, _>>()
+    });
+    for agent in &mut snapshot.agents {
+        // The projection belongs to the thread shell even when its source
+        // rows are outside the item window or the shell has a parent.
+        if agent.id != agent.thread_id {
+            continue;
+        }
+        let id = agent.id.as_str();
+        let (card_counts, estimate) = if unchanged.is_some_and(|(_, owners)| !owners.contains(id)) {
+            previous.as_ref().and_then(|rows| rows.get(id)).copied().unwrap_or_default()
+        } else {
+            (cards.get(id).copied().unwrap_or_default(), estimates.get(id).copied().unwrap_or_default())
+        };
+        if agent.open_asks.cards != card_counts || agent.estimated_asks != estimate {
+            let agent = std::sync::Arc::make_mut(agent);
+            agent.open_asks.cards = card_counts;
+            agent.estimated_asks = estimate;
+        }
+    }
 }
 
 /// One SQL value as the oracle's row maps hold it.
@@ -1106,8 +1359,22 @@ pub(crate) fn attach_item(agent: &mut Agent, item: &Item) {
         agent.items.push(item.clone());
     }
 }
-pub(crate) fn attach_request(agent: &mut Agent, kind: &str, created_at: Option<&str>) {
-    agent.requests.push(kind.to_string());
+pub(crate) fn attach_request(
+    agent: &mut Agent,
+    kind: &str,
+    created_at: Option<&str>,
+    async_input: bool,
+) {
+    if kind == "user_input" {
+        if async_input {
+            agent.open_asks.nonblocking += 1;
+        } else {
+            agent.open_asks.blocking += 1;
+        }
+    }
+    if !async_input {
+        agent.requests.push(kind.to_string());
+    }
     if let Some(asked) = created_at.filter(|s| !s.is_empty()) {
         if agent.asked.as_ref().is_none_or(|old| asked < old.as_str()) {
             agent.asked = Some(asked.to_string());
@@ -1131,14 +1398,16 @@ pub(crate) fn finish_agent_body(agent: &mut Agent, known: &HashSet<String>) {
     {
         agent.parent = None;
     }
-    agent.now = agent
-        .items
-        .iter()
-        .find(|i| {
+    let current = || {
+        agent.items.iter().filter(|i| {
             live_status(&i.status)
-                && !matches!(i.kind.as_str(), "reasoning" | "assistant_message")
+                && !matches!(i.kind.as_str(), "secret_request" | "link_request")
+                && !(agent.open_asks.nonblocking > 0 && i.kind == "user_input_request")
         })
-        .or_else(|| agent.items.iter().find(|i| live_status(&i.status)))
+    };
+    agent.now = current()
+        .find(|i| !matches!(i.kind.as_str(), "reasoning" | "assistant_message"))
+        .or_else(|| current().next())
         .cloned();
     for item in &agent.items {
         if matches!(item.kind.as_str(), "reasoning" | "assistant_message") {
@@ -1317,6 +1586,11 @@ pub(crate) fn thread_agent(
         .get(str_at(thread, "projectId"))
         .cloned()
         .unwrap_or_else(|| json!({}));
+    let storage = model::ThreadStorage {
+        project_id: str_at(thread, "projectId").into(),
+        project_root: truthy_str(&project, "workspace_root"),
+        worktree: truthy_str(thread, "worktreePath"),
+    };
     let lineage = obj(thread, "lineage");
     let selection = if run.get("modelSelection").is_some_and(|v| !v.is_null()) {
         obj(run, "modelSelection")
@@ -1333,9 +1607,13 @@ pub(crate) fn thread_agent(
         title: optional(thread, "title").unwrap_or_else(|| "Untitled".into()),
         kind: "thread".into(),
         project: optional(&project, "title").unwrap_or_else(|| "Unknown project".into()),
-        cwd: truthy_str(thread, "worktreePath")
-            .or_else(|| truthy_str(&project, "workspace_root"))
+        cwd: storage
+            .worktree
+            .as_ref()
+            .or(storage.project_root.as_ref())
+            .cloned()
             .unwrap_or_default(),
+        storage: Some(storage),
         model: truthy_str(&turn, "model")
             .or_else(|| truthy_str(&selection, "model"))
             .unwrap_or_else(|| "--".into()),
@@ -1611,6 +1889,7 @@ pub(crate) fn apply_attributed_body(
                 &mut agents[i],
                 str_at(req, "kind"),
                 truthy_str(req, "created_at").as_deref(),
+                req["async_input"].as_i64() == Some(1),
             );
         }
     }
@@ -1833,11 +2112,24 @@ mod tests {
         db.execute("INSERT INTO auth_tokens VALUES('SECRET-auth')", [])
             .unwrap();
         db.execute(&format!("INSERT INTO {PREFIX}turn_items VALUES('t','r',NULL,'pt','command_execution','completed','2026-11-12T12:00:00Z',1,?)"),[json!({"input":"cargo test -- synthetic-only","title":"Test","output":"SECRET-tool-output","result":"SECRET-tool-result","reasoning":"SECRET-reasoning-body"}).to_string()]).unwrap();
+        db.execute(
+            &format!("INSERT INTO {PREFIX}runtime_requests VALUES('t',NULL,'user_input','pending',NULL)"),
+            [],
+        ).unwrap();
+        db.execute(
+            &format!("INSERT INTO {PREFIX}turn_items VALUES('t','r','node','pt','link_request','waiting','2026-11-12T12:00:00Z',2,'{{}}')"),
+            [],
+        ).unwrap();
         drop(db);
         let before = std::fs::read(&file).unwrap();
         let result = snapshot(&file, 1_794_484_800_000.).unwrap();
         let rendered = serde_json::to_string(&result).unwrap();
         assert_eq!(result.agents.len(), 2);
+        let thread = result.agents.iter().find(|a| a.id == "t").unwrap();
+        assert_eq!(thread.open_asks.blocking, 1);
+        assert_eq!(thread.open_asks.cards.link, 1);
+        assert!(thread.asked.is_none());
+
         assert!(
             !rendered.contains("SECRET"),
             "private marker escaped SQL projection"
@@ -1983,6 +2275,7 @@ mod tests {
 /// Kept crate-private so live callers still require the read-only path API.
 pub(crate) fn synthetic_snapshot(db: &Connection, now: f64) -> Result<Snapshot, SourceError> {
     let path = Path::new("synthetic:demo");
+    crate::asks::register(db).map_err(|e| db_error(path, e))?;
     db.execute_batch("PRAGMA query_only=ON; BEGIN")
         .map_err(|e| db_error(path, e))?;
     let result = read(db, path, now);

@@ -8,6 +8,7 @@ pub use color::{BACKGROUND_QUERY, THEME_MODE_OFF, startup_probe, startup_probe_f
 mod encode;
 mod keys;
 pub mod platform;
+pub mod storage;
 
 pub use encode::{ENTER_TERM, Encoder, LEAVE_TERM, Screen, ScreenCell, screen_matches};
 pub use caps::{Change, GRAPHEME_OFF, GRAPHEME_ON, PROBE, Probe, WINDOW, wanted as probe_wanted};
