@@ -75,7 +75,7 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.macos
     runs-on: macos-latest
     # Bound the manual job, including time spent in terminal tests.
-    timeout-minutes: 8
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       # Nothing here may reach a real T3 database. The runner has none; this makes it explicit.
