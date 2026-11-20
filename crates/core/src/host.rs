@@ -343,6 +343,15 @@ pub fn apply_focus(s: &mut State, title: Option<&str>) -> bool {
     use std::collections::{HashMap, HashSet};
     let linked = title.and_then(|t| integration::thread_for_title(t, &s.snap.agents));
     let mut changed = linked != s.linked;
+    // With no linked thread the family is empty and nothing below reads the maps: the follow
+    // branch needs a linked id, and no agent is in an empty family. Skip building them; this
+    // runs on every wake, usually with no T3 window focused.
+    let Some(linked_id) = linked.as_deref() else {
+        if changed {
+            s.linked = None;
+        }
+        return changed;
+    };
     let parents: HashMap<_, _> = s
         .snap
         .agents
@@ -356,7 +365,7 @@ pub fn apply_focus(s: &mut State, title: Option<&str>) -> bool {
         }
     }
     let mut family = HashSet::new();
-    let mut stack: Vec<&str> = linked.as_deref().into_iter().collect();
+    let mut stack: Vec<&str> = vec![linked_id];
     while let Some(id) = stack.pop() {
         if !family.insert(id) {
             continue;
@@ -745,5 +754,25 @@ mod tests {
         assert!(apply_focus(&mut s, Some("project / thread")));
         assert!(s.acked.contains("child"));
         assert!(!apply_focus(&mut s, Some("project / thread")));
+    }
+
+    #[test]
+    fn losing_the_linked_window_only_clears_the_link() {
+        let mut s = state(vec![agent("thread", None), agent("child", Some("thread")), agent("other", None)]);
+        s.snap.agent_mut(1).requests.push("approval".into());
+        s.snap.agent_mut(2).requests.push("approval".into());
+        s.collapsed.insert("other".into());
+        assert!(!apply_focus(&mut s, None));
+        assert!(s.acked.is_empty());
+        assert!(apply_focus(&mut s, Some("project / thread")));
+        assert!(s.linked.is_some());
+        let (selected, collapsed, acked) = (s.selected.clone(), s.collapsed.clone(), s.acked.clone());
+        // No title, or one that names no thread: the link goes, and nothing else changes.
+        assert!(apply_focus(&mut s, None));
+        assert_eq!(s.linked, None);
+        assert!(!apply_focus(&mut s, Some("some other window")));
+        assert!(!apply_focus(&mut s, None));
+        assert_eq!((s.selected.clone(), s.collapsed.clone(), s.acked.clone()), (selected, collapsed, acked));
+        assert!(!s.acked.contains("other"));
     }
 }

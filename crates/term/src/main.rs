@@ -190,12 +190,13 @@ fn on_key(s: &mut State, host: &mut Host, clock: &mut TermClock, name: &str, rep
         return false;
     }
     clock.instant();
-    let before = s
-        .rows()
-        .iter()
-        .find(|r| Some(&r.id) == s.selected.as_ref())
-        .map(|r| r.is_earlier())
-        .unwrap_or(false);
+    // Only opening a thread needs the pre-action row's earlier/folded state.
+    let opening = matches!(name, "enter" | "o");
+    let before = opening
+        && s.rows()
+            .iter()
+            .find(|r| Some(&r.id) == s.selected.as_ref())
+            .is_some_and(|r| r.is_earlier());
     let now = host::input_now(s, host);
     let secs = clock.clock();
     let db = host.db.is_some();
@@ -209,7 +210,7 @@ fn on_key(s: &mut State, host: &mut Host, clock: &mut TermClock, name: &str, rep
             epoch + secs * 1000.
         }
     });
-    if matches!(name, "enter" | "o") && !before {
+    if opening && !before {
         host::open_selected(s, host);
     }
     if name == "r" && !s.paused {
