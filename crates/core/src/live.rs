@@ -6238,6 +6238,18 @@ impl Handle {
     pub fn take(&self) -> Option<Result<Update, SourceError>> {
         self.latest.lock().unwrap().take()
     }
+    /// A mailbox with no reader thread behind it, for the presenter's deterministic stream
+    /// check: the check polls its own [`Reader`] at a scripted clock and posts the result with
+    /// [`Handle::offer`], so the host takes it exactly as it takes the worker's.
+    #[cfg(feature = "frame-stream")]
+    pub fn detached() -> Self {
+        Self { latest: Arc::new(Mutex::new(None)), stop: None }
+    }
+    /// Put a finished poll in the mailbox, replacing one not yet taken, as the worker does.
+    #[cfg(feature = "frame-stream")]
+    pub fn offer(&self, result: Result<Update, SourceError>) {
+        *self.latest.lock().unwrap() = Some(result);
+    }
 }
 impl Drop for Handle {
     fn drop(&mut self) {
