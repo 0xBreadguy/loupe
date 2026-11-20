@@ -27,6 +27,7 @@ pub mod product;
 pub mod program;
 pub mod recap;
 pub mod recap_view;
+pub mod insights_view;
 pub mod skim;
 pub mod source;
 pub mod status;

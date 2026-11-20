@@ -899,15 +899,21 @@ struct Shown {
 
 impl Shown {
     fn open(tag: &str, cols: u16, rows: u16) -> Self {
-        let home = Home::new(tag);
+        Self::with_args(Home::new(tag), cols, rows, &["--demo", "--calm", "--theme", "frontier"])
+    }
+
+    fn with_args(home: Home, cols: u16, rows: u16, args: &[&str]) -> Self {
         let t3 = home.0.join("t3");
         let env = [
             ("HOME", home.0.to_str().unwrap()),
             ("T3CODE_HOME", t3.to_str().unwrap()),
             ("TERM", "dumb"),
+            ("TZ", "America/Los_Angeles"),
             ("T3_FIXED_NOW", "1795026000000"),
+            ("T3_AGENTS_NO_CACHE", "1"),
+            ("HYPRLAND_INSTANCE_SIGNATURE", ""), // No desktop focus watcher for synthetic databases.
         ];
-        let pty = Pty::spawn_args(cols, rows, &["--demo", "--calm", "--theme", "frontier"], &env, OUTSIDE);
+        let pty = Pty::spawn_args(cols, rows, args, &env, OUTSIDE);
         Self { pty, screen: Screen::new(cols as usize, rows as usize), fed: 0, _home: home }
     }
 
@@ -958,6 +964,19 @@ impl Shown {
     fn key(&mut self, bytes: &[u8], what: &str, ok: impl Fn(&[String]) -> bool) {
         self.pty.send(bytes);
         self.until(what, ok);
+    }
+
+    /// Read successive completed frames even if the PTY coalesces loading and readiness.
+    fn key_frames(&mut self, bytes: &[u8], count: usize) -> Vec<Vec<String>> {
+        let before = sync_ends(&self.pty.buf[..self.fed]);
+        self.pty.send(bytes);
+        self.pty.wait_syncs(before + count);
+        (before + 1..=before + count).map(|n| {
+            let end = nth_sync_end(&self.pty.buf, n);
+            self.screen.apply(&self.pty.buf[self.fed..end]);
+            self.fed = end;
+            self.rows()
+        }).collect()
     }
 
     /// Resize after the screen has settled; the program repaints everything at the new size.
@@ -1163,5 +1182,165 @@ fn contextual_notices_and_demo_storage_are_honest() {
     v.key(b"s", "narrow dashboard", |r| r.iter().any(|line| line.contains("48 × 14")));
     v.key(b"w", "narrow Trace minimum", |r| r.iter().any(|line| line.contains("60 × 16")) && r.iter().any(|line| line.contains("w back")));
     v.resize(10, 14, "very narrow Trace notice", |r| r.get(2).is_some_and(|line| !line.chars().any(|ch| ch.is_ascii_digit())));
+    v.quit(b"q");
+}
+
+fn insights_ready(rows: &[String]) -> bool {
+    header(rows).contains("RECAP")
+        && header(rows).contains("TOOLS")
+        && footer(rows).contains("i back")
+        && footer(rows).contains("made up")
+        && !rows.iter().any(|row| row.contains("INSIGHTS HELP"))
+}
+
+#[test]
+fn insights_demo_loads_refreshes_and_returns_to_the_same_board() {
+    let mut v = Shown::open("insights", 55, 24);
+    v.until("Live", on_dashboard);
+    v.key(b"j", "a different board selection", on_dashboard);
+    v.still("the selected Live row", on_dashboard);
+    let live = v.rows();
+
+    v.key(b"?", "Insights in 55-column Live help", |rows| {
+        on_help(rows) && rows.iter().any(|row| row.contains("insights: Recap and Tools"))
+    });
+    let entry = v.key_frames(b"i", 2);
+    assert!(entry[0].iter().any(|row| row.contains("Making up Recap for this week, started")));
+    assert!(insights_ready(&entry[1]));
+
+    v.key(b"\x1b[C", "last week", |rows| insights_ready(rows) && rows[1].contains("last week"));
+    let tools = v.key_frames(b"\t", 2);
+    assert!(tools[0].iter().any(|row| row.contains("Making up Tools for last week")));
+    assert!(insights_ready(&tools[1]) && tools[1][1].contains("last week"));
+
+    v.key(b"\x1b[F", "the end of Tools", |rows| {
+        insights_ready(rows) && rows.iter().any(|row| row.contains("above") && !row.contains("more"))
+    });
+    v.key(b"\x1b[<64;20;12M", "wheel scrolling up", |rows| {
+        insights_ready(rows) && rows.iter().any(|row| row.contains("above") && row.contains("more"))
+    });
+    let before = v.rows();
+    let refresh = v.key_frames(b"r", 2);
+    assert!(footer(&refresh[0]).contains("making up"));
+    assert_eq!(refresh[0][2..23], before[2..23], "refresh keeps the visible report");
+    assert_eq!(refresh[1], before, "fixed-clock refresh restores the ready frame");
+
+    v.key(b"\x1b[Z", "Shift-Tab returning to Recap", |rows| {
+        insights_ready(rows) && rows[1].contains("last week")
+            && !rows.iter().any(|row| row.contains("above"))
+    });
+    v.key(b"?", "Insights help at 55 columns", |rows| {
+        rows.iter().any(|row| row.contains("INSIGHTS HELP"))
+            && rows.iter().any(|row| row.contains("Esc closes help first"))
+    });
+    v.key(b"\x1b", "Esc closing Insights help", insights_ready);
+    v.key(b"\x1b", "Esc returning to the same Live selection", |rows| rows == live);
+
+    v.key(b"i", "reopening at Recap this week", |rows| insights_ready(rows) && rows[1].contains("this week"));
+    v.resize(40, 12, "Insights size notice", |rows| {
+        rows.iter().any(|row| row.contains("T3 Agents · Insights"))
+            && rows.iter().any(|row| row.contains("i back"))
+    });
+    v.key(b"i", "back to the tiny Live board", |rows| !header(rows).contains("Insights"));
+    v.key(b"i", "reopening below the minimum", |rows| header(rows).contains("Insights"));
+    v.quit(b"q");
+}
+
+#[test]
+fn insights_fallback_labels_the_data_without_moving_the_period_cursor() {
+    let home = Home::new("insights-fallback");
+    let path = home.0.join("reports.sqlite");
+    let db = rusqlite::Connection::open(&path).unwrap();
+    db.execute_batch(include_str!("../../../checks/fixtures/t3-schema.sql")).unwrap();
+    db.execute_batch(
+        "INSERT INTO orchestration_v2_projection_threads
+           (thread_id, project_id, title, default_provider, runtime_mode, interaction_mode,
+            created_at, updated_at, payload_json)
+         VALUES ('t', 'p', 'Synthetic thread', 'claudeAgent', 'local', 'default',
+                 '2026-11-01T00:00:00Z', '2026-11-17T19:00:00Z',
+                 '{\"projectId\":\"p\",\"createdAt\":\"2026-11-01T00:00:00Z\"}');
+         INSERT INTO orchestration_v2_projection_runs
+           (run_id, thread_id, ordinal, provider, status, requested_at, completed_at, payload_json)
+         VALUES ('r', 't', 1, 'claudeAgent', 'completed',
+                 '2026-11-17T18:00:00Z', '2026-11-17T19:00:00Z',
+                 '{\"status\":\"completed\",\"startedAt\":\"2026-11-17T18:00:00Z\"}');
+         INSERT INTO orchestration_v2_projection_turn_items
+           (turn_item_id, thread_id, run_id, ordinal, type, status, updated_at, payload_json)
+         VALUES ('u', 't', 'r', 1, 'user_message', 'completed', '2026-11-17T18:00:00Z',
+                 '{\"createdBy\":\"user\",\"creationSource\":\"web\"}'),
+                ('c', 't', 'r', 2, 'command_execution', 'completed', '2026-11-17T19:00:00Z',
+                 '{\"startedAt\":\"2026-11-17T18:00:00Z\",\"completedAt\":\"2026-11-17T19:00:00Z\",
+                   \"input\":\"git status\"}');",
+    ).unwrap();
+    drop(db);
+
+    let mut v = Shown::with_args(
+        home, 80, 24,
+        &["--db", path.to_str().unwrap(), "--calm", "--theme", "frontier"],
+    );
+    v.until("Live", |rows| header(rows).contains("LIVE"));
+    let ready = |rows: &[String], period: &str, dates: &str| {
+        assert!(footer(rows).contains("read at 10:20:00"), "{}", rows.join("\n"));
+        assert!(rows[1].contains(period) && rows[1].contains(dates), "{}", rows[1]);
+    };
+
+    ready(&v.key_frames(b"i", 2)[1], "this week", "Nov 16");
+    let last_week = v.key_frames(b"\x1b[C", 2);
+    assert!(last_week[0][1].contains("last week"));
+    ready(&last_week[1], "this week", "Nov 16");
+
+    let tools = v.key_frames(b"\t", 2);
+    assert!(tools[0].iter().any(|row| row.contains("Reading Tools for last week")));
+    ready(&tools[1], "this week", "Nov 16");
+    ready(&v.key_frames(b"\x1b[C", 2)[1], "this month", "November 2026");
+
+    let last_month = v.key_frames(b"\x1b[C", 2);
+    assert!(last_month[0][1].contains("last month"));
+    ready(&last_month[1], "this month", "November 2026");
+    v.pty.send(b"\x1b[C");
+    v.still("Right stays at the fourth requested slot", |rows| rows == last_month[1]);
+
+    // The cached Tools results paint immediately while Left traverses requested slots.
+    v.key(b"\x1b[D", "this month", |rows| rows[1].contains("this month"));
+    v.key(b"\x1b[D", "last week fallback after moving left", |rows| rows[1].contains("this week"));
+    let this_week = v.key_frames(b"\x1b[D", 2);
+    assert!(this_week[0].iter().any(|row| row.contains("Reading Tools for this week")));
+    ready(&this_week[1], "this week", "Nov 16");
+
+    // Live sees the source disappear while the report stays pinned to its successful read.
+    std::fs::rename(&path, path.with_file_name("parked.sqlite")).unwrap();
+    v.until("Live retrying while Insights keeps the report", |rows| {
+        header(rows).contains("RETRYING") && footer(rows).contains("read at 10:20:00")
+    });
+    assert_eq!(v.rows()[1..23], this_week[1][1..23]);
+    v.key(b"r", "failed refresh retaining the visible report", |rows| {
+        footer(rows).contains("showing 10:20:00")
+    });
+    assert_eq!(v.rows()[1..23], this_week[1][1..23]);
+    v.quit(b"q");
+}
+
+#[test]
+fn insights_unreadable_and_snapshot_routes_preserve_terminal_shutdown() {
+    let home = Home::new("insights-missing");
+    let missing = home.0.join("missing.sqlite");
+    let mut v = Shown::with_args(home, 80, 24, &["--db", missing.to_str().unwrap(), "--calm"]);
+    v.until("Live retrying with a missing database", |rows| header(rows).contains("RETRYING"));
+    let failed = |rows: &[String]| header(rows).contains("RECAP") && footer(rows).contains("can't read T3");
+    v.key(b"i", "the Insights read error", failed);
+    v.key(b"i", "back from the read error", |rows| !header(rows).contains("RECAP"));
+    v.key(b"i", "the error after reopening", failed);
+    v.pty.signal(libc::SIGTERM);
+    assert!(v.pty.wait().success());
+    v.pty.assert_restored();
+
+    let path = fixture();
+    let mut v = Shown::with_args(
+        Home::new("insights-standalone"), 80, 24,
+        &["--snapshot", path.to_str().unwrap()],
+    );
+    v.until("a standalone board", |rows| header(rows).contains("T3 Agents"));
+    v.pty.send(b"i\t\x1b[Z");
+    v.still("the standalone board never opens a report", |rows| !header(rows).contains("RECAP"));
     v.quit(b"q");
 }

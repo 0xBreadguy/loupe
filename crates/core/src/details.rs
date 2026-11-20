@@ -1406,6 +1406,7 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
     let all_keys = [
         ("↑↓ j k", "select agent"),
         ("n", "next agent waiting on you"),
+        ("i", "insights: Recap and Tools"),
         ("⏎ o", "open the thread in T3 Code"),
         ("␣ ← →", "fold · unfold · earlier"),
         ("a", "all · active · T3 sidebar"),
@@ -1427,7 +1428,7 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
         .into_iter()
         .filter(|k| match k.0 {
             "c C" | "w" => s.themes,
-            "s" => s.storage_key_in_help,
+            "s" | "i" => s.storage_key_in_help,
             _ => true,
         })
         .collect();
@@ -1587,6 +1588,53 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Insights is a deliberate product-only addition to Live help; the oracle
+    // grid has no Insights entry. Check the visible cells, not the key list.
+    #[test]
+    fn insights_help_is_visible_and_oracle_help_is_unchanged() {
+        let p = Palette::fallback();
+        for (w, h) in [(55, 24), (80, 24), (120, 40)] {
+            let mut s = State::new(model::Snapshot::default());
+            s.themes = true;
+            s.storage_key_in_help = true;
+            s.help = true;
+            let (grid, _) = crate::ui::draw_grid(&s, w, h, &p);
+            let rows: Vec<_> = (0..h).map(|y| grid.row_text(y)).collect();
+            let matches: Vec<_> = rows.iter().enumerate().filter(|(_, row)| row.contains("insights: Recap and Tools")).collect();
+            assert_eq!(matches.len(), 1, "{w}x{h}: {rows:?}");
+            let (y, row) = matches[0];
+            let x = row[..row.find("insights: Recap and Tools").unwrap()].chars().count();
+            assert!(y > 0 && y < h - 1 && x >= 11);
+            assert_eq!(grid.cells[y * w + x - 11].ch, 'i');
+            assert_eq!(grid.cells[y * w + x - 11].fg, p.accent);
+            assert_eq!(grid.cells[y * w + x].fg, p.fg);
+            assert!(grid.cells[y * w + x - 11].bold);
+            // Negative controls: a missing label or a displaced key must fail
+            // the same visible-cell contract, even if the key list contains it.
+            let visible = |c: &Canvas| {
+                (1..h - 1).any(|y| {
+                    let row = c.row_text(y);
+                    row.find("insights: Recap and Tools")
+                        .map(|byte| row[..byte].chars().count())
+                        .is_some_and(|x| x >= 11 && c.cells[y * w + x - 11].ch == 'i')
+                })
+            };
+            assert!(visible(&grid));
+            let mut missing = grid.clone();
+            missing.cells[y * w + x].ch = ' ';
+            assert!(!visible(&missing));
+            let mut misplaced = grid.clone();
+            misplaced.cells[y * w + x - 11].ch = ' ';
+            misplaced.cells[y * w + x - 10].ch = 'i';
+            assert!(!visible(&misplaced));
+
+            s.themes = false;
+            s.storage_key_in_help = false;
+            let (oracle, _) = crate::ui::draw_grid(&s, w, h, &p);
+            assert!((0..h).all(|y| !oracle.row_text(y).contains("insights")));
+        }
+    }
     #[test]
     fn original_digits_and_text_fit_remain_cell_based() {
         assert_eq!(width("日本語"), 6);

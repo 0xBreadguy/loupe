@@ -79,6 +79,19 @@ The short list is in the [README](../README.md). This is the long one.
   line above the footer says how much is left. It identifies temporary space
   backed by memory. The demo uses example data.
 
+## Insights
+
+Press `i` on the dashboard to see how this week's agent time was spent.
+Press `Tab` for Tools to see which programs ran, how long they took and which
+commands failed. Both reports cover the period shown in the date row. If the
+previous week or month is empty and the current one has data, Insights shows
+the current period and its dates, just as the printed reports do.
+
+The report stays in place while you read, even as Live keeps updating.
+Press `r` for fresh numbers or leave and reopen Insights. In `--demo`,
+Recap and Tools each use a separate made-up dataset. Their totals can differ
+from each other and from the sample agents on Live.
+
 ## Recap
 
 `t3-agents --recap` prints one card: the last full week of agent work, Monday

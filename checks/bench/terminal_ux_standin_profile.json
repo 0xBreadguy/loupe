@@ -1,0 +1,48 @@
+{
+  "name": "standin",
+  "kind": "stand-in",
+  "status": "Written against terminal_ux_standin.py for the harness's own negative controls (the selftest). It describes no product and is never calibrated; the product profile is terminal_ux_profile.json.",
+  "board": {
+    "ready": "^▌.*Bench task 000"
+  },
+  "esc_control": {},
+  "open": {
+    "key": "i",
+    "loading": "reading…",
+    "ready": "· ready$",
+    "during": [
+      {
+        "name": "switch-report-during-read",
+        "key": "tab",
+        "expect": "INSIGHTS  Tools",
+        "keeps_loading": true
+      }
+    ]
+  },
+  "reading": [
+    {
+      "name": "scroll-down",
+      "key": "j",
+      "expect": "^  scroll <<n>>$",
+      "repeat": 6
+    }
+  ],
+  "switch": [
+    {
+      "name": "next-report",
+      "key": "tab",
+      "expect": "INSIGHTS  Tools"
+    },
+    {
+      "name": "previous-report",
+      "key": "tab",
+      "expect": "INSIGHTS  Recap"
+    }
+  ],
+  "exit": {
+    "key": "escape",
+    "alt_key": "i",
+    "expect": "^▌.*Bench task 000",
+    "absent": "INSIGHTS"
+  }
+}

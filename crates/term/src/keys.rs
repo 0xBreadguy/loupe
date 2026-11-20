@@ -326,6 +326,10 @@ fn take_plain(buf: &mut Vec<u8>) -> Plain {
         buf.remove(0);
         return Plain::Event(Event::Key("enter"));
     }
+    if b == b'\t' {
+        buf.remove(0);
+        return Plain::Event(Event::Key("tab"));
+    }
     if b < 0x20 || b == 0x7f {
         buf.remove(0);
         return Plain::Ignore;
@@ -370,6 +374,7 @@ fn allowed_char(c: char) -> Option<&'static str> {
         'p' => "p",
         'r' => "r",
         's' => "s",
+        'i' => "i",
         'm' => "m",
         'x' => "x",
         'f' => "f",
@@ -514,6 +519,8 @@ fn parse_csi(seq: &[u8]) -> Option<Event> {
         b'D' => "left",
         b'H' => "home",
         b'F' => "end",
+        // OpenTUI's src/lib/parse.keypress.ts names CSI Z Tab and marks it shifted.
+        b'Z' if body.is_empty() => "shift-tab",
         b'~' => match numbers(body).first().copied().unwrap_or(0) {
             1 | 7 => "home",
             4 | 8 => "end",

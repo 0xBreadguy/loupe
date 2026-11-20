@@ -57,6 +57,11 @@ writes to it, and it makes no network connections.
   `T3_AGENTS_SYNC_READ=1` in its environment. It then rereads the tables it
   uses directly, the way the Node.js version did. That
   costs more CPU on a large database and changes nothing you see.
+- **Insights** uses the same read-only report data as `--recap --json` and
+  `--tools --json`. Opening a report starts a background read. Scrolling and
+  resizing reuse the result in memory. Returning to Live ends the visit, and
+  reopening reads a fresh report. The persistent report cache described below
+  remains opt-in.
 - **Recap:** `--recap` reads the same database read-only, with parallel
   item reads when there are enough runs. For runs open during the selected
   week or month it reads when each was asked for, started and finished, how
