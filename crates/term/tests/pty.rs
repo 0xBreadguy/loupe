@@ -348,17 +348,19 @@ fn dup_file(fd: RawFd) -> File {
     unsafe { File::from_raw_fd(duped) }
 }
 
+const FRAME_END: &[u8] = b"\x1b[?2026l";
+
 fn sync_ends(buf: &[u8]) -> usize {
-    buf.windows(8).filter(|w| *w == b"\x1b[?2026l").count()
+    buf.windows(FRAME_END.len()).filter(|w| *w == FRAME_END).count()
 }
 
 fn nth_sync_end(buf: &[u8], n: usize) -> usize {
     let mut seen = 0;
-    for (i, w) in buf.windows(8).enumerate() {
-        if w == b"\x1b[?2026l" {
+    for (i, w) in buf.windows(FRAME_END.len()).enumerate() {
+        if w == FRAME_END {
             seen += 1;
             if seen == n {
-                return i + 8;
+                return i + FRAME_END.len();
             }
         }
     }
@@ -888,8 +890,43 @@ fn storage_reopen_keeps_the_last_measurement_until_rescan() {
     pty.assert_restored();
 }
 
-/// The demo with every product view, its bytes read into a virtual screen as they arrive, so a
-/// step is checked against what the terminal shows rather than against a byte in the stream.
+/// A PTY read can stop mid-frame, even in the closing escape. A terminal presents the
+/// synchronized frame only once that escape is complete. Keep the suffix for the next read.
+fn apply_complete_frames(screen: &mut Screen, buf: &[u8]) -> usize {
+    let Some(last) = buf.windows(FRAME_END.len()).rposition(|w| w == FRAME_END) else {
+        return 0;
+    };
+    let end = last + FRAME_END.len();
+    screen.apply(&buf[..end]);
+    end
+}
+
+#[test]
+fn split_pty_reads_publish_only_complete_frames() {
+    let live = b"\x1b[?2026hLive\x1b[?2026l";
+    let help = b"\x1b[?2026h\x1b[1;1HHelp\x1b[?2026l";
+    let stream = [live.as_slice(), help.as_slice()].concat();
+    let row = |screen: &Screen| {
+        screen.cells.iter().map(|cell| cell.text.as_str()).collect::<String>()
+    };
+
+    for split in 0..=stream.len() {
+        let mut screen = Screen::new(4, 1);
+        let fed = apply_complete_frames(&mut screen, &stream[..split]);
+        let expected = if split < live.len() {
+            "    "
+        } else if split < stream.len() {
+            "Live"
+        } else {
+            "Help"
+        };
+        assert_eq!(row(&screen), expected, "first read ends at byte {split}");
+        assert_eq!(fed + apply_complete_frames(&mut screen, &stream[fed..]), stream.len());
+        assert_eq!(row(&screen), "Help");
+    }
+}
+
+/// The demo with every product view, checked against the completed frames on screen.
 struct Shown {
     pty: Pty,
     screen: Screen,
@@ -919,8 +956,7 @@ impl Shown {
 
     fn feed(&mut self) -> bool {
         let eof = self.pty.pump();
-        self.screen.apply(&self.pty.buf[self.fed..]);
-        self.fed = self.pty.buf.len();
+        self.fed += apply_complete_frames(&mut self.screen, &self.pty.buf[self.fed..]);
         eof
     }
 
@@ -1301,7 +1337,9 @@ fn insights_fallback_labels_the_data_without_moving_the_period_cursor() {
     v.still("Right stays at the fourth requested slot", |rows| rows == last_month[1]);
 
     // The cached Tools results paint immediately while Left traverses requested slots.
-    v.key(b"\x1b[D", "this month", |rows| rows[1].contains("this month"));
+    v.key(b"\x1b[D", "this month", |rows| {
+        rows[1].contains("this month") && !rows[1].contains("last month empty")
+    });
     v.key(b"\x1b[D", "last week fallback after moving left", |rows| rows[1].contains("this week"));
     let this_week = v.key_frames(b"\x1b[D", 2);
     assert!(this_week[0].iter().any(|row| row.contains("Reading Tools for this week")));

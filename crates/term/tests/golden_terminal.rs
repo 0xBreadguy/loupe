@@ -799,8 +799,20 @@ fn wait_file(path: &Path, timeout: Duration) -> Result<String, String> {
     Err(format!("timed out waiting for {}", path.display()))
 }
 
-fn read_text(path: &Path) -> String {
-    std::fs::read_to_string(path).unwrap_or_default()
+/// The wrapper prints its status after both stty captures. Seeing it in pipe-pane's
+/// output also proves tmux received the terminal cleanup bytes that came before it.
+fn wait_exit_output(path: &Path, status: &str) -> Vec<u8> {
+    let marker = format!("DONE:{status}");
+    let deadline = Instant::now() + ms(8_000);
+    loop {
+        if let Ok(raw) = std::fs::read(path) {
+            if raw.windows(marker.len()).any(|part| part == marker.as_bytes()) {
+                return raw;
+            }
+        }
+        assert!(Instant::now() < deadline, "timed out waiting for {marker} in {}", path.display());
+        sleep(ms(50));
+    }
 }
 
 /// Modes a pane should be handed back in: parsed from the bytes the program wrote.
@@ -880,10 +892,10 @@ fn exit_case(how: &str) {
         format!("  exec {}", app_command(&["--calm", "--interval", "30", "--demo"])),
         ")".into(),
         "status=$?".into(),
-        format!("echo $status > {}", quote(file("exit").to_str().unwrap())),
         format!("stty -g > {}", quote(file("stty-after").to_str().unwrap())),
         format!("stty -a > {}", quote(file("stty-a-after").to_str().unwrap())),
         "echo DONE:$status".into(),
+        format!("echo $status > {}", quote(file("exit").to_str().unwrap())),
         "sleep 30".into(),
         String::new(),
     ]);
@@ -914,8 +926,7 @@ fn exit_case(how: &str) {
         }
     }
     let exit_code = wait_file(&file("exit"), ms(8_000)).unwrap();
-    sleep(ms(200));
-    let raw_out = std::fs::read(file("raw.bin")).unwrap_or_default();
+    let raw_out = wait_exit_output(&file("raw.bin"), &exit_code);
     let mut problems: Vec<String> = Vec::new();
     if survived_paste != recorded["survivedPaste"].as_bool() {
         problems.push(format!("survived a bracketed paste of quit keys: {survived_paste:?}, the original: {}", recorded["survivedPaste"]));
@@ -932,9 +943,16 @@ fn exit_case(how: &str) {
     if exit_code != recorded["exitCode"].as_str().unwrap() {
         problems.push(format!("exit code {} where the original's was {}", exit_code, recorded["exitCode"]));
     }
-    let restored = read_text(&file("stty-after")) == read_text(&file("stty-before")) && read_text(&file("stty-a-after")) == read_text(&file("stty-a-before"));
+    let capture = |name| {
+        let text = std::fs::read_to_string(file(name)).unwrap_or_else(|e| panic!("{name}: {e}"));
+        assert!(!text.trim().is_empty(), "{name} was empty");
+        text
+    };
+    let before = [capture("stty-before"), capture("stty-a-before")];
+    let after = [capture("stty-after"), capture("stty-a-after")];
+    let restored = before == after;
     if restored != recorded["sttyRestored"].as_bool().unwrap() {
-        problems.push(format!("stty restored: {restored}, the original: {}", recorded["sttyRestored"]));
+        problems.push(format!("stty restored: {restored}, the original: {}\nbefore: {before:?}\nafter: {after:?}", recorded["sttyRestored"]));
     }
     if raw_out.len() < 16 {
         problems.push(format!("raw output is {} bytes", raw_out.len()));
