@@ -19,3 +19,5 @@ libc.workspace = true
 flate2 = "1"
 serde_json.workspace = true
 t3-agents-core = { path = "../core" }
+# tests/insights_data_gate.rs builds its own synthetic T3 databases.
+rusqlite.workspace = true

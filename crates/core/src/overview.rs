@@ -219,12 +219,31 @@ fn whole(s: &str) -> String {
     terminal::whole(s)
 }
 
+/// What the header draws after `calm`, in the slot Storage's tag uses.
+pub(crate) enum HeaderBadge<'a> {
+    /// Storage's tag. The gap and the label stay on the Live header's columns.
+    Storage,
+    /// Insights tabs. The active tab is Storage's tag; an inactive one is dim on the
+    /// panel, with the same padding, so the words do not move when the tab changes.
+    Tabs(&'a [(&'a str, bool)]),
+}
+
 pub(crate) fn draw_header(
     c: &mut Canvas,
     s: &State,
     p: &Palette,
     linked: Option<&Agent>,
     storage: bool,
+) {
+    draw_header_badge(c, s, p, linked, if storage { Some(HeaderBadge::Storage) } else { None });
+}
+
+pub(crate) fn draw_header_badge(
+    c: &mut Canvas,
+    s: &State,
+    p: &Palette,
+    linked: Option<&Agent>,
+    badge: Option<HeaderBadge<'_>>,
 ) {
     let w = c.w as i32;
     c.fill(0, 0, w, 1, p.panel);
@@ -255,10 +274,29 @@ pub(crate) fn draw_header(
     if s.calm {
         x += 2 + c.text(x + 2, 0, "calm", p.text2);
     }
-    if storage {
-        x += 2 + c.text_bg(x + 2, 0, " STORAGE ", p.bg, p.text2, true);
-    }
-    if s.demo && (!storage || x + 8 < w - 9) {
+    // Storage keeps `x + 2` inside the tag draw, so a Live header with Storage does not move.
+    let marked = match badge {
+        Some(HeaderBadge::Storage) => {
+            x += 2 + c.text_bg(x + 2, 0, " STORAGE ", p.bg, p.text2, true);
+            true
+        }
+        Some(HeaderBadge::Tabs(tabs)) if !tabs.is_empty() => {
+            // Leave one blank cell before the clock at the minimum Insights width.
+            let tab_width: i32 = tabs.iter().map(|(label, _)| width(label) + 2).sum();
+            x += (w - 10 - x - tab_width).clamp(0, 2);
+            for &(label, active) in tabs {
+                let text = format!(" {label} ");
+                if active {
+                    x += c.text_bg(x, 0, &text, p.bg, p.text2, true);
+                } else {
+                    x += c.text(x, 0, &text, p.dim);
+                }
+            }
+            true
+        }
+        _ => false,
+    };
+    if s.demo && (!marked || x + 8 < w - 9) {
         x += 1 + c.text_bg(x + 1, 0, " DEMO ", p.bg, p.text2, true);
     }
     let room = w - x - 34;

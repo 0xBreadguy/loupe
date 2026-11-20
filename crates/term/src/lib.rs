@@ -7,6 +7,7 @@ mod color;
 pub use color::{BACKGROUND_QUERY, THEME_MODE_OFF, startup_probe, startup_probe_for};
 mod encode;
 mod keys;
+pub mod insights_data;
 pub mod platform;
 pub mod storage;
 

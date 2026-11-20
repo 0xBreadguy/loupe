@@ -25,14 +25,20 @@ it's already open with its app id, which foot always sets and
 | `t` | lane window: 15 min, 30 min, 1 h, 3 h |
 | `J` `K` / `PgDn` `PgUp`, wheel over details | scroll the details |
 | `p` / `r` | pause updates / refresh now |
+| `i` | open [Insights](features.md#insights) on Recap for this week |
 | `s` | Storage: disk use by project and thread |
 | `m` | calm mode: nothing animates (on by default when Omarchy's animations are off) |
 | `x` | CRT effects, purely for fun (off in calm mode) |
 | `c` / `C` | next / previous theme, saved for next time ([themes](themes.md)) |
 | `w` | [trace](features.md#trace) the selected agent's task: every step on one clock; `w` or `Esc` goes back |
 | `?` / `h` | help and legend (scroll it with `↑` `↓` / `j` `k` or the wheel) |
-| `Esc` | close help, return from Storage, or quit |
+| `Esc` | close help, return from Insights, Storage or Trace, or quit |
 | `q` | quit |
+
+In Insights, press `Tab` to switch between Recap and Tools. The left and right
+arrows step through this week, last week, this month and last month. Use the
+wheel or up and down arrows to scroll. Press `r` to read the report again,
+`?` for help, and `i` or Esc to return to Live. Esc closes help first.
 
 In Storage, use the arrows or wheel to select a row, Space to fold a project,
 Enter to open an eligible thread in T3 Code, and `r` to measure again. Press `s`

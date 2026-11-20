@@ -719,30 +719,69 @@ fn recap_color(terminal: bool, var: &dyn Fn(&str) -> Option<String>) -> recap_vi
     if deep || (forced && !terminal) { recap_view::Color::True } else { recap_view::Color::Indexed }
 }
 
-/// `--tools`. Returns the exit code: 0, or 1 when T3's database can't be read.
-fn tools_command(database: &Database, now: f64, which: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> {
-    let local: recap::Local = &crate::platform::local_time;
-    let load = |which: recap::Which| -> Result<tools::Tools, SourceError> {
+/// The typed value and the period that produced it. The CLI fallback can
+/// return the current period when the requested full period is empty.
+#[derive(Debug)]
+pub struct ReportRead<T> {
+    pub returned: recap::Which,
+    pub value: T,
+}
+
+fn load_report<T>(
+    selected: recap::Which,
+    load: impl Fn(recap::Which) -> Result<T, SourceError>,
+    is_empty: impl Fn(&T) -> bool,
+) -> Result<ReportRead<T>, SourceError> {
+    let value = load(selected)?;
+    if !selected.so_far() && is_empty(&value) {
+        let current = match selected.span() {
+            recap::Span::Week => recap::Which::ThisWeek,
+            recap::Span::Month => recap::Which::ThisMonth,
+        };
+        let current_value = load(current)?;
+        if !is_empty(&current_value) {
+            return Ok(ReportRead { returned: current, value: current_value });
+        }
+    }
+    Ok(ReportRead { returned: selected, value })
+}
+
+pub fn load_tools(
+    database: &Database,
+    now: f64,
+    selected: recap::Which,
+    local: recap::Local<'_>,
+) -> Result<ReportRead<tools::Tools>, SourceError> {
+    load_report(selected, |which| {
         let period = recap::Period::new(now, which, local);
         match database {
             Database::Demo => tools::demo(&period, local),
             Database::Path { path, .. } => tools::load(path, &period, local),
         }
-    };
-    // The last full week or month; when it has nothing and the current one does, that so far.
+    }, tools::Tools::is_empty)
+}
+
+pub fn load_recap(
+    database: &Database,
+    now: f64,
+    selected: recap::Which,
+    local: recap::Local<'_>,
+) -> Result<ReportRead<recap::Recap>, SourceError> {
+    load_report(selected, |which| {
+        let period = recap::Period::new(now, which, local);
+        match database {
+            Database::Demo => recap::demo(&period, local),
+            Database::Path { path, .. } => recap::load(path, &period, local),
+        }
+    }, recap::Recap::is_empty)
+}
+
+/// `--tools`. Returns the exit code: 0, or 1 when T3's database can't be read.
+fn tools_command(database: &Database, now: f64, which: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> {
+    let local: recap::Local = &crate::platform::local_time;
     let month = which.span() == recap::Span::Month;
     let (span, demo_tip) = if month { ("month", "Just looking? t3-agents --tools --month --demo shows a made-up month.") } else { ("week", "Just looking? t3-agents --tools --demo shows a made-up week.") };
-    let read = if which.so_far() {
-        load(which)
-    } else {
-        load(which).and_then(|last| {
-            if !last.is_empty() {
-                return Ok(last);
-            }
-            let this = load(if month { recap::Which::ThisMonth } else { recap::Which::ThisWeek })?;
-            Ok(if this.is_empty() { last } else { this })
-        })
-    };
+    let read = load_tools(database, now, which, local).map(|read| read.value);
     let source = if matches!(database, Database::Demo) { recap_view::Source::Demo } else { recap_view::Source::Records };
     let terminal = io::stdout().is_terminal();
     let color = recap_color(terminal, &|name| std::env::var(name).ok());
@@ -819,27 +858,9 @@ fn tools_command(database: &Database, now: f64, which: recap::Which, json: bool,
 /// `--recap`. Returns the exit code: 0, or 1 when T3's database can't be read.
 fn recap_command(database: &Database, now: f64, which: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> {
     let local: recap::Local = &crate::platform::local_time;
-    let load = |which: recap::Which| -> Result<recap::Recap, SourceError> {
-        let period = recap::Period::new(now, which, local);
-        match database {
-            Database::Demo => recap::demo(&period, local),
-            Database::Path { path, .. } => recap::load(path, &period, local),
-        }
-    };
-    // The last full week or month; when it has nothing and the current one does, that so far.
     let month = which.span() == recap::Span::Month;
     let (span, demo_tip) = if month { ("month", "Just looking? t3-agents --recap --month --demo shows a made-up month.") } else { ("week", "Just looking? t3-agents --recap --demo shows a made-up week.") };
-    let read = if which.so_far() {
-        load(which)
-    } else {
-        load(which).and_then(|last| {
-            if !last.is_empty() {
-                return Ok(last);
-            }
-            let this = load(if month { recap::Which::ThisMonth } else { recap::Which::ThisWeek })?;
-            Ok(if this.is_empty() { last } else { this })
-        })
-    };
+    let read = load_recap(database, now, which, local).map(|read| read.value);
     let source = if matches!(database, Database::Demo) { recap_view::Source::Demo } else { recap_view::Source::Records };
     let terminal = io::stdout().is_terminal();
     let color = recap_color(terminal, &|name| std::env::var(name).ok());

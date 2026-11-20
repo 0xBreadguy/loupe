@@ -25,6 +25,8 @@ use t3_agents_term::{
     storage::StorageSource,
 };
 
+mod insights_screen;
+use insights_screen::{Effect as InsightsEffect, InsightsScreen, InsightsSource};
 mod storage_screen;
 use storage_screen::StorageScreen;
 
@@ -348,9 +350,12 @@ fn paint(
     Ok(())
 }
 
-fn present(wake: Arc<Wake>, launch: (State, Host, StorageSource)) -> Result<(), Box<dyn std::error::Error>> {
+type Launch = (State, Host, StorageSource, Option<InsightsSource>);
+
+fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Error>> {
     let _restore = platform::enter_raw()?;
-    let (mut state, mut host, source) = launch;
+    let (mut state, mut host, source, insights_source) = launch;
+    let mut insights = InsightsScreen::default();
     let mut storage = StorageScreen::new(source, Arc::clone(&wake));
     // Ask the terminal what it can do before anything slow, and never wait for the answer: it
     // arrives while the first frame is being composed. See `caps.rs`. A theme that follows the
@@ -424,10 +429,11 @@ fn present(wake: Arc<Wake>, launch: (State, Host, StorageSource)) -> Result<(), 
         }
         // The terminal's background, and word that its color scheme changed: OpenTUI answers a
         // `CSI ? 997 ; n n` by asking for the colors again and takes the mode from the background.
+        let mut background_changed = false;
         for event in &events {
             match event {
                 Event::Report(Report::Background(rgb)) => {
-                    host::terminal_background(&mut state, &mut host, *rgb);
+                    background_changed |= host::terminal_background(&mut state, &mut host, *rgb);
                 }
                 Event::Report(Report::ColorScheme { .. }) if theme_mode => {
                     if background_asked.is_none_or(|at| at.elapsed() >= Duration::from_millis(250)) {
@@ -491,11 +497,11 @@ fn present(wake: Arc<Wake>, launch: (State, Host, StorageSource)) -> Result<(), 
                 full = true;
             }
         }
-        if let Some(replay) = &replay {
-            replay_step(&mut state, replay, clock.now, &mut clock);
+        let host_changed = if let Some(replay) = &replay {
+            replay_step(&mut state, replay, clock.now, &mut clock)
         } else {
-            host::poll_host(&mut state, clock.now, &mut clock, &mut host);
-        }
+            host::poll_host(&mut state, clock.now, &mut clock, &mut host)
+        };
         storage.poll(&state);
         if let Some(t) = tracing.as_mut() {
             t.poll();
@@ -506,14 +512,59 @@ fn present(wake: Arc<Wake>, launch: (State, Host, StorageSource)) -> Result<(), 
             clock.wake_after(Duration::from_millis(if running && !state.calm && !reduced { 100 } else { 1000 }));
         }
         let hold = !painted && probe.as_ref().is_some_and(|probe| probe.waiting(Instant::now()));
-        if !hold {
+        let mut insights_dirty = false;
+        if insights.is_open() {
+            let source = insights_source.unwrap();
+            let completed = ready.wake && insights.poll(source);
+            insights_dirty = completed || full || background_changed || host_changed;
+        } else if !hold {
             paint(&mut state, &mut storage, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
             painted = true;
         }
         let mut quit = eof || signals.quit;
         for event in events {
+            if insights.is_open() {
+                if quit {
+                    break;
+                }
+                let source = insights_source.unwrap();
+                let effect = match event {
+                    Event::Quit => InsightsEffect::Quit,
+                    Event::Key(name) => insights.key(name, source),
+                    Event::Wheel { down, .. } => insights.key(if down { "down" } else { "up" }, source),
+                    _ => InsightsEffect::Stay,
+                };
+                match effect {
+                    InsightsEffect::Quit => {
+                        quit = true;
+                        break;
+                    }
+                    InsightsEffect::Back => {
+                        insights.close();
+                        paint(&mut state, &mut storage, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
+                    }
+                    InsightsEffect::Paint => {
+                        insights.present_key(&state, source, host.db.as_deref(), size, &mut encoder, &mut full, &wake)?;
+                        insights_dirty = false;
+                    }
+                    InsightsEffect::Stay => {}
+                }
+                continue;
+            }
             let stop = match event {
                 Event::Quit => true,
+                Event::Key("i") if state.storage_key_in_help && tracing.is_none()
+                    && !storage.is_open() && !quit && let Some(source) = insights_source => {
+                    if state.help {
+                        on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
+                    }
+                    insights.open();
+                    insights.present_key(&state, source, host.db.as_deref(), size, &mut encoder, &mut full, &wake)?;
+                    insights_dirty = false;
+                    painted = true;
+                    continue;
+                }
+                Event::Key("i" | "tab" | "shift-tab") => continue,
                 Event::Key("s") if state.storage_key_in_help && tracing.is_none() && !storage.is_open() => {
                     if state.help {
                         on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
@@ -580,6 +631,10 @@ fn present(wake: Arc<Wake>, launch: (State, Host, StorageSource)) -> Result<(), 
         }
         if quit {
             break;
+        }
+        // Fold a host wake into the key's paint when both arrived together.
+        if insights_dirty && insights.is_open() {
+            insights.paint(&state, insights_source.unwrap(), size, &mut encoder, &mut full)?;
         }
         next_wake = clock.wake.map(|after| Instant::now() + after);
         if !painted {
@@ -687,9 +742,10 @@ fn product_launch(
     interval: f64,
     calm: bool,
     themes: Option<theme::Themes>,
-) -> (State, Host, StorageSource) {
+) -> Launch {
     let storage = StorageSource::for_database(&database);
     let now = clock::wall_now();
+    let insights_source = InsightsSource::from(&database);
     let (mut state, mut host) = match database {
         Database::Demo => {
             let state = match demo::snapshot(now, now) {
@@ -727,7 +783,7 @@ fn product_launch(
         host.theme = None;
         host.themes = themes;
     }
-    (state, host, storage)
+    (state, host, storage, Some(insights_source))
 }
 
 /// A state that shows why T3's database could not be read.
@@ -754,7 +810,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         let state = cli::init();
         let host = Host::from_args(&state);
-        (state, host, StorageSource::Unavailable)
+        (state, host, StorageSource::Unavailable, None)
     } else {
         let cache_stats = request_recap_cache_stats();
         let headless = product::headless();

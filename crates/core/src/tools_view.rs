@@ -121,7 +121,7 @@ fn header(pen: &mut Pen, period: &str, state: &str, state_color: Rgb) {
 }
 
 /// Recap's coverage with `roomy` false: the wide month's "so far, to …" is not this report's.
-fn coverage(tools: &Tools, source: Source) -> String {
+pub(crate) fn coverage(tools: &Tools, source: Source) -> String {
     let days = tools.days_recorded;
     let recorded = format!("{days} {} recorded", if days == 1 { "day" } else { "days" });
     match source {

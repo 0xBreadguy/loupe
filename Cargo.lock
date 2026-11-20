@@ -312,7 +312,7 @@ dependencies = [
 
 [[package]]
 name = "t3-agents-core"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "flate2",
  "indexmap",
@@ -324,10 +324,11 @@ dependencies = [
 
 [[package]]
 name = "t3-agents-term"
-version = "1.3.0"
+version = "1.4.0"
 dependencies = [
  "flate2",
  "libc",
+ "rusqlite",
  "serde_json",
  "t3-agents-core",
 ]

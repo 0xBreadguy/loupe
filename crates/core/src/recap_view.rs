@@ -146,7 +146,7 @@ fn span_word(r: &Recap) -> &'static str {
 
 /// How much of the period the records cover. The wide card has room to say where a month so
 /// far stops.
-fn coverage(r: &Recap, source: Source, roomy: bool) -> String {
+pub(crate) fn coverage(r: &Recap, source: Source, roomy: bool) -> String {
     let recorded = format!("{} {} recorded", r.days_recorded, if r.days_recorded == 1 { "day" } else { "days" });
     match source {
         Source::Demo => "demo data · made up".into(),

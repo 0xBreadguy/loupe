@@ -1,0 +1,172 @@
+{
+  "name": "insights-120x40",
+  "kind": "product",
+  "format": 2,
+  "calibrated": true,
+  "status": "Calibrated on the built Insights screen at 120x40 with a synthetic dated fixture. Every step matched at pinned and real clocks, and dates-check matched all 28 period rows. Recheck changed screens with snap and dates-check before marking a revised profile calibrated.",
+  "markers_from": {
+    "footer": "the last row: 'reading since HH:MM:SS' while a read runs (entry, r, a first read of a report or period, a stale report), 'read at HH:MM:SS' once it has finished; the footer keeps its status under help",
+    "reports": "body headings that sit in the first rows of an unscrolled page: Recap 'WHERE THE HOURS WENT', Tools 'LONGEST CALL'. A scrolled Tools page lower down also has a 'LONGEST CALLS' section, so the heading alone is never read as 'at the top'",
+    "period row": "right-aligned on the second row: 'Nov 16 – 22' while a first read is only requested, 'Nov 16 – 22, 2026 · so far · N days recorded' once read, and a refresh keeps the old body and the long form. Months read 'November 2026'. <<dates:tw|lw|tm|lm>> and <<short:...>> are expanded by the harness at the display clock (checked against the product by `dates-check`)",
+    "loading body": "'Reading Tools for last week from T3, started HH:MM:SS.' names the report and the period; shown for a first read, and for a read of a report whose result went stale (another report was refreshed since); an r refresh keeps its old body",
+    "help": "INSIGHTS HELP, closed by the same key; Esc closes help first and would add the parser's wait to a timed key",
+    "scroll": "'▲ N above' on the row above the body once it is scrolled; N counts rows"
+  },
+  "pending": [
+    "read evidence is rchar: the candidate's reader reads through read(2) (about 19 MB for a this-week read on the default fixture), so the counter rises; an mmap reader would need per-thread CPU instead (TERMINAL_UX.md)",
+    "not observed: other terminal widths (this profile is 120x40 only), a terminal that answers the start-up queries differently, any real database",
+    "scroll position after a period change is assumed to reset (the scroll steps start from the top of Tools this month); the run fails closed if it does not"
+  ],
+  "reports": {
+    "Recap": {"heading": "WHERE THE HOURS WENT", "name": "Recap"},
+    "Tools": {"heading": "LONGEST CALL", "name": "Tools"}
+  },
+  "footer": {
+    "loading": "reading since \\d\\d:\\d\\d:\\d\\d$",
+    "ready": "read at \\d\\d:\\d\\d:\\d\\d$"
+  },
+  "board": {
+    "ready": "^▌.*Bench task 000"
+  },
+  "esc_control": {},
+  "open": {
+    "key": "i",
+    "to": {"report": "Recap", "period": "tw"},
+    "reads": true,
+    "during": [
+      {
+        "name": "help-open-during-read",
+        "key": "?",
+        "expect": "INSIGHTS HELP",
+        "loading": "reading since \\d\\d:\\d\\d:\\d\\d$",
+        "absent": "read at \\d\\d:\\d\\d:\\d\\d$",
+        "keeps_loading": true
+      },
+      {
+        "name": "help-close-during-read",
+        "key": "?",
+        "expect": {
+          "all": [
+            "reading since \\d\\d:\\d\\d:\\d\\d$",
+            "Reading Recap for <<word:tw>> from T3, started \\d\\d:\\d\\d:\\d\\d"
+          ]
+        },
+        "absent": {
+          "any": [
+            "INSIGHTS HELP",
+            "read at \\d\\d:\\d\\d:\\d\\d$"
+          ]
+        },
+        "keeps_loading": true
+      }
+    ]
+  },
+  "switch": [
+    {
+      "name": "report-next-first-read",
+      "key": "tab",
+      "to": {"report": "Tools", "period": "tw"},
+      "reads": true
+    },
+    {
+      "name": "refresh-with-scroll-during-read",
+      "key": "r",
+      "to": {"report": "Tools", "period": "tw", "scrolled": true},
+      "reads": true,
+      "body": "snapshot",
+      "during": [
+        {"name": "scroll-snapshot-1", "key": "j", "expect": "▲ 1 above\\b", "keeps_loading": true},
+        {"name": "scroll-snapshot-2", "key": "j", "expect": "▲ 2 above\\b", "keeps_loading": true}
+      ]
+    },
+    {
+      "name": "scroll-reset",
+      "key": "home",
+      "to": {"report": "Tools", "period": "tw"},
+      "absent_extra": "▲ \\d+ above\\b"
+    },
+    {
+      "name": "report-switch-stale-rereads",
+      "key": "tab",
+      "to": {"report": "Recap", "period": "tw"},
+      "reads": true
+    },
+    {
+      "name": "report-switch-from-snapshot",
+      "key": "tab",
+      "to": {"report": "Tools", "period": "tw"}
+    },
+    {
+      "name": "period-next-first-read",
+      "key": "right",
+      "to": {"report": "Tools", "period": "lw"},
+      "reads": true
+    },
+    {
+      "name": "period-back-from-snapshot",
+      "key": "left",
+      "to": {"report": "Tools", "period": "tw"}
+    },
+    {
+      "name": "period-next-from-snapshot",
+      "key": "right",
+      "to": {"report": "Tools", "period": "lw"}
+    },
+    {
+      "name": "period-month-first-read",
+      "key": "right",
+      "to": {"report": "Tools", "period": "tm"},
+      "reads": true
+    },
+    {
+      "name": "period-last-month-first-read",
+      "key": "right",
+      "to": {"report": "Tools", "period": "lm"},
+      "reads": true
+    },
+    {
+      "name": "period-back-month-from-snapshot",
+      "key": "left",
+      "to": {"report": "Tools", "period": "tm"}
+    },
+    {
+      "name": "report-switch-month-first-read",
+      "key": "tab",
+      "to": {"report": "Recap", "period": "tm"},
+      "reads": true
+    },
+    {
+      "name": "report-back-from-snapshot",
+      "key": "shift-tab",
+      "to": {"report": "Tools", "period": "tm"}
+    }
+  ],
+  "reading": [
+    {
+      "name": "scroll-tools-down",
+      "key": "j",
+      "expect": "▲ <<n>> above\\b",
+      "repeat": 6
+    }
+  ],
+  "after_reading": [
+    {
+      "name": "scroll-top-again",
+      "key": "home",
+      "to": {"report": "Tools", "period": "tm"},
+      "absent_extra": "▲ \\d+ above\\b"
+    }
+  ],
+  "exit": {
+    "key": "escape",
+    "alt_key": "i",
+    "expect": "^▌.*Bench task 000",
+    "absent": "RECAP\\s+TOOLS"
+  },
+  "confirmed": [
+    "i opens Insights on Recap for this week and returns to Live; Esc also returns, after closing help",
+    "each open reads again (the snapshot is discarded on close); r reads the shown report again and keeps its old body until it finishes",
+    "a first visit to a report or period reads; a revisit in the same visit is answered from the snapshot, unless another report was refreshed since, which makes the other report read again",
+    "the screen redraws only on a key that changes it, a resize, a finished read and Live's header clock (visible only under a real clock)"
+  ]
+}
