@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
-fn path(name: &str) -> PathBuf {
+pub(super) fn path(name: &str) -> PathBuf {
     std::env::temp_dir().join(format!(
         "t3-rune-source-{}-{}-{name}.sqlite",
         std::process::id(),
@@ -11,7 +11,7 @@ fn path(name: &str) -> PathBuf {
     ))
 }
 
-fn schema(db: &Connection) {
+pub(super) fn schema(db: &Connection) {
     db.execute_batch(&format!(
         "CREATE TABLE {PREFIX}threads(thread_id TEXT,payload_json TEXT,deleted_at TEXT,archived_at TEXT);
         CREATE TABLE {PREFIX}runs(thread_id TEXT,ordinal INTEGER,payload_json TEXT,requested_at TEXT,completed_at TEXT);

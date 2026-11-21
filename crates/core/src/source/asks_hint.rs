@@ -26,8 +26,11 @@ pub(super) enum AsstSlot {
     Many(Vec<(u32, Option<i64>, i64)>),
 }
 
+/// An active thread's position in the read's list of threads, by id.
+pub(super) type TidIndex = HashMap<Box<[u8]>, u32, std::hash::BuildHasherDefault<FnvHasher>>;
+
 pub(super) struct AsstItemIndex {
-    pub(super) tid_to_idx: HashMap<Box<[u8]>, u32, std::hash::BuildHasherDefault<FnvHasher>>,
+    pub(super) tid_to_idx: TidIndex,
     pub(super) by_node: HashMap<Box<[u8]>, AsstSlot, std::hash::BuildHasherDefault<FnvHasher>>,
 }
 

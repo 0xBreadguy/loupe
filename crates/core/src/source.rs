@@ -7,6 +7,7 @@
 //! Estimated asks return a count from the SQLite assistant-text function.
 mod asks_hint;
 mod assemble;
+mod fan;
 mod fast_reads;
 mod turn_items;
 
@@ -23,8 +24,9 @@ pub(crate) use assemble::{
 use asks_hint::read_estimated_asks_inner;
 use assemble::assemble_typed;
 use fast_reads::{
-    read_history_oracle_typed, read_latest_runs_fast, read_nodes_typed, read_projects_typed,
-    read_requests_typed, read_spans_typed, read_turns_and_history_fast, table_names,
+    HistoryRow, read_history_oracle_typed, read_latest_runs_fast, read_nodes_typed,
+    read_projects_typed, read_requests_typed, read_spans_typed, read_turns_and_history_fast,
+    table_names,
 };
 use turn_items::read_turn_items_combined;
 
@@ -82,6 +84,11 @@ pub mod timing {
         DATA.get_or_init(|| Mutex::new(Data::default()));
         ON.store(on, Ordering::Relaxed);
         #[cfg(test)]
+        TEST_ON.set(on);
+    }
+    /// Tests only: a worker thread times its queries when the thread that started it does.
+    #[cfg(test)]
+    pub fn inherit(on: bool) {
         TEST_ON.set(on);
     }
     pub fn on() -> bool {
@@ -147,6 +154,7 @@ pub mod timing {
                     "messages" if compact.contains("-- asks_cands") => "asks_cands",
                     "messages" if compact.contains("-- asks_score") => "asks_score",
                     "turn_items" if compact.contains("-- ti_leaf_scan") => "turn_items_leaf_scan",
+                    "turn_items" if compact.contains("-- ti_edge") => "turn_items_edge",
                     "turn_items" if compact.contains("-- ti_fetch") => "turn_items_fetch",
                     "turn_items" if compact.contains("-- ti_asst_phase") => "asks_item_phase",
                     "turn_items" if compact.contains("LIMIT 3000") => "items",
@@ -251,6 +259,65 @@ pub fn snapshot(path: &Path, now: f64) -> Result<Snapshot, SourceError> {
     if !now.is_finite() {
         return Err(problem(path, "schema", "invalid snapshot clock"));
     }
+    let debug = debug_timing();
+    if debug {
+        timing::enable(true);
+        timing::reset();
+    }
+    let started = Instant::now();
+    // Several connections on one proven snapshot when that can be had; otherwise, and for
+    // every error, the read on one connection.
+    let threads = fan::threads();
+    let mut trace = fan::Trace::default();
+    let fanned = if threads > 1 {
+        fan::read(path, now, threads, &mut trace)
+    } else {
+        None
+    };
+    let how = debug.then(|| trace.describe(threads, fanned.is_some()));
+    let result = match fanned {
+        Some(snapshot) => Ok(snapshot),
+        None => snapshot_serial(path, now),
+    };
+    if let Some(how) = how {
+        debug_report(started, &how);
+    }
+    result
+}
+
+/// `T3_AGENTS_FULL_READ_DEBUG`: one line of timings and counts on stderr per full read.
+/// Query labels and schema names only; never row text.
+fn debug_timing() -> bool {
+    std::env::var_os("T3_AGENTS_FULL_READ_DEBUG").is_some()
+}
+
+fn debug_report(started: Instant, how: &str) {
+    let total = started.elapsed().as_secs_f64() * 1000.;
+    let data = timing::take();
+    let mut queries: Vec<(String, f64, u64)> = data
+        .queries
+        .into_iter()
+        .map(|(label, q)| (label, (q.prepare_ns + q.step_ns) as f64 / 1e6, q.rows))
+        .collect();
+    queries.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let queries: Vec<String> = queries
+        .into_iter()
+        .map(|(label, ms, rows)| format!("{label}={ms:.1}ms/{rows}"))
+        .collect();
+    let mut phases: Vec<(String, u64)> = data.phases_ns.into_iter().collect();
+    phases.sort_by(|a, b| b.1.cmp(&a.1));
+    let phases: Vec<String> = phases
+        .into_iter()
+        .map(|(name, ns)| format!("{name}={:.1}ms", ns as f64 / 1e6))
+        .collect();
+    eprintln!(
+        "full-read: {how} total={total:.1} phases[{}] queries[{}]",
+        phases.join(" "),
+        queries.join(" ")
+    );
+}
+
+fn open_reader(path: &Path) -> Result<Connection, SourceError> {
     let db = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
@@ -267,6 +334,12 @@ pub fn snapshot(path: &Path, now: f64) -> Result<Snapshot, SourceError> {
     db.busy_timeout(Duration::from_millis(250))
         .map_err(|e| db_error(path, e))?;
     crate::asks::register(&db).map_err(|e| db_error(path, e))?;
+    Ok(db)
+}
+
+/// The full read on one connection.
+fn snapshot_serial(path: &Path, now: f64) -> Result<Snapshot, SourceError> {
+    let db = open_reader(path)?;
     db.execute_batch("PRAGMA query_only=ON; BEGIN")
         .map_err(|e| db_error(path, e))?;
     let result = read(&db, path, now);
@@ -567,21 +640,7 @@ pub(crate) fn read_tracked(
 ) -> Result<Snapshot, SourceError> {
     let rows = std::cell::Cell::new(0usize);
     report.valid_until = f64::INFINITY;
-    let existing = table_names(db).map_err(|e| db_error(path, e))?;
-    rows.set(rows.get() + existing.len());
-    let mut missing: Vec<_> = TABLES
-        .iter()
-        .map(|t| format!("{PREFIX}{t}"))
-        .filter(|t| !existing.contains(t))
-        .collect();
-    if !missing.is_empty() {
-        missing.sort();
-        return Err(problem(
-            path,
-            "schema",
-            format!("missing {}", missing.join(", ")),
-        ));
-    }
+    rows.set(rows.get() + check_tables(db, path)?);
     let load = |table: &str, clause: &str, args: &[SqlValue]| {
         let result = payloads(db, table, clause, args).map_err(|e| db_error(path, e))?;
         rows.set(rows.get() + result.len());
@@ -596,39 +655,14 @@ pub(crate) fn read_tracked(
     report.threads = ids.len();
     report.rows = rows.get();
     if ids.is_empty() {
-        return Ok(Snapshot {
-            agents: Vec::new(),
-            at: now,
-            path: path.to_string_lossy().into(),
-        });
+        return Ok(empty(path, now));
     }
     let active_set: HashSet<&str> = ids.iter().map(String::as_str).collect();
     let params = strings(ids.clone());
     let where_ids = format!("WHERE thread_id IN ({})", marks(ids.len()));
 
-    // Validate run payloads, rank their keys, then fetch the winning rows.
-    let (latest, latest_order) = match read_latest_runs_fast(db, &where_ids, &params) {
-        Ok(Some((latest, order, count))) => {
-            rows.set(rows.get() + count);
-            (latest, order)
-        }
-        _ => {
-            let mut latest = HashMap::new();
-            let mut latest_order = Vec::new();
-            for run in load(
-                "runs",
-                &format!("{where_ids} ORDER BY ordinal DESC"),
-                &params,
-            )? {
-                let id = str_at(&run, "threadId").to_string();
-                if !latest.contains_key(&id) {
-                    latest_order.push(id.clone());
-                    latest.insert(id, run);
-                }
-            }
-            (latest, latest_order)
-        }
-    };
+    let (latest, latest_order, run_rows) = read_latest_runs(db, path, &where_ids, &params)?;
+    rows.set(rows.get() + run_rows);
 
     let subs = load("subagents", &where_ids, &params)?;
     let providers: HashMap<String, Json> = load("provider_threads", &where_ids, &params)?
@@ -636,41 +670,8 @@ pub(crate) fn read_tracked(
         .map(|p| (str_at(&p, "id").into(), p))
         .collect();
 
-    // Combined provider_turns pass for both latest_turns (rank=1) and history (rank<=160).
-    let (turns, history) = match read_turns_and_history_fast(db, &where_ids, &params, path) {
-        Ok(Some((turns, history, count))) => {
-            rows.set(rows.get() + count);
-            (turns, history)
-        }
-        _ => {
-            let mut turns = HashMap::new();
-            {
-                let turn_rows = all(
-                    db,
-                    &format!(
-                        "SELECT {} AS payload_json FROM (SELECT payload_json,ROW_NUMBER() OVER(PARTITION BY provider_thread_id ORDER BY ordinal DESC,rowid DESC) AS rank FROM {PREFIX}provider_turns {where_ids}) WHERE rank=1",
-                        projection("provider_turns")
-                    ),
-                    &params,
-                )
-                .map_err(|e| db_error(path, e))?;
-                rows.set(rows.get() + turn_rows.len());
-                let timed = timing::on().then(Instant::now);
-                for row in turn_rows {
-                    let p: Json = serde_json::from_str(str_at(&row, "payload_json"))
-                        .map_err(|e| problem(path, "schema", e.to_string()))?;
-                    turns.insert(str_at(&p, "providerThreadId").to_string(), p);
-                }
-                if let Some(t) = timed {
-                    timing::add_json(t);
-                }
-            }
-            let hist_rows = read_history_oracle_typed(db, &where_ids, &params)
-                .map_err(|e| db_error(path, e))?;
-            rows.set(rows.get() + hist_rows.len());
-            (turns, hist_rows)
-        }
-    };
+    let (turns, history, turn_rows) = read_turns_and_history(db, path, &where_ids, &params)?;
+    rows.set(rows.get() + turn_rows);
 
     let read_nodes = timing::phase("read_nodes");
     let (nodes, node_count) = read_nodes_typed(db, &where_ids, &params, &active_set, &subs, path)?;
@@ -685,42 +686,13 @@ pub(crate) fn read_tracked(
         .map_err(|e| db_error(path, e))?;
     rows.set(rows.get() + requests.len());
 
-    let mut seen = HashSet::new();
-    let mut run_ids = Vec::new();
-    for id in &latest_order {
-        if let Some(run) = latest.get(id) {
-            if let Some(id) = truthy_str(run, "id") {
-                if seen.insert(id.clone()) {
-                    run_ids.push(id);
-                }
-            }
-        }
-    }
-    for sub in &subs {
-        if let Some(id) = truthy_str(sub, "runId") {
-            if seen.insert(id.clone()) {
-                run_ids.push(id);
-            }
-        }
-    }
-    let runless: Vec<String> = ids
-        .iter()
-        .filter(|id| !latest.contains_key(*id))
-        .cloned()
-        .collect();
+    let (run_ids, runless) = run_scope(&ids, &latest, &latest_order, &subs);
     let since = iso(now - WINDOW);
 
     // Single-pass leaf-only turn_items scan + forward-sorted rowid payload fetch
     // for items, events, plans, and assistant_message node index.
     let (items, events, plans, asst_index, ti_rows) = read_turn_items_combined(
-        db,
-        path,
-        &where_ids,
-        &params,
-        &active_set,
-        &run_ids,
-        &runless,
-        &since,
+        db, path, &where_ids, &params, &ids, &run_ids, &runless, &since,
     )?;
     rows.set(rows.get() + ti_rows);
 
@@ -747,6 +719,138 @@ pub(crate) fn read_tracked(
     )?;
     apply_thread_asks(&mut snapshot, &cards, &estimates, None);
     Ok(snapshot)
+}
+
+/// The tables the read needs are all there; how many tables the database has.
+fn check_tables(db: &Connection, path: &Path) -> Result<usize, SourceError> {
+    let existing = table_names(db).map_err(|e| db_error(path, e))?;
+    let mut missing: Vec<_> = TABLES
+        .iter()
+        .map(|t| format!("{PREFIX}{t}"))
+        .filter(|t| !existing.contains(t))
+        .collect();
+    if !missing.is_empty() {
+        missing.sort();
+        return Err(problem(
+            path,
+            "schema",
+            format!("missing {}", missing.join(", ")),
+        ));
+    }
+    Ok(existing.len())
+}
+
+/// No active thread.
+fn empty(path: &Path, now: f64) -> Snapshot {
+    Snapshot {
+        agents: Vec::new(),
+        at: now,
+        path: path.to_string_lossy().into(),
+    }
+}
+
+/// The latest run of each thread, and the threads in the reference's `ORDER BY ordinal DESC`
+/// order: run payloads validated, their keys ranked, then the winning rows fetched.
+fn read_latest_runs(
+    db: &Connection,
+    path: &Path,
+    where_ids: &str,
+    params: &[SqlValue],
+) -> Result<(HashMap<String, Json>, Vec<String>, usize), SourceError> {
+    if let Ok(Some(found)) = read_latest_runs_fast(db, where_ids, params) {
+        return Ok(found);
+    }
+    let runs = payloads(
+        db,
+        "runs",
+        &format!("{where_ids} ORDER BY ordinal DESC"),
+        params,
+    )
+    .map_err(|e| db_error(path, e))?;
+    let count = runs.len();
+    let mut latest = HashMap::new();
+    let mut latest_order = Vec::new();
+    for run in runs {
+        let id = str_at(&run, "threadId").to_string();
+        if !latest.contains_key(&id) {
+            latest_order.push(id.clone());
+            latest.insert(id, run);
+        }
+    }
+    Ok((latest, latest_order, count))
+}
+
+/// Combined provider_turns pass for both latest_turns (rank=1) and history (rank<=160).
+fn read_turns_and_history(
+    db: &Connection,
+    path: &Path,
+    where_ids: &str,
+    params: &[SqlValue],
+) -> Result<(HashMap<String, Json>, Vec<HistoryRow>, usize), SourceError> {
+    if let Ok(Some(found)) = read_turns_and_history_fast(db, where_ids, params, path) {
+        return Ok(found);
+    }
+    let mut count = 0;
+    let mut turns = HashMap::new();
+    {
+        let turn_rows = all(
+            db,
+            &format!(
+                "SELECT {} AS payload_json FROM (SELECT payload_json,ROW_NUMBER() OVER(PARTITION BY provider_thread_id ORDER BY ordinal DESC,rowid DESC) AS rank FROM {PREFIX}provider_turns {where_ids}) WHERE rank=1",
+                projection("provider_turns")
+            ),
+            params,
+        )
+        .map_err(|e| db_error(path, e))?;
+        count += turn_rows.len();
+        let timed = timing::on().then(Instant::now);
+        for row in turn_rows {
+            let p: Json = serde_json::from_str(str_at(&row, "payload_json"))
+                .map_err(|e| problem(path, "schema", e.to_string()))?;
+            turns.insert(str_at(&p, "providerThreadId").to_string(), p);
+        }
+        if let Some(t) = timed {
+            timing::add_json(t);
+        }
+    }
+    let hist_rows =
+        read_history_oracle_typed(db, where_ids, params).map_err(|e| db_error(path, e))?;
+    count += hist_rows.len();
+    Ok((turns, hist_rows, count))
+}
+
+/// The runs whose items are read (each thread's latest, then the subagents'), and the
+/// threads that have no run.
+fn run_scope(
+    ids: &[String],
+    latest: &HashMap<String, Json>,
+    latest_order: &[String],
+    subs: &[Json],
+) -> (Vec<String>, Vec<String>) {
+    let mut seen = HashSet::new();
+    let mut run_ids = Vec::new();
+    for id in latest_order {
+        if let Some(run) = latest.get(id) {
+            if let Some(id) = truthy_str(run, "id") {
+                if seen.insert(id.clone()) {
+                    run_ids.push(id);
+                }
+            }
+        }
+    }
+    for sub in subs {
+        if let Some(id) = truthy_str(sub, "runId") {
+            if seen.insert(id.clone()) {
+                run_ids.push(id);
+            }
+        }
+    }
+    let runless: Vec<String> = ids
+        .iter()
+        .filter(|id| !latest.contains_key(*id))
+        .cloned()
+        .collect();
+    (run_ids, runless)
 }
 
 // T3 runtime requests use pending; retain the legacy aliases for approvals and
