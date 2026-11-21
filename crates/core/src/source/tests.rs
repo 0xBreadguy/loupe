@@ -615,3 +615,88 @@ fn estimated_asks_non_positive_rowid_and_non_string_multi_phase_match_oracle() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn superseded_run_with_mismatched_payload_thread_id_matches_reference() {
+    let file = path("run-owner-mismatch");
+    let db = Connection::open(&file).unwrap();
+    schema(&db);
+    db.execute(
+        "INSERT INTO projection_projects VALUES('p','Synth','/synth')",
+        [],
+    )
+    .unwrap();
+    db.execute_batch(&format!(
+        "INSERT INTO {PREFIX}threads VALUES('A','{{\"id\":\"A\",\"projectId\":\"p\",\"title\":\"A\"}}',NULL,NULL);
+         INSERT INTO {PREFIX}threads VALUES('B','{{\"id\":\"B\",\"projectId\":\"p\",\"title\":\"B\"}}',NULL,NULL);
+         INSERT INTO {PREFIX}runs VALUES('A',9,'{{\"id\":\"r0\",\"threadId\":\"A\",\"status\":\"running\",\"startedAt\":\"2026-11-12T12:00:00.000Z\"}}','2026-11-12T12:00:00.000Z',NULL);
+         INSERT INTO {PREFIX}runs VALUES('A',5,'{{\"id\":\"r1\",\"threadId\":\"B\",\"status\":\"completed\",\"startedAt\":\"2026-11-12T11:00:00.000Z\",\"completedAt\":\"2026-11-12T11:10:00.000Z\"}}','2026-11-12T11:00:00.000Z','2026-11-12T11:10:00.000Z');"
+    ))
+    .unwrap();
+
+    // Fast path must fall back when a superseded run's payload `threadId` differs from `thread_id`.
+    let where_ids = "WHERE thread_id IN (?,?)";
+    let params = strings(vec!["A".to_string(), "B".to_string()]);
+    assert!(
+        fast_reads::read_latest_runs_fast(&db, where_ids, &params)
+            .unwrap()
+            .is_none(),
+        "fast path must fall back on mismatched superseded run payload threadId"
+    );
+    let (latest, latest_order, _) = read_latest_runs(&db, &file, where_ids, &params).unwrap();
+    assert_eq!(latest.get("A").map(|r| str_at(r, "id")), Some("r0"));
+    assert_eq!(latest.get("B").map(|r| str_at(r, "id")), Some("r1"));
+    assert_eq!(latest_order, vec!["A".to_string(), "B".to_string()]);
+
+    let now = model::ms(Some("2026-11-12T12:05:00Z")).unwrap();
+    let snap = snapshot(&file, now).unwrap();
+    let a = snap.agents.iter().find(|a| a.id == "A").unwrap();
+    let b = snap.agents.iter().find(|a| a.id == "B").unwrap();
+    assert_eq!(a.status, "running");
+    assert_eq!(str_at(&a.run, "id"), "r0");
+    assert_eq!(b.status, "completed");
+    assert_eq!(str_at(&b.run, "id"), "r1");
+
+    // Object-serialized `threadId` matching a `{`-prefixed `thread_id` column must also fall back.
+    let obj_id = "{\"a\":1}";
+    db.execute(
+        &format!("INSERT INTO {PREFIX}threads VALUES(?1,?2,NULL,NULL)"),
+        rusqlite::params![obj_id, format!("{{\"id\":{obj_id:?},\"projectId\":\"p\",\"title\":\"Obj\"}}")],
+    )
+    .unwrap();
+    db.execute(
+        &format!("INSERT INTO {PREFIX}runs VALUES(?1,1,'{{\"id\":\"r_obj\",\"threadId\":{{\"a\":1}},\"status\":\"completed\"}}','2026-11-12T11:00:00.000Z',NULL)"),
+        [obj_id],
+    )
+    .unwrap();
+    assert!(
+        fast_reads::read_latest_runs_fast(&db, "WHERE thread_id IN (?)", &strings(vec![obj_id.to_string()]))
+            .unwrap()
+            .is_none(),
+        "fast path must fall back when thread_id could collide with a JSON object serialization"
+    );
+
+    // Normal matching runs stay on the fast path.
+    let file_ok = path("run-owner-match");
+    let db_ok = Connection::open(&file_ok).unwrap();
+    schema(&db_ok);
+    db_ok
+        .execute_batch(&format!(
+            "INSERT INTO {PREFIX}runs VALUES('A',9,'{{\"id\":\"r0\",\"threadId\":\"A\",\"status\":\"running\"}}','2026-11-12T12:00:00.000Z',NULL);
+             INSERT INTO {PREFIX}runs VALUES('A',5,'{{\"id\":\"r1\",\"threadId\":\"A\",\"status\":\"completed\"}}','2026-11-12T11:00:00.000Z',NULL);"
+        ))
+        .unwrap();
+    let fast = fast_reads::read_latest_runs_fast(
+        &db_ok,
+        "WHERE thread_id IN (?)",
+        &strings(vec!["A".to_string()]),
+    )
+    .unwrap()
+    .expect("matching runs stay on fast path");
+    assert_eq!(fast.0.get("A").map(|r| str_at(r, "id")), Some("r0"));
+
+    drop(db);
+    drop(db_ok);
+    let _ = std::fs::remove_file(file);
+    let _ = std::fs::remove_file(file_ok);
+}

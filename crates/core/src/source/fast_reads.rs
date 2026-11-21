@@ -325,15 +325,20 @@ pub(super) fn read_latest_runs_fast(
     }
     let mut best: HashMap<String, (Option<i64>, i64, bool)> = HashMap::new();
     let mut usable = true;
-    // The reference projects every matching run before choosing the latest.
-    // Preserve its validation of older runs, including JSON5 and legacy BLOB
-    // inputs accepted by SQLite. Let the reference report any errors.
+    // The reference walks every matching run `ORDER BY ordinal DESC` and keys it by
+    // payload `threadId`, so even a passed-over run whose payload names another thread
+    // can decide that thread. Confirm in one SQLite JSON parse per row that
+    // `payload_json` is valid JSON and its `$.threadId` equals the `thread_id` column
+    // (rejecting `{`/`[` thread IDs so a JSON object/array serialized as TEXT by `->>`
+    // cannot collide with a string column). Malformed JSON errors and falls back to
+    // the reference, which reports it identically; any mismatch, NULL, or non-string
+    // `threadId` falls back as well.
     let sql = format!(
-        "SELECT rowid, thread_id, ordinal, json_error_position(payload_json)
+        "SELECT rowid, thread_id, ordinal, payload_json->>'$.threadId' IS thread_id
          FROM {table} {where_ids} -- runs_idx"
     );
     each_row_cached(db, &sql, params, |row| {
-        if !matches!(row.get_ref(3)?, ValueRef::Integer(0) | ValueRef::Null) {
+        if row.get_ref(3)? != ValueRef::Integer(1) {
             usable = false;
             return Ok(());
         }
@@ -346,8 +351,8 @@ pub(super) fn read_latest_runs_fast(
         };
         let tid = match row.get_ref(1)? {
             ValueRef::Text(b) => match std::str::from_utf8(b) {
-                Ok(s) => s,
-                Err(_) => {
+                Ok(s) if !s.starts_with('{') && !s.starts_with('[') => s,
+                _ => {
                     usable = false;
                     return Ok(());
                 }
