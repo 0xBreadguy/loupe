@@ -657,6 +657,28 @@ fn superseded_run_with_mismatched_payload_thread_id_matches_reference() {
     assert_eq!(b.status, "completed");
     assert_eq!(str_at(&b.run, "id"), "r1");
 
+    // Numeric payload `threadId` must not match a TEXT `thread_id` column via affinity coercion.
+    db.execute(
+        &format!("INSERT INTO {PREFIX}threads VALUES('5','{{\"id\":\"5\",\"projectId\":\"p\",\"title\":\"Five\"}}',NULL,NULL)"),
+        [],
+    )
+    .unwrap();
+    db.execute(
+        &format!("INSERT INTO {PREFIX}runs VALUES('5',1,'{{\"id\":\"r_num\",\"threadId\":5,\"status\":\"completed\"}}','2026-11-12T11:00:00.000Z',NULL)"),
+        [],
+    )
+    .unwrap();
+    assert!(
+        fast_reads::read_latest_runs_fast(
+            &db,
+            "WHERE thread_id IN (?)",
+            &strings(vec!["5".to_string()]),
+        )
+        .unwrap()
+        .is_none(),
+        "fast path must fall back when numeric payload threadId matches TEXT thread_id via affinity"
+    );
+
     // Object-serialized `threadId` matching a `{`-prefixed `thread_id` column must also fall back.
     let obj_id = "{\"a\":1}";
     db.execute(
@@ -673,7 +695,7 @@ fn superseded_run_with_mismatched_payload_thread_id_matches_reference() {
         fast_reads::read_latest_runs_fast(&db, "WHERE thread_id IN (?)", &strings(vec![obj_id.to_string()]))
             .unwrap()
             .is_none(),
-        "fast path must fall back when thread_id could collide with a JSON object serialization"
+        "fast path must fall back when payload threadId is a JSON object"
     );
 
     // Normal matching runs stay on the fast path.
