@@ -31,27 +31,34 @@ use std::{
     path::Path,
 };
 
+/// True when `scan_sql` walks `turn_items` by rowid without following `payload_json`
+/// overflow pages. SQLite stores columns in `cid` order and `OP_Column` (`sqlite3.c`)
+/// stops at the highest requested column, so trailing columns added after `payload_json`
+/// (such as T3 migration 095's `inline_work_output`) never force `payload_json` reads
+/// as long as every scanned column precedes `payload_json`.
 pub(super) fn leaf_scan_safe(db: &Connection) -> rusqlite::Result<bool> {
     let table = format!("{PREFIX}turn_items");
     let cols = ordered_columns(db, &table)?;
-    if cols.last().map(String::as_str) != Some("payload_json")
-        || cols.iter().any(|c| is_rowid_alias(c))
-    {
+    if cols.iter().any(|c| is_rowid_alias(c)) {
         return Ok(false);
     }
-    let col_set: HashSet<&str> = cols.iter().map(String::as_str).collect();
-    for needed in [
+    let Some(payload_idx) = cols.iter().position(|c| c == "payload_json") else {
+        return Ok(false);
+    };
+    for scanned in [
         "thread_id",
         "run_id",
         "node_id",
-        "provider_thread_id",
         "type",
-        "status",
         "updated_at",
         "ordinal",
-        "payload_json",
     ] {
-        if !col_set.contains(needed) {
+        if !cols.iter().position(|c| c == scanned).is_some_and(|i| i < payload_idx) {
+            return Ok(false);
+        }
+    }
+    for fetched_only in ["provider_thread_id", "status"] {
+        if !cols.iter().any(|c| c == fetched_only) {
             return Ok(false);
         }
     }

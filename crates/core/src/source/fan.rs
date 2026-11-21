@@ -2082,4 +2082,62 @@ mod tests {
             (false, false, false, false),
         );
     }
+
+    #[test]
+    fn leaf_scan_handles_trailing_columns_like_migration_095() {
+        // 1. Checked-in T3 schema 096 (`inline_work_output` after `payload_json`) stays leaf-scan safe.
+        let mem = Connection::open_in_memory().unwrap();
+        mem.execute_batch(include_str!(
+            "../../../../checks/fixtures/t3-schema-main-096.sql"
+        ))
+        .unwrap();
+        assert!(
+            leaf_scan_safe(&mem).unwrap(),
+            "schema 096 with inline_work_output after payload_json must use the leaf scan"
+        );
+
+        // 2. A table where a scanned column follows `payload_json` is rejected.
+        let bad = Connection::open_in_memory().unwrap();
+        bad.execute_batch(&format!(
+            "CREATE TABLE {PREFIX}turn_items(thread_id TEXT,run_id TEXT,node_id TEXT,provider_thread_id TEXT,type TEXT,status TEXT,updated_at TEXT,payload_json TEXT,ordinal INTEGER);"
+        ))
+        .unwrap();
+        assert!(
+            !leaf_scan_safe(&bad).unwrap(),
+            "scanned column `ordinal` after `payload_json` must disable the leaf scan"
+        );
+
+        // 3. A table where only a fetched-only column follows `payload_json` stays safe.
+        let ok_fetched = Connection::open_in_memory().unwrap();
+        ok_fetched
+            .execute_batch(&format!(
+                "CREATE TABLE {PREFIX}turn_items(thread_id TEXT,run_id TEXT,node_id TEXT,type TEXT,updated_at TEXT,ordinal INTEGER,payload_json TEXT,provider_thread_id TEXT,status TEXT);"
+            ))
+            .unwrap();
+        assert!(
+            leaf_scan_safe(&ok_fetched).unwrap(),
+            "non-scanned columns after `payload_json` keep the leaf scan safe"
+        );
+
+        // 4. End-to-end fan-out on a WAL DB with `inline_work_output` added after `payload_json`
+        //    and large overflowing payloads: runs all 12 ranges and matches serial read.
+        let lab = item_lab("m095-fan");
+        scatter(&lab, 73, 4500, 0, 50, 4);
+        lab.writer
+            .execute_batch(&format!(
+                "ALTER TABLE {PREFIX}turn_items ADD COLUMN inline_work_output INTEGER NOT NULL DEFAULT 0;
+                 UPDATE {PREFIX}turn_items SET inline_work_output = 1 WHERE rowid % 7 = 0;"
+            ))
+            .unwrap();
+        let db = open_reader(&lab.file).unwrap();
+        assert!(leaf_scan_safe(&db).unwrap());
+        let expected = single(&lab.file);
+        let mut trace = Trace::default();
+        let found = read(&lab.file, now(), 3, &mut trace).expect("fan-out succeeded on 095 layout");
+        assert_eq!(
+            (trace.attempts, trace.proved, trace.failed, trace.parts),
+            (1, true, false, 3 * SCAN_PARTS)
+        );
+        same(&found, &expected);
+    }
 }

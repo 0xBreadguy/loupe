@@ -269,7 +269,7 @@ pub(super) fn table_names(db: &Connection) -> rusqlite::Result<HashSet<String>> 
 }
 
 pub(super) fn ordered_columns(db: &Connection, table: &str) -> rusqlite::Result<Vec<String>> {
-    db.prepare_cached("SELECT name FROM pragma_table_info(?1)")?
+    db.prepare_cached("SELECT name FROM pragma_table_info(?1) ORDER BY cid")?
         .query_map([table], |row| row.get(0))?
         .collect()
 }

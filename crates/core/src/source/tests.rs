@@ -497,11 +497,10 @@ fn estimated_asks_non_positive_rowid_and_non_string_multi_phase_match_oracle() {
         "../../../../checks/fixtures/t3-schema-main-096.sql"
     ))
     .unwrap();
-    // Recreate the relevant older layout: the leaf scan requires the payload
-    // to be the last column, and the message index supersedes the scan's hint.
+    // Drop migration 094's message index so the scan's AsstItemIndex hint path runs;
+    // keep migration 095's trailing `inline_work_output` column to verify leaf-scan compat.
     db.execute_batch(
-        "DROP INDEX orchestration_v2_projection_turn_items_message_ordinal_idx;
-         ALTER TABLE orchestration_v2_projection_turn_items DROP COLUMN inline_work_output;",
+        "DROP INDEX orchestration_v2_projection_turn_items_message_ordinal_idx;",
     )
     .unwrap();
     db.execute_batch(
