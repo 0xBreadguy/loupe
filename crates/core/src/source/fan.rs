@@ -1431,7 +1431,9 @@ mod tests {
         // item for th0 and a request for th1. In any one snapshot the two numbers are equal
         // and the two counts have grown by the same number; the rows are read by different
         // range scans and queries, here mostly on different connections.
-        // Few enough items that none leaves the list of 3,000 while the writer adds more.
+        // The writer's items are the newest after the two markers, so none of them leaves the
+        // list of 3,000 while it adds fewer than 2,998. Older items do leave it once the writer
+        // has added about 1,500, so count th0's items by the writer's stamp alone.
         let lab = item_lab("stress");
         scatter(&lab, 9, 2000, 0, 50, 4);
         let marker = |owner: usize, rowid: Option<i64>| {
@@ -1463,7 +1465,11 @@ mod tests {
             (
                 mark("th5"),
                 mark("th6"),
-                of("th0").items.len(),
+                of("th0")
+                    .items
+                    .iter()
+                    .filter(|i| i.updated_at == "2026-11-12T12:28:00.000Z")
+                    .count(),
                 of("th1").requests.len(),
             )
         };
@@ -1475,7 +1481,7 @@ mod tests {
                 let writer = Connection::open(&lab.file).unwrap();
                 writer.busy_timeout(Duration::from_secs(5)).unwrap();
                 let mut step = 0;
-                while !stop.load(Ordering::Relaxed) && step < 4000 {
+                while !stop.load(Ordering::Relaxed) && step < 2900 {
                     step += 1;
                     writer.execute_batch("BEGIN IMMEDIATE").unwrap();
                     for rowid in marks {
