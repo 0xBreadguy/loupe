@@ -1709,7 +1709,8 @@ mod tests {
             .unwrap()
         };
         // BEGIN alone: a commit after it is still seen.
-        let db = connect(&lab.file, &lab.file, false).unwrap();
+        let at = std::fs::canonicalize(&lab.file).unwrap();
+        let db = connect(&lab.file, &at, false).unwrap();
         let before = threads(&db);
         db.execute_batch("BEGIN").unwrap();
         commit(&lab.writer, 0);
@@ -1725,8 +1726,8 @@ mod tests {
         commit(&lab.writer, 2);
         assert_eq!(threads(&db), before + 2);
         // A worker's pin likewise.
-        let worker = connect(&lab.file, &lab.file, true).unwrap();
-        assert!(pin(&worker, &lab.file));
+        let worker = connect(&lab.file, &at, true).unwrap();
+        assert!(pin(&worker, &at));
         commit(&lab.writer, 3);
         assert_eq!((threads(&worker), threads(&db)), (before + 3, before + 2));
     }
@@ -1870,7 +1871,8 @@ mod tests {
             return;
         }
         let expected = single(&file);
-        let probe = connect(&file, &file, false).unwrap();
+        let at = std::fs::canonicalize(&file).unwrap();
+        let probe = connect(&file, &at, false).unwrap();
         assert_ne!(data_version(&probe), data_version(&probe));
         for threads in [2, 4] {
             let mut trace = Trace::default();
