@@ -113,10 +113,15 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
         state.palette = themes.palette();
         state.themes = true;
     }
+    // The reader the launch read through, cache and all, as `start_live` hands it to the worker.
+    let handed = host.take_live_reader();
     let mut reader = match &host.db {
         Some(path) => {
             host.live = Some(live::Handle::detached());
-            Some(live::Reader::open(path)?)
+            Some(match handed {
+                Some(reader) => reader,
+                None => live::Reader::open(path)?,
+            })
         }
         None => None,
     };

@@ -13,7 +13,7 @@ use t3_agents_core::{
     cli::{self, interaction_state},
     clock, demo, host,
     host::{Clock, Host},
-    integration,
+    integration, live,
     model::{Snapshot, State},
     product::{self, Command, Database},
     recap, source, terminal, theme, trace, trace_live, trace_view,
@@ -779,7 +779,24 @@ fn product_launch(
             (state, Host::demo(now))
         }
         Database::Path { path, .. } => {
-            let mut state = match source::snapshot(&path, now) {
+            let mut initial_reader = None;
+            let result = if std::env::var_os("T3_AGENTS_SYNC_READ").is_some() {
+                source::snapshot(&path, now)
+            } else {
+                match live::Reader::open(&path).and_then(|mut reader| {
+                    let update = reader.poll(now)?;
+                    if update.served == live::Served::Full {
+                        clock::release_memory();
+                    }
+                    initial_reader = Some(reader);
+                    Ok(update.snapshot)
+                }) {
+                    Ok(snapshot) => Ok(snapshot),
+                    // Any failure reads as the reference does, with its error.
+                    Err(_) => source::snapshot(&path, now),
+                }
+            };
+            let mut state = match result {
                 Ok(snapshot) => State::new(snapshot),
                 Err(e) => failed(
                     Snapshot {
@@ -791,7 +808,11 @@ fn product_launch(
             };
             state.demo = false;
             state.usage.clear();
-            (state, Host::live(path, now))
+            let mut host = Host::live(path, now);
+            if let Some(reader) = initial_reader {
+                host = host.with_live_reader(reader);
+            }
+            (state, host)
         }
     };
     state.calm = calm;

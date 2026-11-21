@@ -1363,7 +1363,7 @@ pub(crate) fn apply_attributed_body(
     break_cycles(agents);
 }
 
-fn live_status(status: &str) -> bool {
+pub(crate) fn live_status(status: &str) -> bool {
     matches!(
         status,
         "running" | "starting" | "preparing" | "queued" | "waiting" | "pending" | "active"

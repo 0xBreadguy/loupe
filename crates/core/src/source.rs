@@ -16,8 +16,8 @@ mod tests;
 pub(crate) use asks_hint::read_estimated_asks;
 pub(crate) use assemble::{
     assemble, attach_event, attach_history, attach_item, attach_request, attach_span,
-    consider_plan, finish_agent_body, finish_agent_tail, link_structure, seal_parents,
-    thread_agent,
+    consider_plan, finish_agent_body, finish_agent_tail, link_structure, live_status,
+    seal_parents, thread_agent,
 };
 
 use asks_hint::read_estimated_asks_inner;

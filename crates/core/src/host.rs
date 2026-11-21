@@ -51,6 +51,7 @@ pub struct Host {
     /// When set, a due refresh copies this instead of probing the filesystem.
     pub headroom_inject: Option<Vec<crate::headroom::WarningVolume>>,
     last_headroom: f64,
+    initial_reader: Option<live::Reader>,
 }
 
 impl Host {
@@ -81,7 +82,17 @@ impl Host {
             temporary: None,
             headroom_inject: None,
             last_headroom: -1e9,
+            initial_reader: None,
         }
+    }
+    /// Attach an already-initialized live reader so `start_live` avoids a redundant initial read.
+    pub fn with_live_reader(mut self, reader: live::Reader) -> Self {
+        self.initial_reader = Some(reader);
+        self
+    }
+    /// Take the pre-warmed live reader if one was attached during launch.
+    pub fn take_live_reader(&mut self) -> Option<live::Reader> {
+        self.initial_reader.take()
     }
     /// Omarchy's usage files and current theme, under the user's state directory.
     pub fn usage_dir() -> Option<PathBuf> {
@@ -127,11 +138,15 @@ impl Host {
 /// thread, for comparison.
 pub fn start_live(h: &mut Host, interval: f64, wake: impl Fn() + Send + 'static) {
     if std::env::var_os("T3_AGENTS_SYNC_READ").is_some() {
+        h.initial_reader = None;
         return;
     }
     if let Some(path) = &h.db {
         let interval = Duration::from_secs_f64(interval.max(0.5));
-        h.live = Some(live::spawn(path, interval, wake));
+        h.live = Some(match h.initial_reader.take() {
+            Some(reader) => live::spawn_with_reader(path, reader, interval, wake),
+            None => live::spawn(path, interval, wake),
+        });
     }
 }
 
@@ -550,6 +565,7 @@ mod tests {
             temporary: None,
             headroom_inject: None,
             last_headroom: -1e9,
+            initial_reader: None,
         }
     }
 
