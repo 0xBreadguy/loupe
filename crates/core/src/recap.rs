@@ -2429,7 +2429,7 @@ mod tests {
             let mut columns = db.prepare(&format!("PRAGMA table_info({name})")).unwrap();
             let columns = columns.query_map([], |r| Ok((r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, bool>(3)?))).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
             let mut rows = source.prepare(&format!("SELECT * FROM {name}")).unwrap();
-            let names: Vec<String> = rows.column_names().iter().map(|s| s.to_string()).collect();
+            let names: Vec<String> = rows.column_names().map(|s| s.to_string()).collect();
             let mut rows = rows.query([]).unwrap();
             let mut ordinal = 0i64;
             while let Some(row) = rows.next().unwrap() {

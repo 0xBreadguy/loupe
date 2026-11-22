@@ -55,8 +55,12 @@ mod linux {
     use std::path::Path;
     use std::ptr::{NonNull, null_mut};
 
+    /// The bundled SQLite whose layouts this module was checked against: 3.54.1. A new
+    /// build stays off this path until its wal.c (WalIndexHdr, WalCkptInfo, the hash
+    /// tables, frame headers, read-lock slots) and os_unix.c shared-memory code are
+    /// compared with the previous one.
     const SOURCE_ID: &CStr =
-        c"2025-11-28 17:28:25 281fc0e9afc38674b9b0991943b9e9d1e64c6cbdb133d35f6f5c87ff6af38a88";
+        c"2026-10-16 14:45:20 555e07ef33f69a0957d24d8e555b702464a131d6f1607f4c3c1e4551e8e6ca76";
     const REGION_BYTES: usize = 32768;
     const INDEX_HEADER_BYTES: usize = 136;
     const FIRST_REGION_FRAMES: usize = 4096 - INDEX_HEADER_BYTES / 4;
