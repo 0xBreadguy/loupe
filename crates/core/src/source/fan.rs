@@ -1475,7 +1475,7 @@ mod tests {
         };
         let (_, _, items, requests) = read_marks(&single(&lab.file));
         let stop = AtomicBool::new(false);
-        let (mut proved, mut retried, mut gave_up, mut grown) = (0, 0, 0, 0);
+        let (mut proved, mut retried, mut gave_up, mut restless, mut grown) = (0, 0, 0, 0, 0);
         thread::scope(|scope| {
             scope.spawn(|| {
                 let writer = Connection::open(&lab.file).unwrap();
@@ -1511,28 +1511,42 @@ mod tests {
                         retried += usize::from(trace.attempts > 1);
                     }
                     None => {
-                        assert!(
-                            !trace.proved && !trace.failed && !trace.moved,
-                            "unexpected fallback: proved={} failed={} moved={}",
-                            trace.proved,
-                            trace.failed,
-                            trace.moved
-                        );
-                        assert!(
-                            (trace.attempts == PIN_ATTEMPTS && !trace.restless)
-                                || (trace.restless && trace.attempts == 0),
-                            "unexpected fallback: attempts={} restless={}",
-                            trace.attempts,
-                            trace.restless
-                        );
-                        gave_up += 1;
+                        if trace.restless
+                            && trace.attempts == 0
+                            && !trace.proved
+                            && !trace.failed
+                            && !trace.moved
+                        {
+                            restless += 1;
+                        } else {
+                            assert_eq!(
+                                (trace.attempts, trace.proved, trace.failed),
+                                (PIN_ATTEMPTS, false, false),
+                                "unexpected fallback: attempts={} proved={} failed={} restless={} moved={}",
+                                trace.attempts,
+                                trace.proved,
+                                trace.failed,
+                                trace.restless,
+                                trace.moved
+                            );
+                            assert!(
+                                !trace.restless && !trace.moved,
+                                "unexpected fallback: attempts={} proved={} failed={} restless={} moved={}",
+                                trace.attempts,
+                                trace.proved,
+                                trace.failed,
+                                trace.restless,
+                                trace.moved
+                            );
+                            gave_up += 1;
+                        }
                     }
                 }
             }
             stop.store(true, Ordering::Relaxed);
         });
         eprintln!(
-            "commits during reads: {proved} proved ({retried} after a retry), {gave_up} left to the single read, {grown} commits seen"
+            "commits during reads: {proved} proved ({retried} after a retry), {gave_up} left to the single read, {restless} restless, {grown} commits seen"
         );
         assert!(
             grown > 20 && proved > 100,
@@ -1570,14 +1584,12 @@ mod tests {
     /// if it panicked, `None` if it returned, and an error if it did not return in 20 s.
     /// `hook` is also told whether it runs on the calling thread. With `pause`, the calling
     /// thread waits 300 ms after the workers pinned, so a worker that panics there is gone.
-    fn panic_outcome(
-        name: &str,
+    fn panic_outcome_on(
+        file: &Path,
         pause: bool,
         hook: impl Fn(Stage, bool) + Send + Sync + 'static,
     ) -> Result<Option<String>, std::sync::mpsc::RecvTimeoutError> {
-        let lab = item_lab(name);
-        scatter(&lab, 4, 3000, 0, 50, 4);
-        let file = lab.file.clone();
+        let file = file.to_path_buf();
         let (done, finished) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
             let caller = thread::current().id();
@@ -1602,7 +1614,16 @@ mod tests {
                     .unwrap_or_default()
             }));
         });
-        let outcome = finished.recv_timeout(Duration::from_secs(20));
+        finished.recv_timeout(Duration::from_secs(20))
+    }
+    fn panic_outcome(
+        name: &str,
+        pause: bool,
+        hook: impl Fn(Stage, bool) + Send + Sync + 'static,
+    ) -> Result<Option<String>, std::sync::mpsc::RecvTimeoutError> {
+        let lab = item_lab(name);
+        scatter(&lab, 4, 3000, 0, 50, 4);
+        let outcome = panic_outcome_on(&lab.file, pause, hook);
         drop(lab);
         outcome
     }
@@ -1618,12 +1639,86 @@ mod tests {
             }
         }
     }
+    /// Like `boom`, recording each actual panic in `fired` right before unwinding. When
+    /// `times > 1`, the first panicking worker waits briefly so a peer can enter the same
+    /// window and panic alongside it; if none arrives in time, it still panics rather than
+    /// waiting forever.
+    fn boom_counted(
+        times: usize,
+        fired: Arc<std::sync::atomic::AtomicUsize>,
+        when: impl Fn(Stage, bool) -> bool + Send + Sync + 'static,
+    ) -> impl Fn(Stage, bool) + Send + Sync + 'static {
+        let arrived = Arc::new((Mutex::new(0usize), Condvar::new()));
+        let taken = std::sync::atomic::AtomicUsize::new(0);
+        move |stage, caller| {
+            if when(stage, caller) && taken.fetch_add(1, Ordering::SeqCst) < times {
+                if times > 1 {
+                    let (lock, wake) = &*arrived;
+                    let mut count = lock.lock().unwrap_or_else(|p| p.into_inner());
+                    *count += 1;
+                    if *count >= times {
+                        wake.notify_all();
+                    } else {
+                        let _ = wake
+                            .wait_timeout_while(count, Duration::from_millis(50), |c| *c < times);
+                    }
+                }
+                fired.fetch_add(1, Ordering::SeqCst);
+                panic!("injected");
+            }
+        }
+    }
     fn assert_panics(outcome: Result<Option<String>, std::sync::mpsc::RecvTimeoutError>) {
         let message = outcome.expect("the read returned within 20 s");
         assert_eq!(
             message.as_deref(),
             Some("injected"),
             "the worker's panic reached the caller"
+        );
+    }
+    /// Runs a `!caller`-gated `Stage::Query` panic check. Under CPU starvation the calling
+    /// thread can take every matching task itself so the worker hook never fires; those runs
+    /// are inconclusive (they must still finish cleanly without timing out or panicking) and
+    /// are retried up to 20 times. Every run where any worker panics must deliver `"injected"`
+    /// to the caller, and at least one run must fire `times` worker panics.
+    fn assert_worker_query_panics(name: &str, times: usize, at: fn(Task) -> bool) {
+        let lab = item_lab(name);
+        scatter(&lab, 4, 3000, 0, 50, 4);
+        let mut reached = false;
+        for attempt in 0..20 {
+            let fired = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+            let hook = boom_counted(times, Arc::clone(&fired), move |s, caller| {
+                if matches!(s, Stage::Query(task) if at(task)) {
+                    if !caller {
+                        return true;
+                    }
+                    if attempt >= 4 {
+                        thread::sleep(Duration::from_millis(1));
+                    } else if attempt > 0 {
+                        thread::yield_now();
+                    }
+                }
+                false
+            });
+            let outcome = panic_outcome_on(&lab.file, false, hook);
+            let hit = fired.load(Ordering::SeqCst);
+            if hit == 0 {
+                assert_eq!(
+                    outcome.expect("the read returned within 20 s"),
+                    None,
+                    "{name}: unexpected panic when the worker hook did not fire"
+                );
+                continue;
+            }
+            assert_panics(outcome);
+            if hit >= times {
+                reached = true;
+                break;
+            }
+        }
+        assert!(
+            reached,
+            "{name}: worker hook never fired {times} time(s) across 20 attempts"
         );
     }
 
@@ -1678,10 +1773,7 @@ mod tests {
             }),
         ];
         for (name, at) in stages {
-            let hook = boom(1, move |s, caller| {
-                matches!(s, Stage::Query(task) if at(task)) && !caller
-            });
-            assert_panics(panic_outcome(name, false, hook));
+            assert_worker_query_panics(name, 1, at);
         }
     }
     #[test]
@@ -1692,13 +1784,7 @@ mod tests {
             false,
             boom(2, move |s, _| two(s)),
         ));
-        assert_panics(panic_outcome(
-            "wp-two-query",
-            false,
-            boom(2, |s, caller| {
-                matches!(s, Stage::Query(Task::Scan(_))) && !caller
-            }),
-        ));
+        assert_worker_query_panics("wp-two-query", 2, |t| matches!(t, Task::Scan(_)));
         let pinning = |s| matches!(s, Stage::Pinning(1 | 3));
         assert_panics(panic_outcome(
             "wp-two-pin",
