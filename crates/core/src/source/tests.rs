@@ -658,6 +658,7 @@ fn superseded_run_with_mismatched_payload_thread_id_matches_reference() {
     assert_eq!(str_at(&b.run, "id"), "r1");
 
     // Numeric payload `threadId` must not match a TEXT `thread_id` column via affinity coercion.
+    // A newer matching run supersedes `r_num`, so only the scan's per-row check can catch it.
     db.execute(
         &format!("INSERT INTO {PREFIX}threads VALUES('5','{{\"id\":\"5\",\"projectId\":\"p\",\"title\":\"Five\"}}',NULL,NULL)"),
         [],
@@ -665,6 +666,11 @@ fn superseded_run_with_mismatched_payload_thread_id_matches_reference() {
     .unwrap();
     db.execute(
         &format!("INSERT INTO {PREFIX}runs VALUES('5',1,'{{\"id\":\"r_num\",\"threadId\":5,\"status\":\"completed\"}}','2026-11-12T11:00:00.000Z',NULL)"),
+        [],
+    )
+    .unwrap();
+    db.execute(
+        &format!("INSERT INTO {PREFIX}runs VALUES('5',2,'{{\"id\":\"r_five\",\"threadId\":\"5\",\"status\":\"running\"}}','2026-11-12T12:00:00.000Z',NULL)"),
         [],
     )
     .unwrap();
@@ -680,6 +686,7 @@ fn superseded_run_with_mismatched_payload_thread_id_matches_reference() {
     );
 
     // Object-serialized `threadId` matching a `{`-prefixed `thread_id` column must also fall back.
+    // A newer matching run supersedes `r_obj`, so only the scan's per-row check can catch it.
     let obj_id = "{\"a\":1}";
     db.execute(
         &format!("INSERT INTO {PREFIX}threads VALUES(?1,?2,NULL,NULL)"),
@@ -689,6 +696,11 @@ fn superseded_run_with_mismatched_payload_thread_id_matches_reference() {
     db.execute(
         &format!("INSERT INTO {PREFIX}runs VALUES(?1,1,'{{\"id\":\"r_obj\",\"threadId\":{{\"a\":1}},\"status\":\"completed\"}}','2026-11-12T11:00:00.000Z',NULL)"),
         [obj_id],
+    )
+    .unwrap();
+    db.execute(
+        &format!("INSERT INTO {PREFIX}runs VALUES(?1,2,?2,'2026-11-12T12:00:00.000Z',NULL)"),
+        rusqlite::params![obj_id, format!("{{\"id\":\"r_obj_top\",\"threadId\":{obj_id:?},\"status\":\"running\"}}")],
     )
     .unwrap();
     assert!(
