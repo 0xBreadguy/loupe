@@ -3,4 +3,7 @@
 # overrides still take precedence and the cache checks for availability.
 # Disable allocation accounting by default and avoid the shared pcache1 mutex
 # across connections used by parallel report readers.
-LIBSQLITE3_FLAGS = "-DSQLITE_ENABLE_OFFSET_SQL_FUNC -DSQLITE_ENABLE_FILESTAT -DSQLITE_DEFAULT_MEMSTATUS=0 -USQLITE_ENABLE_MEMORY_MANAGEMENT"
+# SQLite 3.54 registers sqlite_walstat() whenever FILESTAT is on but defines it
+# only under WALSTAT, so FILESTAT alone no longer compiles. WALSTAT adds that one
+# diagnostic SQL function, which nothing here calls.
+LIBSQLITE3_FLAGS = "-DSQLITE_ENABLE_OFFSET_SQL_FUNC -DSQLITE_ENABLE_FILESTAT -DSQLITE_ENABLE_WALSTAT -DSQLITE_DEFAULT_MEMSTATUS=0 -USQLITE_ENABLE_MEMORY_MANAGEMENT"

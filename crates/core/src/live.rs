@@ -1528,7 +1528,7 @@ mod cache {
         }
         None
     }
-    /// Plans have no LIMIT, so SQLite 3.51.1's `USE TEMP B-TREE FOR ORDER BY`
+    /// Plans have no LIMIT, so SQLite's `USE TEMP B-TREE FOR ORDER BY`
     /// line is the external sorter, not the sequence-numbered ephemeral tree.
     /// Measured on this schema, that sorter keeps the index encounter order for
     /// equal `updated_at`: `run_id`, then `ordinal`, then `rowid`. A plain scan

@@ -373,7 +373,7 @@ pub(crate) fn all(db: &Connection, sql: &str, args: &[SqlValue]) -> rusqlite::Re
     let timed = timing::on().then(Instant::now);
     let mut stmt = db.prepare_cached(sql)?;
     let stepped = timed.map(|_| Instant::now());
-    let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let names: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
     let rows = stmt.query_map(params_from_iter(args.iter()), |row| {
         let mut value = serde_json::Map::new();
         for (i, name) in names.iter().enumerate() {
@@ -1040,7 +1040,7 @@ fn each_row(
     let timed = timing::on().then(Instant::now);
     let mut stmt = db.prepare(sql)?;
     let stepped = timed.map(|_| Instant::now());
-    let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let names: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
     let mut rows = stmt.query(params_from_iter(args.iter()))?;
     let mut n = 0;
     while let Some(row) = rows.next()? {

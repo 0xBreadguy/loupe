@@ -272,7 +272,7 @@ fn probe_plan(db: &Connection, sql: &str, args: &[SqlValue]) -> Vec<String> {
 fn probe_all(db: &Connection, sql: &str, args: &[SqlValue]) -> Vec<serde_json::Value> {
     // prepare_cached: a kept-open incremental reader prepares once and reuses.
     let mut stmt = db.prepare_cached(sql).unwrap();
-    let names: Vec<String> = stmt.column_names().iter().map(|s| s.to_string()).collect();
+    let names: Vec<String> = stmt.column_names().map(|s| s.to_string()).collect();
     let rows = stmt
         .query_map(params_from_iter(args.iter()), |row| {
             let mut value = serde_json::Map::new();
