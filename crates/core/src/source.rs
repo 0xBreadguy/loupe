@@ -32,7 +32,7 @@ use turn_items::read_turn_items_combined;
 
 use crate::model::{self, Snapshot};
 use rusqlite::{
-    Connection, OpenFlags, params_from_iter,
+    Connection, OpenFlags, config::DbConfig, params_from_iter,
     types::{Value as SqlValue, ValueRef},
 };
 use serde_json::{Value, json};
@@ -317,12 +317,24 @@ fn debug_report(started: Instant, how: &str) {
     );
 }
 
-fn open_reader(path: &Path) -> Result<Connection, SourceError> {
+/// Open T3's database read-only. The snapshot, live, Recap, Trace and Tools readers open it here.
+pub(crate) fn open_read_only(path: &Path) -> rusqlite::Result<Connection> {
     let db = Connection::open_with_flags(
         path,
         OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(|error| {
+    )?;
+    // A read-only handle can never take the write lock a checkpoint needs, so do not let
+    // the connection try one when it closes. The attempt alone can deadlock in SQLite
+    // 3.51.1 against a connection closing on another thread: unixLock holds the file's
+    // lock mutex and waits for the VFS mutex in unixIsSharingShmNode, while unixClose
+    // holds the VFS mutex and waits for the file's. The fan-out readers close together.
+    // SQLite 3.51.2 fixed it ("an obscure deadlock in the new broken-posix-lock detection").
+    db.set_db_config(DbConfig::SQLITE_DBCONFIG_NO_CKPT_ON_CLOSE, true)?;
+    Ok(db)
+}
+
+fn open_reader(path: &Path) -> Result<Connection, SourceError> {
+    let db = open_read_only(path).map_err(|error| {
         if !path.exists() {
             problem(path, "missing", "")
         } else if path.is_dir() {

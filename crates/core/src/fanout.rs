@@ -155,6 +155,12 @@ mod tests {
 
     impl Drop for Fixture {
         fn drop(&mut self) {
+            // A WAL database keeps its log and index after read-only connections close.
+            for side in ["-wal", "-shm"] {
+                let mut name = self.path.clone().into_os_string();
+                name.push(side);
+                let _ = fs::remove_file(name);
+            }
             fs::remove_file(&self.path).unwrap();
             fs::remove_dir(&self.dir).unwrap();
         }
@@ -291,5 +297,30 @@ mod tests {
         db.execute_batch("BEGIN EXCLUSIVE; INSERT INTO items VALUES (1); ROLLBACK").unwrap();
         assert_eq!(fs::read(&fixture.path).unwrap(), before);
         assert_eq!(read_scopes(&fixture.path, 1, &[1], open, &Count::default()).unwrap(), [1]);
+    }
+
+    /// The workers close their connections together, as every `--tools` read does. On a WAL
+    /// database SQLite 3.51.1 could deadlock there (see `source::open_read_only`): this
+    /// failed within a few hundred reads before the fix. A hang fails the test instead.
+    #[test]
+    fn workers_closing_together_on_a_wal_database_never_hang() {
+        let fixture = Fixture::new();
+        Connection::open(&fixture.path).unwrap()
+            .query_row("PRAGMA journal_mode=WAL", [], |_| Ok(())).unwrap();
+        let path = fixture.path.clone();
+        let (done, finished) = mpsc::channel();
+        // Not a scoped thread: a deadlocked worker must not keep the test from failing.
+        thread::spawn(move || {
+            for _ in 0..2000 {
+                let read = read_scopes(&path, 4, &[1, 2, 3, 4], crate::recap::open, &Count::default());
+                assert_eq!(read.unwrap(), [1, 2, 3, 4]);
+            }
+            let _ = done.send(());
+        });
+        match finished.recv_timeout(std::time::Duration::from_secs(60)) {
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!("fan-out workers hung while closing"),
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the reads failed"),
+            Ok(()) => {}
+        }
     }
 }

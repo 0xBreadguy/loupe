@@ -14,7 +14,7 @@ use crate::{
     model::{Changed, Snapshot},
     source::{self, SourceError},
 };
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     path::{Path, PathBuf},
@@ -274,11 +274,7 @@ fn sql_error(path: &Path, err: rusqlite::Error) -> SourceError {
     }
 }
 fn open(path: &Path) -> Result<Connection, SourceError> {
-    let db = Connection::open_with_flags(
-        path,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    )
-    .map_err(|e| sql_error(path, e))?;
+    let db = source::open_read_only(path).map_err(|e| sql_error(path, e))?;
     db.busy_timeout(Duration::from_millis(250))
         .map_err(|e| sql_error(path, e))?;
     crate::asks::register(&db).map_err(|e| sql_error(path, e))?;

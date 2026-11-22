@@ -18,7 +18,7 @@ use crate::{
 };
 #[cfg(unix)]
 use crate::cache;
-use rusqlite::{Connection, OpenFlags, params};
+use rusqlite::{Connection, params};
 #[cfg(any(unix, test))]
 use rusqlite::OptionalExtension;
 use serde::Serialize;
@@ -487,7 +487,7 @@ fn source_error(path: &Path, kind: &'static str, detail: impl Into<String>) -> S
 
 /// Open T3's database the way the dashboard's reader does: read-only, and told to refuse writes.
 pub fn open(path: &Path) -> Result<Connection, SourceError> {
-    let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX).map_err(|e| {
+    let db = crate::source::open_read_only(path).map_err(|e| {
         if !path.exists() {
             source_error(path, "missing", "")
         } else if path.is_dir() {
