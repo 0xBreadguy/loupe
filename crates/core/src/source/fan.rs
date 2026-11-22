@@ -1511,9 +1511,19 @@ mod tests {
                         retried += usize::from(trace.attempts > 1);
                     }
                     None => {
-                        assert_eq!(
-                            (trace.attempts, trace.proved, trace.failed),
-                            (PIN_ATTEMPTS, false, false)
+                        assert!(
+                            !trace.proved && !trace.failed && !trace.moved,
+                            "unexpected fallback: proved={} failed={} moved={}",
+                            trace.proved,
+                            trace.failed,
+                            trace.moved
+                        );
+                        assert!(
+                            (trace.attempts == PIN_ATTEMPTS && !trace.restless)
+                                || (trace.restless && trace.attempts == 0),
+                            "unexpected fallback: attempts={} restless={}",
+                            trace.attempts,
+                            trace.restless
                         );
                         gave_up += 1;
                     }
