@@ -592,7 +592,7 @@ mod tests {
         let without_checkout = local.clone();
         local.storage.as_mut().unwrap().worktree = Some("/synthetic/checkout".into());
         let mut remote = local.clone();
-        remote.remote = Some(serde_json::json!({"environmentId": "remote"}));
+        remote.remote = Some(crate::model::AgentRemote::from_value(&serde_json::json!({"environmentId": "remote"})));
         remote.storage.as_mut().unwrap().worktree = Some("/synthetic/remote".into());
         let snapshot = model::Snapshot {
             agents: vec![Arc::new(without_checkout), Arc::new(local), Arc::new(remote)],

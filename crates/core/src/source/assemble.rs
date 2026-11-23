@@ -7,7 +7,10 @@ use super::{
     fast_reads::{FetchedTurnItem, HistoryRow, NodeMap, PlanRow, ProjectRow, RequestRow, SpanRow},
     number, obj, optional, problem, str_at, timing, truthy_str,
 };
-use crate::model::{self, Agent, Context, Event, Item, Point, Shelf, Snapshot, Step};
+use crate::model::{
+    self, Agent, AgentOption, AgentRemote, AgentRun, AgentTurn, Context, Event, Item, Point, Shelf,
+    Snapshot, Step,
+};
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -380,11 +383,14 @@ fn thread_agent_typed(
             .cloned()
             .unwrap_or_default(),
         storage: Some(storage),
-        model: truthy_str(&turn, "model")
+        model: turn
+            .model()
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
             .or_else(|| truthy_str(&selection, "model"))
             .unwrap_or_else(|| "--".into()),
         status: optional(run, "status").unwrap_or_else(|| "idle".into()),
-        run: run.clone(),
+        run: AgentRun::from_value(run),
         provider_id: pid,
         context: ctx,
         turn,
@@ -397,7 +403,7 @@ fn thread_agent_typed(
         options: selection
             .get("options")
             .and_then(Value::as_array)
-            .cloned()
+            .map(|arr| arr.iter().map(AgentOption::from_value).collect())
             .unwrap_or_default(),
         shelf: Some(Shelf {
             listed: str_at(&lineage, "relationshipToParent") != "subagent"
@@ -491,18 +497,24 @@ fn link_structure_typed(
             kind: "subagent".into(),
             project,
             cwd: String::new(),
-            model: truthy_str(&turn, "model")
+            model: turn
+                .model()
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
                 .or_else(|| truthy_str(sub, "model"))
                 .unwrap_or_else(|| "--".into()),
             status: optional(sub, "status").unwrap_or_else(|| "unknown".into()),
-            run: json!({"id":sub.get("runId").cloned().unwrap_or(Value::Null)}),
+            run: AgentRun::from_id_value(sub.get("runId")),
             provider_id: pid,
             context: ctx,
             turn,
             updated: optional(sub, "updatedAt"),
             started: optional(sub, "startedAt"),
             ended: optional(sub, "completedAt"),
-            remote: sub.get("remoteChild").filter(|v| !v.is_null()).cloned(),
+            remote: sub
+                .get("remoteChild")
+                .filter(|v| !v.is_null())
+                .map(AgentRemote::from_value),
             thread_id: str_at(sub, "threadId").into(),
             ..Agent::default()
         };
@@ -577,9 +589,9 @@ fn link_structure_typed(
                 project: agents[i].project.clone(),
                 model: "--".into(),
                 status: "unknown".into(),
-                run: json!({}),
-                turn: json!({}),
-                remote: Some(json!({"environmentId":env,"threadId":tid})),
+                run: AgentRun::Empty,
+                turn: AgentTurn::Empty,
+                remote: Some(AgentRemote::from_ref(env, tid)),
                 reference_only: Some(true),
                 thread_id: tid.into(),
                 ..Agent::default()
@@ -784,35 +796,37 @@ pub(crate) fn context(
     providers: &HashMap<String, Json>,
     turns: &HashMap<String, Json>,
     path: &Path,
-) -> Result<(Context, Json), SourceError> {
+) -> Result<(Context, AgentTurn), SourceError> {
     let pid = pid.filter(|id| !id.is_empty());
     let p = pid.and_then(|id| providers.get(id));
-    let turn = pid
-        .and_then(|id| turns.get(id))
-        .cloned()
-        .unwrap_or_else(|| json!({}));
+    let turn_val = pid.and_then(|id| turns.get(id));
     let fallback = p
-        .map(|p| obj(p, "contextUsage"))
-        .unwrap_or_else(|| json!({}));
-    let mut ctx = turn
-        .get("tokenUsage")
+        .and_then(|p| p.get("contextUsage"))
+        .filter(|v| v.is_object());
+    let mut ctx_val = turn_val
+        .and_then(|t| t.get("tokenUsage"))
         .filter(|v| !v.is_null())
-        .cloned()
-        .unwrap_or_else(|| fallback.clone());
-    if ctx.get("usedTokens").is_none_or(Value::is_null) {
-        ctx = fallback;
+        .or(fallback);
+    if ctx_val.is_none_or(|c| c.get("usedTokens").is_none_or(Value::is_null)) {
+        ctx_val = fallback;
     }
-    Ok((
-        serde_json::from_value(ctx).map_err(|e| problem(path, "schema", e.to_string()))?,
-        turn,
-    ))
+    let ctx = match ctx_val {
+        Some(v) => serde_json::from_value(v.clone())
+            .map_err(|e| problem(path, "schema", e.to_string()))?,
+        None => Context::default(),
+    };
+    let turn = match turn_val {
+        Some(v) => AgentTurn::from_value(v),
+        None => AgentTurn::Empty,
+    };
+    Ok((ctx, turn))
 }
 
 /// One definition of the heavy per-agent fields. The SQL oracle and the live
 /// cache both call these, so a capped item, event, history point, span or plan
 /// cannot be assembled two different ways.
 pub(crate) fn attach_item(agent: &mut Agent, item: &Item) {
-    if item.run_id.as_deref() == agent.run.get("id").and_then(Value::as_str) {
+    if item.run_id.as_deref() == agent.run.id() {
         agent.items.push(item.clone());
     }
 }
@@ -918,7 +932,7 @@ pub(crate) fn attach_history(
     }
 }
 pub(crate) fn consider_plan(agent: &mut Agent, run_id: Option<&str>, steps_json: Option<&str>) {
-    if agent.plan.is_some() || run_id != agent.run.get("id").and_then(Value::as_str) {
+    if agent.plan.is_some() || run_id != agent.run.id() {
         return;
     }
     if let Ok(Value::Array(steps)) = serde_json::from_str::<Value>(steps_json.unwrap_or("[]")) {
@@ -1072,11 +1086,14 @@ pub(crate) fn thread_agent(
             .cloned()
             .unwrap_or_default(),
         storage: Some(storage),
-        model: truthy_str(&turn, "model")
+        model: turn
+            .model()
+            .filter(|s| !s.is_empty())
+            .map(str::to_owned)
             .or_else(|| truthy_str(&selection, "model"))
             .unwrap_or_else(|| "--".into()),
         status: optional(run, "status").unwrap_or_else(|| "idle".into()),
-        run: run.clone(),
+        run: AgentRun::from_value(run),
         provider_id: pid,
         context: ctx,
         turn,
@@ -1089,7 +1106,7 @@ pub(crate) fn thread_agent(
         options: selection
             .get("options")
             .and_then(Value::as_array)
-            .cloned()
+            .map(|arr| arr.iter().map(AgentOption::from_value).collect())
             .unwrap_or_default(),
         shelf: Some(Shelf {
             listed: str_at(&lineage, "relationshipToParent") != "subagent"
@@ -1213,18 +1230,24 @@ pub(crate) fn link_structure(
             kind: "subagent".into(),
             project,
             cwd: String::new(),
-            model: truthy_str(&turn, "model")
+            model: turn
+                .model()
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned)
                 .or_else(|| truthy_str(sub, "model"))
                 .unwrap_or_else(|| "--".into()),
             status: optional(sub, "status").unwrap_or_else(|| "unknown".into()),
-            run: json!({"id":sub.get("runId").cloned().unwrap_or(Value::Null)}),
+            run: AgentRun::from_id_value(sub.get("runId")),
             provider_id: pid,
             context: ctx,
             turn,
             updated: optional(sub, "updatedAt"),
             started: optional(sub, "startedAt"),
             ended: optional(sub, "completedAt"),
-            remote: sub.get("remoteChild").filter(|v| !v.is_null()).cloned(),
+            remote: sub
+                .get("remoteChild")
+                .filter(|v| !v.is_null())
+                .map(AgentRemote::from_value),
             thread_id: str_at(sub, "threadId").into(),
             ..Agent::default()
         };
@@ -1294,9 +1317,9 @@ pub(crate) fn link_structure(
                 project: agents[i].project.clone(),
                 model: "--".into(),
                 status: "unknown".into(),
-                run: json!({}),
-                turn: json!({}),
-                remote: Some(json!({"environmentId":env,"threadId":tid})),
+                run: AgentRun::Empty,
+                turn: AgentTurn::Empty,
+                remote: Some(AgentRemote::from_ref(env, tid)),
                 reference_only: Some(true),
                 thread_id: tid.into(),
                 ..Agent::default()

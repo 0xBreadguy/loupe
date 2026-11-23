@@ -102,12 +102,7 @@ fn family_color(p: &Palette, fam: usize) -> u32 {
     p.providers[fam.min(OTHER)]
 }
 fn family_of(a: &Agent) -> usize {
-    family(
-        &a.model,
-        a.provider_id
-            .as_deref()
-            .or_else(|| a.run.get("provider").and_then(|v| v.as_str())),
-    )
+    family(&a.model, a.provider_id.as_deref().or_else(|| a.run.provider()))
 }
 fn level(n: usize, max: usize) -> char {
     terminal::level(n as f64, max as f64)

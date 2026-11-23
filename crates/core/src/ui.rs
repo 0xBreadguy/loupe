@@ -329,7 +329,7 @@ pub(crate) struct RenderCache {
     lane_edges: Option<Vec<f64>>,
     pub(crate) tree_edges: Option<Vec<f64>>,
     pub(crate) events: Option<std::sync::Arc<overview::EventIndex>>,
-    pub(crate) rows: Option<(String, std::sync::Arc<model::Rows>)>,
+    pub(crate) rows: Option<(model::RowsKey, std::sync::Arc<model::Rows>)>,
     top: Option<(String, Vec<terminal::Cell>, overview::Overview)>,
     prepared: Option<(String, std::sync::Arc<Prepared>)>,
     shape: Option<PreparedShape>,

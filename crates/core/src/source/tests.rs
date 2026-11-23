@@ -653,9 +653,9 @@ fn superseded_run_with_mismatched_payload_thread_id_matches_reference() {
     let a = snap.agents.iter().find(|a| a.id == "A").unwrap();
     let b = snap.agents.iter().find(|a| a.id == "B").unwrap();
     assert_eq!(a.status, "running");
-    assert_eq!(str_at(&a.run, "id"), "r0");
+    assert_eq!(a.run.id(), Some("r0"));
     assert_eq!(b.status, "completed");
-    assert_eq!(str_at(&b.run, "id"), "r1");
+    assert_eq!(b.run.id(), Some("r1"));
 
     // Numeric payload `threadId` must not match a TEXT `thread_id` column via affinity coercion.
     // A newer matching run supersedes `r_num`, so only the scan's per-row check can catch it.

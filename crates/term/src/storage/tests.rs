@@ -34,7 +34,7 @@ fn owned_input_uses_local_thread_identity_and_only_explicit_worktrees() {
         ..Shelf::default()
     });
     let mut remote = agent("remote", "untrusted", &root, Some(&root.join("remote")));
-    remote.remote = Some(serde_json::json!({"environmentId": "another-host", "threadId": "child"}));
+    remote.remote = Some(t3_agents_core::model::AgentRemote::from_value(&serde_json::json!({"environmentId": "another-host", "threadId": "child"})));
     let input = StorageSource::Unavailable.input(&Snapshot {
         agents: vec![Arc::clone(&main), Arc::new(child), Arc::new(remote), main],
         ..Snapshot::default()

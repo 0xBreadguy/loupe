@@ -206,10 +206,7 @@ fn js_round(x: f64) -> f64 {
 }
 
 fn family_name(a: &Agent) -> &'static str {
-    let hint = a
-        .provider_id
-        .as_deref()
-        .or_else(|| a.run.get("provider").and_then(|v| v.as_str()));
+    let hint = a.provider_id.as_deref().or_else(|| a.run.provider());
     match terminal::family(&a.model, hint) {
         terminal::ProviderFamily::Claude => "claude",
         terminal::ProviderFamily::OpenAi => "openai",

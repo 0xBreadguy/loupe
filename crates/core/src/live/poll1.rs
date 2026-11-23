@@ -4,10 +4,10 @@
 use super::{
     FallbackReason,
     cache::{
-        Body, Data, EncounterOrder, Item, ItemPayloadRead, Node, Payload, Pending, Pool, Project,
-        Request, Row, Run, Select, Stamp, TABLES, Text, Thread, Turn, blank, classify,
-        distinct_owners, eligibility_rows, empty_json, item_text_query, owner_query, queries,
-        request_query, stamp_ge, stamp_opt, thread_active,
+        Body, Data, EncounterOrder, Item, ItemPayloadRead, Node, Pending, Pool, Project,
+        ProviderPayload, Request, Row, Run, Select, Stamp, SubagentPayload, TABLES, Text, Thread,
+        ThreadPayload, Turn, blank, classify, distinct_owners, eligibility_rows, empty_json,
+        item_text_query, owner_query, queries, request_query, stamp_ge, stamp_opt, thread_active,
     },
     error, sql_error,
 };
@@ -23,61 +23,7 @@ use std::{
 };
 
 pub(super) fn parse_canonical_utc_ms(text: &str) -> Option<i64> {
-    let b = text.as_bytes();
-    if b.len() != 24
-        || b[4] != b'-'
-        || b[7] != b'-'
-        || b[10] != b'T'
-        || b[13] != b':'
-        || b[16] != b':'
-        || b[19] != b'.'
-        || b[23] != b'Z'
-    {
-        return None;
-    }
-    let digits = |start: usize, len: usize| -> Option<i64> {
-        let mut val = 0i64;
-        for &ch in &b[start..start + len] {
-            if !ch.is_ascii_digit() {
-                return None;
-            }
-            val = val * 10 + i64::from(ch - b'0');
-        }
-        Some(val)
-    };
-    let year = digits(0, 4)?;
-    let month = digits(5, 2)?;
-    let day = digits(8, 2)?;
-    let hour = digits(11, 2)?;
-    let minute = digits(14, 2)?;
-    let second = digits(17, 2)?;
-    let ms = digits(20, 3)?;
-    if !(1..=12).contains(&month) || hour > 23 || minute > 59 || second > 59 {
-        return None;
-    }
-    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
-    let max_day = match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 => {
-            if leap {
-                29
-            } else {
-                28
-            }
-        }
-        _ => return None,
-    };
-    if !(1..=max_day).contains(&day) {
-        return None;
-    }
-    let y = year - i64::from(month <= 2);
-    let era = y.div_euclid(400);
-    let yoe = y - era * 400;
-    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
-    let days = era * 146097 + doe - 719468;
-    Some(days * 86_400_000 + hour * 3_600_000 + minute * 60_000 + second * 1_000 + ms)
+    crate::model::parse_canonical_utc_ms(text)
 }
 
 /// Fast multiplicative hasher for internal SQLite `i64` rowid lookup tables.
@@ -312,13 +258,13 @@ fn thread_rows(
         let id: i64 = row.get(0)?;
         let owner = pool.intern(&sql_must_text(row, 1)?);
         let payload = sql_payload(row, 2)?;
-        let archived_at = sql_opt_text(row, 3)?.map(Cow::into_owned);
-        let deleted_at = sql_opt_text(row, 4)?.map(Cow::into_owned);
+        let archived_at = sql_opt_text(row, 3)?.map(|s| Stamp::parse(&s));
+        let deleted_at = sql_opt_text(row, 4)?.map(|s| Stamp::parse(&s));
         out.push(Row {
             id,
             owner,
             data: Data::Thread(Box::new(Thread {
-                data: Payload { payload },
+                data: ThreadPayload::from_value(payload, pool),
                 archived_at,
                 deleted_at,
             })),
@@ -353,13 +299,14 @@ fn run_rows(
         let owner = pool.intern(&owner_ref);
         let payload = sql_payload(row, 2)?;
         let ordinal: i64 = row.get(3)?;
-        let requested_at = sql_must_text(row, 4)?.into_owned();
-        let completed_at = sql_opt_text(row, 5)?.map(Cow::into_owned);
+        let requested_at = Stamp::parse(&sql_must_text(row, 4)?);
+        let completed_at = sql_opt_text(row, 5)?.map(|s| Stamp::parse(&s));
+        let run = crate::model::AgentRun::from_value_owned_interned(payload, &mut |s| pool.intern(s));
         out.push(Row {
             id,
             owner,
             data: Data::Run(Box::new(Run {
-                data: Payload { payload },
+                run,
                 ordinal,
                 requested_at,
                 completed_at,
@@ -396,9 +343,9 @@ fn payload_rows(
         let owner = pool.intern(&owner_ref);
         let payload = sql_payload(row, 2)?;
         let data = if index == 2 {
-            Data::Subagent(Box::new(Payload { payload }))
+            Data::Subagent(Box::new(SubagentPayload::from_value(payload, pool)))
         } else {
-            Data::Provider(Box::new(Payload { payload }))
+            Data::Provider(Box::new(ProviderPayload::from_value(payload, pool)))
         };
         out.push(Row {
             id,
@@ -428,11 +375,11 @@ fn request_rows(
     while let Some(row) = rows.next()? {
         let id: i64 = row.get(0)?;
         let owner = pool.intern(&sql_must_text(row, 1)?);
-        let node_id = sql_must_text(row, 2)?.into_owned();
-        let kind = sql_must_text(row, 3)?.into_owned();
-        let status = sql_must_text(row, 4)?.into_owned();
-        let created_at = sql_opt_text(row, 5)?.map(Cow::into_owned);
-        let resolved_at = sql_opt_text(row, 6)?.map(Cow::into_owned);
+        let node_id = pool.intern(&sql_must_text(row, 2)?);
+        let kind = pool.intern(&sql_must_text(row, 3)?);
+        let status = pool.intern(&sql_must_text(row, 4)?);
+        let created_at = sql_opt_text(row, 5)?.map(|s| Stamp::parse(&s));
+        let resolved_at = sql_opt_text(row, 6)?.map(|s| Stamp::parse(&s));
         let async_input: i64 = row.get(7)?;
         out.push(Row {
             id,
@@ -699,7 +646,12 @@ fn turn_rows(
     let timed = source::timing::on().then(Instant::now);
     let mut stmt = db.prepare_cached(sql)?;
     let stepped = timed.map(|_| Instant::now());
-    let mut out = Vec::new();
+    let mut out: Vec<Row> = Vec::new();
+    // Retain full turn JSON / lean_context only for each `(owner, provider_thread_id)`'s
+    // highest ordinal turn (including ties at the max ordinal). Non-latest turns keep
+    // only scalar history & identity fields.
+    let mut best: HashMap<(Arc<str>, Arc<str>), (i64, Vec<usize>), std::hash::BuildHasherDefault<FnvHasher>> =
+        HashMap::default();
     let mut rows = stmt.query(params_from_iter(args.iter()))?;
     while let Some(row) = rows.next()? {
         let text = |i: usize| match row.get_ref(i)? {
@@ -731,6 +683,7 @@ fn turn_rows(
         }
         let json = must(2)?;
         let provider_thread_id = must(3)?;
+        let ordinal: i64 = row.get(4)?;
         let parsed: Value = serde_json::from_str(&json).map_err(|err| {
             rusqlite::Error::FromSqlConversionFailure(
                 2,
@@ -746,7 +699,37 @@ fn turn_rows(
         let (used, max) = usage
             .map(|usage| (source::number(usage, "usedTokens"), source::number(usage, "maxTokens")))
             .unwrap_or((0., 0.));
-        let (lean_context, context_bad) = if lean {
+        let owner = pool.intern(&owner_ref);
+        let pid = pool.intern(&provider_thread_id);
+        let idx = out.len();
+        let key = (Arc::clone(&owner), Arc::clone(&pid));
+        let keep_latest = match best.get_mut(&key) {
+            None => {
+                best.insert(key, (ordinal, vec![idx]));
+                true
+            }
+            Some((best_ord, winners)) => {
+                if ordinal > *best_ord {
+                    for prev_idx in winners.drain(..) {
+                        if let Data::Turn(prev) = &mut out[prev_idx].data {
+                            prev.json = empty_json();
+                            prev.json_pruned = true;
+                            prev.lean_context = None;
+                            prev.context_bad = false;
+                        }
+                    }
+                    *best_ord = ordinal;
+                    winners.push(idx);
+                    true
+                } else if ordinal == *best_ord {
+                    winners.push(idx);
+                    true
+                } else {
+                    false
+                }
+            }
+        };
+        let (lean_context, context_bad) = if lean && keep_latest {
             if let Some(u) = usage.filter(|u| u.get("usedTokens").is_some_and(|v| !v.is_null())) {
                 match serde_json::from_value::<crate::model::Context>(u.clone()) {
                     Ok(ctx) => (Some(Box::new(ctx)), false),
@@ -760,12 +743,17 @@ fn turn_rows(
         };
         out.push(Row {
             id: row.get(0)?,
-            owner: pool.intern(&owner_ref),
+            owner,
             position: 0,
             data: Data::Turn(Box::new(Turn {
-                json: if lean { empty_json() } else { Arc::from(json) },
-                provider_thread_id: pool.intern(&provider_thread_id),
-                ordinal: row.get(4)?,
+                json: if lean || !keep_latest {
+                    empty_json()
+                } else {
+                    Arc::from(json)
+                },
+                json_pruned: !keep_latest,
+                provider_thread_id: pid,
+                ordinal,
                 started_at: stamp_opt(text(5)?),
                 completed_at: stamp_opt(text(6)?),
                 model_bad,
@@ -1124,7 +1112,7 @@ fn owner_positions_from_index(
                     out.push(Row {
                         id,
                         owner: pool.intern(owner_ref.as_ref()),
-                        data: Data::Subagent(Box::new(Payload { payload })),
+                        data: Data::Subagent(Box::new(SubagentPayload::from_value(payload, pool))),
                         position: pos,
                     });
                 }
@@ -1328,19 +1316,19 @@ pub(super) fn read_pending_scoped(
                         match &row.data {
                             Data::Thread(t) if thread_active(t) => {
                                 extra_active.insert(row.owner.to_string());
-                                if let Some(id) = t.data.payload.get("id").and_then(Value::as_str) {
+                                if let Some(id) = t.data.id() {
                                     extra_active.insert(id.to_owned());
                                 }
                             }
                             Data::Run(r) => {
-                                if let Some(id) = r.data.payload.get("id").and_then(Value::as_str) {
+                                if let Some(id) = r.run.id() {
                                     if !id.is_empty() {
                                         extra_runs.insert(id.to_owned());
                                     }
                                 }
                             }
                             Data::Subagent(s) => {
-                                if let Some(id) = s.payload.get("runId").and_then(Value::as_str) {
+                                if let Some(id) = s.run_id() {
                                     if !id.is_empty() {
                                         extra_runs.insert(id.to_owned());
                                     }
@@ -1361,7 +1349,7 @@ pub(super) fn read_pending_scoped(
         for row in &tables[0] {
             active_owners.insert(row.owner.to_string());
             if let Data::Thread(t) = &row.data {
-                if let Some(id) = t.data.payload.get("id").and_then(Value::as_str) {
+                if let Some(id) = t.data.id() {
                     if id != row.owner.as_ref() {
                         active_owners.insert(id.to_owned());
                     }
