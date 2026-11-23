@@ -347,7 +347,8 @@ impl PreparedKey {
 /// exactly, except that every NaN prints alike), so a frame reuses the header only where the
 /// text key would also have matched. The one widening is `acked`: two equal sets compare equal
 /// whatever order their `Debug` text iterates in. The header reads `acked` only through
-/// `contains` (overview.rs), so its rows cannot tell two equal sets apart.
+/// `contains` (overview.rs), so its rows cannot tell two equal sets apart. `home` is new: the
+/// text key left it out, so a home folder changed in place kept the old waiting-request label.
 #[derive(Clone, Debug)]
 struct TopKey {
     generation: u64,
@@ -366,6 +367,8 @@ struct TopKey {
     window_index: usize,
     usage: Vec<overview::Provider>,
     acked: std::collections::HashSet<String>,
+    /// The waiting-request label shortens paths under the home folder.
+    home: String,
 }
 impl TopKey {
     fn of(s: &State, w: usize, h: usize, p: &Palette) -> Self {
@@ -386,6 +389,7 @@ impl TopKey {
             window_index: s.window_index,
             usage: s.usage.clone(),
             acked: s.acked.clone(),
+            home: s.home.clone(),
         }
     }
     fn matches(&self, s: &State, w: usize, h: usize, p: &Palette) -> bool {
@@ -406,6 +410,7 @@ impl TopKey {
             && self.usage.len() == s.usage.len()
             && self.usage.iter().zip(&s.usage).all(|(a, b)| a.bit_eq(b))
             && self.acked == s.acked
+            && self.home == s.home
     }
 }
 /// Every field of the palette, floats by their bits. The destructuring names every field, so a

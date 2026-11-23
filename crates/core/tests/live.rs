@@ -3255,3 +3255,38 @@ fn exact_cards_use_their_own_run_and_clear_links_only_on_later_human_messages() 
     state.scope = "active".into();
     assert!(state.rows().iter().all(|row| row.id != "a"));
 }
+
+/// The live cache keeps full turn JSON only for each provider thread's latest turn. An older
+/// turn's token count is still history, so an edit to it must reach the next poll.
+#[test]
+fn editing_a_non_latest_turn_refreshes_context_history() {
+    let mut db = Db::new();
+    support::parent_provider_child(&mut db);
+    db.touch(
+        "parent",
+        2,
+        r#"INSERT INTO orchestration_v2_projection_provider_turns
+            (provider_turn_id,thread_id,provider_thread_id,node_id,ordinal,status,started_at,payload_json)
+            VALUES('turn2','parent','pt','n',2,'running','2026-11-12T11:01:00.000Z',
+            '{"providerThreadId":"pt","model":"synthetic","tokenUsage":{"usedTokens":2,"maxTokens":100}}')"#,
+    );
+    let old_usage = |snapshot: &Snapshot| {
+        let child = snapshot.agents.iter().find(|a| a.id == "child").unwrap();
+        assert_eq!(child.history.len(), 2);
+        child.history.iter().min_by(|a, b| a.at.total_cmp(&b.at)).unwrap().used
+    };
+    let mut reader = Reader::open(&db.path).unwrap();
+    assert_eq!(old_usage(&reader.poll(NOW).unwrap().snapshot), 1.);
+    db.touch(
+        "parent",
+        3,
+        "UPDATE orchestration_v2_projection_provider_turns
+         SET payload_json=json_set(payload_json,'$.tokenUsage.usedTokens',70)
+         WHERE provider_turn_id='turn'",
+    );
+    let expected = source::snapshot(&db.path, NOW).unwrap();
+    assert_eq!(old_usage(&expected), 70.);
+    let updated = reader.poll(NOW).unwrap();
+    assert_eq!(updated.served, Served::Incremental);
+    equal(&updated.snapshot, &expected);
+}

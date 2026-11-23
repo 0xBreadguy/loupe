@@ -1837,6 +1837,10 @@ mod cache {
                     && a.context_bad == b.context_bad
                     && a.model == b.model
                     && a.lean_context == b.lean_context
+                    // A pruned turn has no JSON left to compare, and history still reads
+                    // these two. Bits, so NaN equals NaN and -0 differs from 0, as the JSON did.
+                    && a.used.to_bits() == b.used.to_bits()
+                    && a.max.to_bits() == b.max.to_bits()
             }
             (Data::Node(a), Data::Node(b)) => {
                 a.node_id == b.node_id && a.parent_node_id == b.parent_node_id

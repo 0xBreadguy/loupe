@@ -930,3 +930,39 @@ fn list_row_cache_edge_rows() {
         run(&mut a, &mut b, 3, &[(180, 55)], &mut step);
     }
 }
+
+/// The header's waiting-request label shortens paths under `State.home`; a home folder changed
+/// in place must redraw it.
+#[test]
+fn header_follows_the_home_folder() {
+    use std::sync::Arc;
+    use t3_agents_core::{model::Agent, terminal::Palette};
+    let agent = Agent {
+        id: "a".into(),
+        status: "waiting".into(),
+        items: vec![Item {
+            kind: "user_input_request".into(),
+            status: "waiting".into(),
+            label: "/home/a/question".into(),
+            ..Item::default()
+        }],
+        ..Agent::default()
+    };
+    let mut state = State::new(Snapshot {
+        at: 1_794_484_800_000.,
+        agents: vec![Arc::new(agent)],
+        ..Snapshot::default()
+    });
+    let theme = Palette::default();
+    let header = |c: &t3_agents_core::terminal::Canvas, text: &str| {
+        (0..10).any(|y| c.row_text(y).contains(text))
+    };
+    state.home = "/home/a".into();
+    let (first, _) = ui::draw_grid(&state, 180, 40, &theme);
+    assert!(header(&first, "~/question"));
+    state.home = "/home/b".into();
+    let (expected, _) = ui::draw_grid_reference(&state, 180, 40, &theme);
+    assert!(header(&expected, "/home/a/question"));
+    let (updated, _) = ui::draw_grid(&state, 180, 40, &theme);
+    assert_eq!(updated.cells, expected.cells);
+}
