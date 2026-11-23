@@ -8,7 +8,7 @@ var CAUSES = { watcher: true, launcher: true, exited: true, service: true }
 var STATES = { waiting: true, running: true, active: true, starting: true, preparing: true, queued: true, pending: true }
 // The model's provider, which picks its hue, and what the agent is doing now:
 // the categories the status line can send. Anything else falls back.
-var FAMILIES = { claude: true, openai: true, grok: true, other: true }
+var FAMILIES = { claude: true, openai: true, grok: true, gemini: true, other: true }
 var NOW = { shell: true, read: true, edit: true, web: true, agent: true, ask: true, think: true, reply: true,
   you: true, note: true, tool: true, other: true }
 
@@ -107,4 +107,49 @@ function cardSpins(status) {
   var agents = status.agents || []
   for (var i = 0; i < agents.length; i++) if (working(agents[i])) return true
   return false
+}
+
+// Gemini's hue, by the dashboard's rule but from the theme's own colors, as the
+// other hues here are: the first of the theme's blue, its bright_blue and the
+// dashboard's stock blues that reads as blue and stands at least 12 apart
+// (OKLab ΔE × 100) from the hues Claude, OpenAI and Grok take here (magenta,
+// green, blue). Otherwise the stock blue farthest from the nearest of them.
+var GEMINI_STOCK = ["#4285f4", "#2867e4", "#83c4ff", "#1e4eac", "#113585"]
+
+function oklab(hex) {
+  var n = parseInt(String(hex).slice(1), 16)
+  var c = [16, 8, 0].map(function (shift) {
+    var s = ((n >> shift) & 255) / 255
+    return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4)
+  })
+  var l = Math.cbrt(0.4122214708 * c[0] + 0.5363325363 * c[1] + 0.0514459929 * c[2])
+  var m = Math.cbrt(0.2119034982 * c[0] + 0.6806995451 * c[1] + 0.1073969566 * c[2])
+  var s = Math.cbrt(0.0883024619 * c[0] + 0.2817188376 * c[1] + 0.6299787005 * c[2])
+  return [0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s]
+}
+
+function deltaE(a, b) {
+  var p = oklab(a), q = oklab(b)
+  return 100 * Math.sqrt(Math.pow(p[0] - q[0], 2) + Math.pow(p[1] - q[1], 2) + Math.pow(p[2] - q[2], 2))
+}
+
+function readsBlue(hex) {
+  var c = oklab(hex)
+  var h = Math.atan2(c[2], c[1]) * 180 / Math.PI
+  if (h < 0) h += 360
+  return h >= 230 && h <= 275 && Math.sqrt(c[1] * c[1] + c[2] * c[2]) >= 0.08
+}
+
+function geminiHue(named) {
+  named = named || {}
+  var others = [named.magenta, named.green, named.blue].filter(function (c) { return !!c })
+  var nearest = function (c) {
+    return others.reduce(function (d, o) { return Math.min(d, deltaE(c, o)) }, Infinity)
+  }
+  var candidates = [named.blue, named.bright_blue].filter(function (c) { return !!c }).concat(GEMINI_STOCK)
+  for (var i = 0; i < candidates.length; i++)
+    if (readsBlue(candidates[i]) && nearest(candidates[i]) >= 12) return candidates[i]
+  return GEMINI_STOCK.reduce(function (best, c) { return nearest(c) > nearest(best) ? c : best })
 }

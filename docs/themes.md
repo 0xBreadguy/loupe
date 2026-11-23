@@ -63,10 +63,17 @@ to their red.
 When your live Omarchy theme is one of these and you haven't edited it, the
 dashboard uses the same added colors.
 
-Every built-in theme keeps Claude, OpenAI, Grok, "needs you" and the warning
-apart for colorblind readers (protanopia and deuteranopia), and for everyone
-else. Catppuccin is the one near miss: its own peach sits a little close to its
-yellow (ΔE 11.2 against a goal of 12).
+Every built-in theme keeps Claude, OpenAI, Grok, Gemini, "needs you" and the
+warning apart for colorblind readers (protanopia and deuteranopia), and for
+everyone else. Catppuccin is the one near miss: its own peach sits a little
+close to its yellow (ΔE 11.2 against a goal of 12).
+
+Gemini is blue in every built-in theme, and at least 12 from Grok and from
+OpenAI for everyone, 8 for colorblind readers. In Frontier it's Google's blue,
+`#4285f4`. Seven themes have a blue accent (Catppuccin, Catppuccin Latte,
+Flexoki Light, Lupine, Nord, Rose Pine and Tokyo Night), so Gemini shares the
+context bars' hue there. It's picked to stay clear of every shade the bars
+use, and `--theme-check` notes the shared hue.
 
 ## Make your own
 
@@ -95,13 +102,21 @@ The dashboard reads these keys:
 | `mode` | `"light"` or `"dark"` | guessed from the background |
 | `hot` | "needs you": its tile, the `◆`, meters past 90% | `red` or `bright_red` |
 | `warn` | a limit drawing near, a stalled agent, meters past 75% | `yellow` or `bright_yellow` |
-| `claude`, `openai`, `grok`, `other` | each provider's dot and lane | `magenta`, `green`, `blue`, a gray |
+| `claude`, `openai`, `grok`, `gemini`, `other` | each provider's dot and lane | `magenta`, `green`, `blue`, a blue of its own (below), a gray |
 | `name` | what the theme is called in the list | the file's name |
 | `base` | a theme to start from; every key in this file overrides it | none |
 
 Values are `"#rrggbb"`. The dashboard keeps text readable: the text colors,
 `accent`, `hot` and `warn` are nudged until they read at 4.5:1 on the
 background, and `--theme-check` says when it did.
+
+Gemini always gets a blue. Left out, it takes the first of these that stands
+apart from Claude, OpenAI, Grok, "needs you" and the warning (12 for everyone,
+6 for colorblind readers) and reads at 3:1: the theme's `blue`, its
+`bright_blue`, then Google's blue `#4285f4`, `#2867e4`, `#83c4ff`, `#1e4eac`
+and `#113585`. Grok usually holds the theme's `blue`, so Gemini usually moves on
+to one of the others. If none clears both, it takes the stock blue that comes
+closest.
 
 ### In an Omarchy theme
 
@@ -118,6 +133,7 @@ theme you switch to:
 claude = "{{ orange }}"
 openai = "{{ cyan }}"
 grok = "{{ magenta }}"
+gemini = "{{ blue }}"
 ```
 
 ## Checking a theme
@@ -126,9 +142,9 @@ grok = "{{ magenta }}"
 $ t3-agents --theme-check frontier
 Frontier (built in) · dark
 …
-Separation of Claude, OpenAI, Grok, needs you and warning (OKLab ΔE × 100)
-  colorblind      14.2  Grok vs needs you: comfortable (6 floor, 8 comfortable)
-  normal vision   17.8  Claude vs needs you: fine (12 floor)
+Separation of Claude, OpenAI, Grok, Gemini, needs you and warning (OKLab ΔE × 100)
+  colorblind      10.8  Grok vs Gemini: comfortable (6 floor, 8 comfortable)
+  normal vision   14.0  Grok vs Gemini: fine (12 floor)
 
 Notes
   - hot #bf3ca4 is drawn #c550ad so the needs you text reads at 4.5:1

@@ -282,6 +282,7 @@ fn family_name(f: crate::terminal::ProviderFamily) -> &'static str {
         crate::terminal::ProviderFamily::Claude => "claude",
         crate::terminal::ProviderFamily::OpenAi => "openai",
         crate::terminal::ProviderFamily::Grok => "grok",
+        crate::terminal::ProviderFamily::Gemini => "gemini",
         crate::terminal::ProviderFamily::Other => "other",
     }
 }

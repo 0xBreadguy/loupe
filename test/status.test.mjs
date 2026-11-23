@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs"
 import { test } from "node:test"
 
 const source = readFileSync(new URL("../Status.js", import.meta.url), "utf8").replace(/^\.pragma library\s*$/m, "")
-const S = new Function(source + "\nreturn { plain, parse, unavailable, frameAt, dots, spinDots, litDots, working, cardSpins, SPIN }")()
+const S = new Function(source + "\nreturn { plain, parse, unavailable, frameAt, dots, spinDots, litDots, working, cardSpins, geminiHue, deltaE, readsBlue, SPIN }")()
 
 const line = (extra = {}) => JSON.stringify({ v: 1, running: 2, waiting: 1, failed: 0,
   agents: [{ title: "Fix the build", state: "waiting", ctx: 0.364, model: "opus 5.5" },
@@ -77,6 +77,30 @@ test("counts and lists are bounded", () => {
   assert.ok(s.agents[0].title.length <= 60)
 })
 
+test("Gemini's hue is a blue apart from the hues Claude, OpenAI and Grok take", () => {
+  // Frontier's raw palette: its bright_blue is Grok's blue lightened, so Gemini takes Google's blue,
+  // the color the dashboard pins for Frontier.
+  const frontier = { magenta: "#d05bb8", green: "#7cc79c", blue: "#9ea4ff", bright_blue: "#bdc1ff" }
+  assert.equal(S.geminiHue(frontier), "#4285f4")
+  // A theme whose bright_blue stands apart keeps its own.
+  assert.equal(S.geminiHue({ magenta: "#e15b42", green: "#8cf2aa", blue: "#ad8ee6", bright_blue: "#3d7eff" }), "#3d7eff")
+  const themes = [
+    frontier,
+    { magenta: "#bb9af7", green: "#9ece6a", blue: "#7aa2f7", bright_blue: "#7da6ff" }, // Tokyo Night
+    { magenta: "#f5c2e7", green: "#a6e3a1", blue: "#89b4fa", bright_blue: "#89b4fa" }, // Catppuccin
+    { magenta: "#b48ead", green: "#a3be8c", blue: "#81a1c1", bright_blue: "#81a1c1" }, // Nord
+    { magenta: "#8a4ad7", green: "#4a2fd0", blue: "#3264eb", bright_blue: "#5482ff" }, // Lupine
+  ]
+  for (const named of themes) {
+    const hue = S.geminiHue(named)
+    assert.ok(S.readsBlue(hue), hue)
+    for (const other of [named.magenta, named.green, named.blue]) assert.ok(S.deltaE(hue, other) >= 12, `${hue} vs ${other}`)
+  }
+  // No theme file: a stock blue, never a muted one.
+  assert.equal(S.geminiHue({}), "#4285f4")
+  assert.equal(S.geminiHue(undefined), "#4285f4")
+})
+
 test("the spinner follows the shared 100 ms beat", () => {
   assert.equal(S.SPIN.join(""), "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
   assert.equal(S.frameAt(0), 0)
@@ -105,7 +129,7 @@ test("provider family and activity are kept, and unknown values fall back", () =
   assert.equal(d.now, null, "null means the agent has gone quiet")
   assert.equal(e.family, "other")
   assert.equal(e.now, null)
-  for (const f of ["claude", "openai", "grok", "other"])
+  for (const f of ["claude", "openai", "grok", "gemini", "other"])
     assert.equal(S.parse(line({ agents: [{ title: "x", family: f }] })).agents[0].family, f)
   for (const n of ["shell", "read", "edit", "web", "agent", "ask", "think", "reply", "you", "note", "tool", "other"])
     assert.equal(S.parse(line({ agents: [{ title: "x", now: n }] })).agents[0].now, n)

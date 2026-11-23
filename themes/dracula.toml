@@ -33,9 +33,11 @@ bright_blue = "#d6acff"
 bright_magenta = "#ff92df"
 
 # T3 Agents roles. Dracula's green sits out: beside its yellow it reads as the same color
-# with deuteranopia, so Claude takes orange, OpenAI cyan and Grok purple.
+# with deuteranopia, so Claude takes orange, OpenAI cyan and Grok purple. Gemini is a blue
+# Dracula doesn't have, darker than its purple.
 hot    = "#ff5555"
 warn   = "#f1fa8c"
 claude = "#ffb86c"
 openai = "#8be9fd"
 grok   = "#bd93f9"
+gemini = "#4081e1"

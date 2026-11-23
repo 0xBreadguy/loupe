@@ -55,8 +55,8 @@ pub struct Palette {
     pub warn: Rgb,
     pub sel: Rgb,
     pub busy: Rgb,
-    /// Provider identity: claude, openai, grok, other.
-    pub providers: [Rgb; 4],
+    /// Provider identity: claude, openai, grok, gemini, other.
+    pub providers: [Rgb; 5],
 }
 
 impl Default for Palette {
@@ -74,6 +74,7 @@ pub enum ProviderFamily {
     Claude,
     OpenAi,
     Grok,
+    Gemini,
     Other,
 }
 
@@ -96,7 +97,7 @@ impl Palette {
             warn: 0xe0af68,
             sel: 0x33467c,
             busy: 0x293147,
-            providers: [0xbb9af7, 0x9ece6a, 0x7aa2f7, 0x6a6f89],
+            providers: [0xbb9af7, 0x9ece6a, 0x7aa2f7, 0x2867e4, 0x6a6f89],
         }
     }
     /// `derivePalette({})`: the dashboard's fallback when no theme file is readable.
@@ -118,7 +119,7 @@ impl Palette {
             warn: 0xd49789,
             sel: 0x2a2d2f,
             busy: 0x2e3132,
-            providers: [0x8b5896, 0x1f9b82, 0x4c94ec, 0x696c6d],
+            providers: [0x8b5896, 0x1f9b82, 0x4c94ec, 0x2867e4, 0x696c6d],
         }
     }
     pub fn family_color(&self, f: ProviderFamily) -> Rgb {
@@ -160,8 +161,10 @@ impl<'a> FamilyMemo<'a> {
 }
 
 /// Model provider family from a model name, falling back to a provider id hint (theme.ts `family`).
+/// A model name says Gemini only by containing `gemini`; a hint also by naming Google or T3's
+/// Antigravity provider, which serves Gemini models.
 pub fn family(model: &str, hint: Option<&str>) -> ProviderFamily {
-    fn test(raw: &str) -> Option<ProviderFamily> {
+    fn test(raw: &str, provider: bool) -> Option<ProviderFamily> {
         // `to_lowercase` of ASCII text is its ASCII lowercase: do that in place for the usual
         // short ASCII model name, without allocating. Anything else takes `to_lowercase`.
         let mut buf = [0u8; 64];
@@ -194,13 +197,16 @@ pub fn family(model: &str, hint: Option<&str>) -> ProviderFamily {
         if s.contains("grok") || s.contains("xai") {
             return Some(ProviderFamily::Grok);
         }
+        if s.contains("gemini") || provider && (s.contains("google") || s.contains("antigravity")) {
+            return Some(ProviderFamily::Gemini);
+        }
         None
     }
     fn is_word(c: u8) -> bool {
         c.is_ascii_alphanumeric() || c == b'_'
     }
-    test(model)
-        .or_else(|| hint.and_then(test))
+    test(model, false)
+        .or_else(|| hint.and_then(|h| test(h, true)))
         .unwrap_or(ProviderFamily::Other)
 }
 
@@ -2813,10 +2819,40 @@ mod tests {
             (long.as_str(), None, Claude),
             ("ÉCLAUDE", None, Claude),
             ("Ω-GROK", None, Grok),
+            ("GEMINI-4-NEON", None, Gemini),
             ("", None, Other),
         ] {
             assert_eq!(family(model, hint), want, "{model}");
         }
+    }
+
+    #[test]
+    fn gemini_is_a_model_named_gemini_or_a_google_or_antigravity_provider() {
+        use ProviderFamily::*;
+        // T3's Antigravity provider and its models.
+        for model in ["gemini-4-neon", "gemini-4-carbon", "gemini-4-hydrogen", "gemini-pro-orchestrator-neon", "google/gemini-2.5-pro"] {
+            assert_eq!(family(model, None), Gemini, "{model}");
+            assert_eq!(family(model, Some("antigravity")), Gemini, "{model}");
+        }
+        // With no model to go on, the provider says which.
+        for hint in ["antigravity", "provider-thread:provider:antigravity:native", "gemini", "Google", "google-vertex"] {
+            assert_eq!(family("--", Some(hint)), Gemini, "{hint}");
+            assert_eq!(family("", Some(hint)), Gemini, "{hint}");
+        }
+        // The model wins over the provider, so Antigravity's other models keep their own families.
+        assert_eq!(family("claude-sonnet-5-5", Some("antigravity")), Claude);
+        assert_eq!(family("gpt-oss-120b", Some("antigravity")), OpenAi);
+        assert_eq!(family("grok-4.7", Some("google")), Grok);
+        // Words that come before Gemini's still decide: nothing that had a family changes it.
+        assert_eq!(family("claude-gemini", None), Claude);
+        assert_eq!(family("gemini-codex", None), OpenAi);
+        assert_eq!(family("gemini", Some("anthropic")), Gemini);
+        // Only a hint names Google or Antigravity; in a model name they are just words.
+        for model in ["google/gemma-3", "antigravity-default", "gemma-3", "gem-ini", "kimi-k3", "llama-3"] {
+            assert_eq!(family(model, None), Other, "{model}");
+        }
+        assert_eq!(family("llama-3", Some("meta")), Other);
+        assert_eq!(family("gemma-3", Some("google")), Gemini);
     }
 
     #[test]

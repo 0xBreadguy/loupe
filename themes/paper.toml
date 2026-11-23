@@ -34,8 +34,10 @@ bright_blue = "#2f50c4"
 bright_magenta = "#7a4787"
 
 # T3 Agents roles. Claude is plum here: on a light page, orange already reads as a warning.
+# Grok takes the ink blue, so Gemini is a lighter azure.
 hot    = "#97182b"
 warn   = "#9a5505"
 claude = "#5f3369"
 openai = "#098777"
 grok   = "#1a38a6"
+gemini = "#136dbf"

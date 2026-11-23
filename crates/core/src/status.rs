@@ -214,6 +214,7 @@ fn family_name(a: &Agent) -> &'static str {
         terminal::ProviderFamily::Claude => "claude",
         terminal::ProviderFamily::OpenAi => "openai",
         terminal::ProviderFamily::Grok => "grok",
+        terminal::ProviderFamily::Gemini => "gemini",
         terminal::ProviderFamily::Other => "other",
     }
 }
