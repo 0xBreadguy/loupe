@@ -521,3 +521,95 @@ fn asks_keep_exact_and_estimated_counts_separate_across_refreshes() {
     state.action("n");
     assert_eq!(state.notice.as_deref(), Some("Nobody is waiting on you"));
 }
+
+/// The header rows are reused while their key matches (`ui::TopKey`). Hold the clock still so
+/// only the field under test changes, change each key field in turn (floats by a single bit,
+/// including the sign of zero), and require the cached frame to equal the uncached one after
+/// every change, at two sizes and after a resize.
+#[test]
+fn header_cache_follows_every_key_field() {
+    let demo: Snapshot =
+        serde_json::from_str(include_str!("../../../checks/fixtures/demo.json")).unwrap();
+    let mut a = State::new(demo);
+    a.follow = false;
+    let mut b = a.clone();
+    b.cache_enabled = false;
+    let nudge = |x: f64| f64::from_bits(x.to_bits() ^ 1);
+    let edits: Vec<(&str, Box<dyn Fn(&mut State)>)> = vec![
+        ("nothing", Box::new(|_| {})),
+        ("palette color", Box::new(|s| s.palette.accent ^= 0x010101)),
+        ("palette floor", Box::new(move |s| s.palette.floor = nudge(s.palette.floor))),
+        ("palette dark", Box::new(|s| s.palette.dark = !s.palette.dark)),
+        ("calm", Box::new(|s| s.calm = !s.calm)),
+        ("paused", Box::new(|s| s.paused = !s.paused)),
+        ("error", Box::new(|s| s.error = Some("synthetic error".into()))),
+        ("error cleared", Box::new(|s| s.error = None)),
+        ("interval", Box::new(|s| s.interval = 5.)),
+        ("demo", Box::new(|s| s.demo = !s.demo)),
+        ("linked", Box::new(|s| s.linked = s.snap.agents.first().map(|a| a.id.clone()))),
+        ("follow", Box::new(|s| s.follow = !s.follow)),
+        ("scope", Box::new(|s| s.scope = "active".into())),
+        ("scope back", Box::new(|s| s.scope = "all".into())),
+        ("window", Box::new(|s| s.window_index += 1)),
+        ("acked", Box::new(|s| {
+            let id = s.snap.agents.iter().find(|a| t3_agents_core::model::needs_you(a)).or(s.snap.agents.first()).map(|a| a.id.clone()).unwrap();
+            s.acked.insert(id);
+        })),
+        ("usage percent", Box::new(|s| {
+            if let Some(l) = s.usage.iter_mut().flat_map(|p| p.limits.iter_mut()).next() {
+                l.percent += 17.;
+            }
+        })),
+        ("usage percent one bit", Box::new(move |s| {
+            if let Some(l) = s.usage.iter_mut().flat_map(|p| p.limits.iter_mut()).next() {
+                l.percent = nudge(l.percent);
+            }
+        })),
+        ("usage today zero", Box::new(|s| {
+            if let Some(p) = s.usage.first_mut() {
+                p.today = 0.;
+            }
+        })),
+        ("usage today negative zero", Box::new(|s| {
+            if let Some(p) = s.usage.first_mut() {
+                p.today = -0.;
+            }
+        })),
+        ("usage stale", Box::new(|s| {
+            if let Some(p) = s.usage.first_mut() {
+                p.stale = !p.stale;
+            }
+        })),
+        ("usage tier", Box::new(|s| {
+            if let Some(p) = s.usage.first_mut() {
+                p.tier = "synthetic tier".into();
+            }
+        })),
+        ("usage model tokens", Box::new(|s| {
+            if let Some(m) = s.usage.iter_mut().flat_map(|p| p.models.iter_mut()).next() {
+                m.tokens += 1000.;
+            }
+        })),
+        ("usage dropped", Box::new(|s| {
+            s.usage.pop();
+        })),
+        ("now", Box::new(|s| s.now += 1000.)),
+    ];
+    let mut step = 0;
+    for (w, h) in [(120, 40), (180, 55), (120, 40)] {
+        for (name, edit) in &edits {
+            edit(&mut a);
+            edit(&mut b);
+            // Twice: the second frame is drawn from whatever the first one cached.
+            for _ in 0..2 {
+                let (ca, sa) = ui::draw_grid(&a, w, h, &a.palette);
+                let (cb, sb) = ui::draw_grid(&b, w, h, &b.palette);
+                assert_eq!(ca.cells, cb.cells, "{name} at {w}x{h}, step {step}");
+                assert_eq!(sa, sb, "{name} at {w}x{h}, step {step}");
+                *a.surface.borrow_mut() = sa;
+                *b.surface.borrow_mut() = sb;
+                step += 1;
+            }
+        }
+    }
+}

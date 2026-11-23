@@ -43,6 +43,39 @@ pub struct Provider {
     pub models: Vec<ModelUsage>,
     pub stale: bool,
 }
+// Value comparisons for the header cache key (`ui::TopKey`), floats by their bits. Each
+// destructures its struct in full, so a new field cannot be left out without a compile error.
+impl Limit {
+    pub(crate) fn bit_eq(&self, other: &Self) -> bool {
+        let Limit { label, title, percent, resets_at, window_ms, elapsed } = self;
+        *label == other.label
+            && *title == other.title
+            && percent.to_bits() == other.percent.to_bits()
+            && resets_at.map(f64::to_bits) == other.resets_at.map(f64::to_bits)
+            && window_ms.map(f64::to_bits) == other.window_ms.map(f64::to_bits)
+            && elapsed.map(f64::to_bits) == other.elapsed.map(f64::to_bits)
+    }
+}
+impl ModelUsage {
+    pub(crate) fn bit_eq(&self, other: &Self) -> bool {
+        let ModelUsage { model, tokens } = self;
+        *model == other.model && tokens.to_bits() == other.tokens.to_bits()
+    }
+}
+impl Provider {
+    pub(crate) fn bit_eq(&self, other: &Self) -> bool {
+        let Provider { id, name, tier, limits, today, models, stale } = self;
+        *id == other.id
+            && *name == other.name
+            && *tier == other.tier
+            && today.to_bits() == other.today.to_bits()
+            && *stale == other.stale
+            && limits.len() == other.limits.len()
+            && limits.iter().zip(&other.limits).all(|(a, b)| a.bit_eq(b))
+            && models.len() == other.models.len()
+            && models.iter().zip(&other.models).all(|(a, b)| a.bit_eq(b))
+    }
+}
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Overview {
     pub main_top: i32,

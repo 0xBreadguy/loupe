@@ -317,6 +317,138 @@ impl Prepared {
 
 /// One bounded entry per derived layer, owned by the snapshot's State. Replacement
 /// drops all entries; layers can later be invalidated by changed agent id.
+/// What [`Prepared`] is built from. This was the `Debug` text of the same tuple; every field
+/// is an integer or a string, so comparing the values hits and misses exactly where the text did.
+#[derive(Clone, Debug)]
+struct PreparedKey {
+    generation: u64,
+    rows_revision: usize,
+    pace_revision: usize,
+    linked: Option<String>,
+}
+impl PreparedKey {
+    fn matches(
+        &self,
+        generation: u64,
+        rows_revision: usize,
+        pace_revision: usize,
+        linked: &Option<String>,
+    ) -> bool {
+        self.generation == generation
+            && self.rows_revision == rows_revision
+            && self.pace_revision == pace_revision
+            && self.linked == *linked
+    }
+}
+
+/// What the cached header rows (`overview::draw_header_kpis_limits`) are keyed on: the same
+/// fields the `Debug` text of a tuple held before, compared as values. Floats compare by their
+/// bits, which is at least as strict as their `Debug` text (that text names a float's bits
+/// exactly, except that every NaN prints alike), so a frame reuses the header only where the
+/// text key would also have matched. The one widening is `acked`: two equal sets compare equal
+/// whatever order their `Debug` text iterates in. The header reads `acked` only through
+/// `contains` (overview.rs), so its rows cannot tell two equal sets apart.
+#[derive(Clone, Debug)]
+struct TopKey {
+    generation: u64,
+    now: u64,
+    w: usize,
+    h: usize,
+    palette: Palette,
+    calm: bool,
+    paused: bool,
+    error: Option<String>,
+    interval: u64,
+    demo: bool,
+    linked: Option<String>,
+    follow: bool,
+    scope: String,
+    window_index: usize,
+    usage: Vec<overview::Provider>,
+    acked: std::collections::HashSet<String>,
+}
+impl TopKey {
+    fn of(s: &State, w: usize, h: usize, p: &Palette) -> Self {
+        Self {
+            generation: s.generation,
+            now: s.now.to_bits(),
+            w,
+            h,
+            palette: *p,
+            calm: s.calm,
+            paused: s.paused,
+            error: s.error.clone(),
+            interval: s.interval.to_bits(),
+            demo: s.demo,
+            linked: s.linked.clone(),
+            follow: s.follow,
+            scope: s.scope.clone(),
+            window_index: s.window_index,
+            usage: s.usage.clone(),
+            acked: s.acked.clone(),
+        }
+    }
+    fn matches(&self, s: &State, w: usize, h: usize, p: &Palette) -> bool {
+        self.generation == s.generation
+            && self.now == s.now.to_bits()
+            && self.w == w
+            && self.h == h
+            && palette_bits_eq(&self.palette, p)
+            && self.calm == s.calm
+            && self.paused == s.paused
+            && self.error == s.error
+            && self.interval == s.interval.to_bits()
+            && self.demo == s.demo
+            && self.linked == s.linked
+            && self.follow == s.follow
+            && self.scope == s.scope
+            && self.window_index == s.window_index
+            && self.usage.len() == s.usage.len()
+            && self.usage.iter().zip(&s.usage).all(|(a, b)| a.bit_eq(b))
+            && self.acked == s.acked
+    }
+}
+/// Every field of the palette, floats by their bits. The destructuring names every field, so a
+/// new one cannot be left out of the comparison without a compile error.
+fn palette_bits_eq(a: &Palette, b: &Palette) -> bool {
+    let Palette {
+        dark,
+        bg,
+        panel,
+        fg,
+        text2,
+        dim,
+        faint,
+        track,
+        floor,
+        rule,
+        accent,
+        bright,
+        hot,
+        warn,
+        sel,
+        busy,
+        providers,
+    } = a;
+    *dark == b.dark
+        && *bg == b.bg
+        && *panel == b.panel
+        && *fg == b.fg
+        && *text2 == b.text2
+        && *dim == b.dim
+        && *faint == b.faint
+        && *track == b.track
+        && floor.to_bits() == b.floor.to_bits()
+        && *rule == b.rule
+        && *accent == b.accent
+        && *bright == b.bright
+        && *hot == b.hot
+        && *warn == b.warn
+        && *sel == b.sel
+        && *busy == b.busy
+        && *providers == b.providers
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RenderCache {
     agents: HashMap<usize, AgentCache>,
@@ -330,8 +462,8 @@ pub(crate) struct RenderCache {
     pub(crate) tree_edges: Option<Vec<f64>>,
     pub(crate) events: Option<std::sync::Arc<overview::EventIndex>>,
     pub(crate) rows: Option<(model::RowsKey, std::sync::Arc<model::Rows>)>,
-    top: Option<(String, Vec<terminal::Cell>, overview::Overview)>,
-    prepared: Option<(String, std::sync::Arc<Prepared>)>,
+    top: Option<(TopKey, Vec<terminal::Cell>, overview::Overview)>,
+    prepared: Option<(PreparedKey, std::sync::Arc<Prepared>)>,
     shape: Option<PreparedShape>,
     counts: Option<std::sync::Arc<RowCounts>>,
     pub(crate) count_dirty: std::collections::HashSet<usize>,
@@ -1830,21 +1962,16 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
     if profiling {
         eprintln!("pace_refresh_us {}", pace_start.elapsed().as_micros());
     }
-    let prepared_key = format!(
-        "{:?}",
-        (
-            s.generation,
-            s.render_cache.borrow().rows_revision,
-            s.render_cache.borrow().pace_revision,
-            &s.linked
-        )
-    );
+    let (rows_revision, pace_revision) = {
+        let cache = s.render_cache.borrow();
+        (cache.rows_revision, cache.pace_revision)
+    };
     let cached = if s.cache_enabled {
         s.render_cache
             .borrow()
             .prepared
             .as_ref()
-            .filter(|(key, _)| key == &prepared_key)
+            .filter(|(key, _)| key.matches(s.generation, rows_revision, pace_revision, &s.linked))
             .map(|(_, p)| p.clone())
     } else {
         None
@@ -1853,7 +1980,13 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
         let p = std::sync::Arc::new(Prepared::new(s, paces));
         if s.cache_enabled {
             let mut cache = s.render_cache.borrow_mut();
-            cache.prepared = Some((prepared_key, p.clone()));
+            let key = PreparedKey {
+                generation: s.generation,
+                rows_revision,
+                pace_revision,
+                linked: s.linked.clone(),
+            };
+            cache.prepared = Some((key, p.clone()));
         }
         p
     });
@@ -1863,37 +1996,12 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
         .as_ref()
         .and_then(|id| prepared.row_by_id.get(id))
         .map(|i| prepared.rows[*i].agent);
-    let top_key = format!(
-        "{:?}",
-        (
-            (
-                s.generation,
-                s.now.to_bits(),
-                w,
-                h,
-                p,
-                s.calm,
-                s.paused,
-                &s.error
-            ),
-            (
-                s.interval,
-                s.demo,
-                &s.linked,
-                s.follow,
-                &s.scope,
-                s.window_index,
-                &s.usage,
-                &s.acked
-            )
-        )
-    );
     let cached_top = if s.cache_enabled {
         s.render_cache
             .borrow()
             .top
             .as_ref()
-            .filter(|(k, _, _)| k == &top_key)
+            .filter(|(k, _, _)| k.matches(s, w, h, p))
             .map(|(_, cells, top)| (cells.clone(), *top))
     } else {
         None
@@ -1905,7 +2013,7 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
         let top = overview::draw_header_kpis_limits(&mut c, s, p, &prepared);
         if s.cache_enabled {
             s.render_cache.borrow_mut().top = Some((
-                top_key,
+                TopKey::of(s, w, h, p),
                 c.cells[..(top.main_top.max(0) as usize * w).min(c.cells.len())].to_vec(),
                 top,
             ));
