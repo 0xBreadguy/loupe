@@ -99,10 +99,10 @@ const ratio = (a: Agent): number | null => {
   return typeof used === "number" && typeof max === "number" && max > 0 ? Math.max(0, Math.min(1, used / max)) : null
 }
 
-/** Provider family of an agent (Claude / OpenAI / Grok / other). */
+/** Provider family of an agent (Claude / OpenAI / Grok / Gemini / other). */
 export const familyOf = (a: Agent): Family => family(a.model, a.provider_id ?? a.run?.provider)
 const usageFamily = (id: string): Family => family(id)
-export const FAMILY_LABEL: Record<Family, string> = { claude: "claude", openai: "gpt · codex", grok: "grok", other: "other" }
+export const FAMILY_LABEL: Record<Family, string> = { claude: "claude", openai: "gpt · codex", grok: "grok", gemini: "gemini", other: "other" }
 
 const home = process.env.HOME ?? ""
 const tidy = (s: string): string => clean(s.split("\n")[0]).replace(home ? new RegExp("^" + home.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) : /^$/, "~").trim()
@@ -1228,7 +1228,7 @@ function pulse(c: Canvas, X: number, Y: number, W: number, h: number, st: ViewSt
   const slots = plot.w
   const { size, col: slot } = slices(slots, windowMs, now)
   const counts = new Array(slots).fill(0)
-  const byFam = new Array(W).fill(0).map(() => ({ claude: 0, openai: 0, grok: 0, other: 0 } as Record<Family, number>))
+  const byFam = new Array(W).fill(0).map(() => ({ claude: 0, openai: 0, grok: 0, gemini: 0, other: 0 } as Record<Family, number>))
   const fails = new Array(W).fill(false)
   for (const a of agents) {
     const fam = familyOf(a)
@@ -1265,7 +1265,7 @@ function pulse(c: Canvas, X: number, Y: number, W: number, h: number, st: ViewSt
   c.text(X, Y + h + 1, label(WINDOWS[st.windowIndex]), p.dim)
   c.textRight(X + W, Y + h + 1, "now", p.dim)
   // Legend: only the providers on screen.
-  const present = (["claude", "openai", "grok", "other"] as Family[]).filter((f) => agents.some((a) => familyOf(a) === f))
+  const present = (["claude", "openai", "grok", "gemini", "other"] as Family[]).filter((f) => agents.some((a) => familyOf(a) === f))
   let lx = X + 8
   for (const f of present) {
     if (lx + FAMILY_LABEL[f].length + 4 > X + W - 5) break

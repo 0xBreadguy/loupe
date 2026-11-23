@@ -6,7 +6,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 
 export type Color = number // 0xRRGGBB
-export type Family = "claude" | "openai" | "grok" | "other"
+export type Family = "claude" | "openai" | "grok" | "gemini" | "other"
 
 export interface Palette {
   dark: boolean
@@ -28,16 +28,21 @@ export interface Palette {
   provider: Record<Family, Color> // categorical identity of the model provider
 }
 
-/** Model provider family from a model name, falling back to a provider id hint. */
+/**
+ * Model provider family from a model name, falling back to a provider id hint. A model name says
+ * Gemini only by containing "gemini"; a hint also by naming Google or T3's Antigravity provider,
+ * which serves Gemini models.
+ */
 export function family(model?: string | null, hint?: string | null): Family {
-  const test = (raw: string | null | undefined): Family | null => {
+  const test = (raw: string | null | undefined, provider = false): Family | null => {
     const s = (raw ?? "").toLowerCase()
     if (/claude|opus|sonnet|haiku|fable|anthropic/.test(s)) return "claude"
     if (/gpt|codex|openai|\bo[1-9]\b/.test(s)) return "openai"
     if (/grok|xai/.test(s)) return "grok"
+    if (/gemini/.test(s) || (provider && /google|antigravity/.test(s))) return "gemini"
     return null
   }
-  return test(model) ?? test(hint) ?? "other"
+  return test(model) ?? test(hint, true) ?? "other"
 }
 
 // Fallback provider hues, validated with the dataviz palette checks as one
@@ -45,7 +50,14 @@ export function family(model?: string | null, hint?: string | null): Family {
 // separation (worst ΔE 10.2) and the normal-vision floor (17.5) on a dark surface.
 // Claude takes plum, not its brand clay, because any warm hue collapses into
 // the "needs you" color under deuteranopia.
-const PROVIDER_FALLBACK: Record<Exclude<Family, "other">, Color> = { claude: 0x8b5896, openai: 0x1f9b82, grok: 0x4c94ec }
+const PROVIDER_FALLBACK: Record<Exclude<Family, "gemini" | "other">, Color> = { claude: 0x8b5896, openai: 0x1f9b82, grok: 0x4c94ec }
+
+/**
+ * The blues Gemini takes when a theme's own don't work, in order: Google's blue, then deeper,
+ * lighter and deeper still, all near OKLCH hue 260. A theme whose Grok already holds one of them
+ * still has another.
+ */
+export const GEMINI_STOCK: Color[] = [0x4285f4, 0x2867e4, 0x83c4ff, 0x1e4eac, 0x113585]
 
 export const THEME_PATH = join(homedir(), ".local/state/omarchy/current/theme/colors.toml")
 
@@ -89,6 +101,73 @@ export function parseColorsToml(text: string): Record<string, string> {
     if (m) vars[m[1]] = m[2]
   }
   return vars
+}
+
+// Telling colors apart: OKLab, with protanopia and deuteranopia simulated at full severity after
+// Machado, Oliveira and Fernandes (2009). The same arithmetic as crates/core/src/integration.rs,
+// operation for operation, so both derive the same Gemini color.
+const linear = (c: Color): number[] => rgb(c).map((v) => {
+  const s = v / 255
+  return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+})
+
+function oklab([r, g, b]: number[]): number[] {
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  return [
+    0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+  ]
+}
+
+type Vision = number[][] | null
+const PROTAN: Vision = [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]]
+const DEUTAN: Vision = [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.011820, 0.042940, 0.968881]]
+
+function simulate(c: Color, m: Vision): number[] {
+  const [r, g, b] = linear(c)
+  return m ? m.map((row) => Math.min(1, Math.max(0, row[0] * r + row[1] * g + row[2] * b))) : [r, g, b]
+}
+
+/** The distance between two colors as seen with `vision` (normal when null): OKLab ΔE, times 100. */
+export function deltaE(a: Color, b: Color, vision: Vision = null): number {
+  const [p, q] = [oklab(simulate(a, vision)), oklab(simulate(b, vision))]
+  const [dl, da, db] = [p[0] - q[0], p[1] - q[1], p[2] - q[2]]
+  return 100 * Math.sqrt(dl * dl + da * da + db * db)
+}
+
+/** The smaller of the protanopia and deuteranopia distances. */
+export const colorblindDelta = (a: Color, b: Color): number => Math.min(deltaE(a, b, PROTAN), deltaE(a, b, DEUTAN))
+
+/** OKLCH hue 230° (past cyan) to 275° (short of violet), and chroma of at least 0.08. */
+export function readsBlue(c: Color): boolean {
+  const [, a, b] = oklab(linear(c))
+  const deg = Math.atan2(b, a) * (180 / Math.PI)
+  const h = deg < 0 ? deg + 360 : deg
+  return h >= 230 && h <= 275 && Math.sqrt(a * a + b * b) >= 0.08
+}
+
+/**
+ * Gemini's color. The candidates are the theme's `blue`, its `bright_blue`, then GEMINI_STOCK, each
+ * darkened in a light theme as the derived providers are. The first that reads as blue, reaches 3:1
+ * on the background and stands at least 12 apart (OKLab ΔE × 100) for normal vision, and 6 for
+ * protanopia and deuteranopia, from every other color that means something (`signals`: Claude,
+ * OpenAI, Grok, needs you and the warning, as drawn) is Gemini's. When none qualifies, the stock
+ * blue that reaches 3:1 and stands farthest from its nearest signal; when none reaches 3:1, the one
+ * with the most contrast.
+ */
+function deriveGemini(theme: (Color | null)[], shade: (c: Color) => Color, bg: Color, signals: Color[]): Color {
+  const fits = (c: Color) =>
+    readsBlue(c) && contrast(c, bg) >= 3 && signals.every((s) => deltaE(c, s) >= 12 && colorblindDelta(c, s) >= 6)
+  const stock = GEMINI_STOCK.map(shade)
+  const found = [...theme.filter((c): c is Color => c !== null).map(shade), ...stock].find(fits)
+  if (found !== undefined) return found
+  const apart = (c: Color) => Math.min(...signals.map((s) => Math.min(deltaE(c, s) / 12, colorblindDelta(c, s) / 6)))
+  const best = (score: (c: Color) => number, among: Color[]) =>
+    among.reduce<Color | null>((b, c) => (b === null || score(c) > score(b) ? c : b), null)
+  return best(apart, stock.filter((c) => contrast(c, bg) >= 3)) ?? best((c) => contrast(c, bg), stock)!
 }
 
 const mostChromatic = (colors: (Color | null)[]): Color | null =>
@@ -165,9 +244,12 @@ export function derivePalette(vars: Record<string, string>): Palette {
   // A chromatic theme supplies its own distinct hues; a monochrome one gets the validated set.
   const themed = { claude: hex(vars.magenta), openai: hex(vars.green), grok: hex(vars.blue) }
   const usable = Object.values(themed).every((c) => c !== null && chroma(c) >= 60 && contrast(c, bg) >= 2.6)
-  const base = usable ? (themed as Record<Exclude<Family, "other">, Color>) : PROVIDER_FALLBACK
+  const base = usable ? (themed as Record<Exclude<Family, "gemini" | "other">, Color>) : PROVIDER_FALLBACK
   const shade = (c: Color) => (dark ? c : mix(c, 0x000000, 0.12))
-  const provider = { claude: shade(base.claude), openai: shade(base.openai), grok: shade(base.grok), other: mix(fg, bg, 0.52) }
+  const [claude, openai, grok] = [shade(base.claude), shade(base.openai), shade(base.grok)]
+  // Gemini reads as blue in every theme, apart from Grok, which usually holds the theme's own blue.
+  const gemini = deriveGemini([hex(vars.blue), hex(vars.bright_blue)], shade, bg, [claude, openai, grok, hot, warn])
+  const provider = { claude, openai, grok, gemini, other: mix(fg, bg, 0.52) }
   const p: Palette = {
     provider,
     dark, bg, fg, accent, hot, warn, sel, panel, text2, dim, track,

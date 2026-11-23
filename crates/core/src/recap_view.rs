@@ -547,7 +547,8 @@ fn family_color(p: &Palette, family: &str) -> Rgb {
         "claude" => 0,
         "openai" => 1,
         "grok" => 2,
-        _ => 3,
+        "gemini" => 3,
+        _ => 4,
     }]
 }
 

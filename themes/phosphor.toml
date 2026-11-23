@@ -34,8 +34,10 @@ bright_blue = "#e09a1e"
 bright_magenta = "#ffb3d2"
 
 # T3 Agents roles. Providers separate by brightness: Claude bright, OpenAI mid, Grok dim.
+# Gemini is the one blue on the screen, the way it is in every theme.
 hot    = "#fb6ca0"
 warn   = "#eef392"
 claude = "#f3b01d"
 openai = "#c47d04"
 grok   = "#a14301"
+gemini = "#4688e8"

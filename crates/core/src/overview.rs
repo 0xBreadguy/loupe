@@ -92,11 +92,14 @@ fn family(model: &str, hint: Option<&str>) -> usize {
         terminal::ProviderFamily::Claude => 0,
         terminal::ProviderFamily::OpenAi => 1,
         terminal::ProviderFamily::Grok => 2,
-        terminal::ProviderFamily::Other => 3,
+        terminal::ProviderFamily::Gemini => 3,
+        terminal::ProviderFamily::Other => OTHER,
     }
 }
+/// The index of "other", the last provider identity.
+const OTHER: usize = 4;
 fn family_color(p: &Palette, fam: usize) -> u32 {
-    p.providers[fam.min(3)]
+    p.providers[fam.min(OTHER)]
 }
 fn family_of(a: &Agent) -> usize {
     family(
@@ -1181,7 +1184,7 @@ fn pulse(c: &mut Canvas, x: i32, y: i32, w: i32, h: i32, s: &State, p: &Palette)
     let size = ((window / slots as f64 / 1000.).round() * 1000.).max(1000.);
     let last = (s.now / size).floor();
     let mut counts = vec![0usize; slots];
-    let mut by_family = vec![[0usize; 4]; w as usize];
+    let mut by_family = vec![[0usize; OTHER + 1]; w as usize];
     let mut failed = vec![false; w as usize];
     for a in &s.snap.agents {
         // The family is a pure function of the agent's model names and is only needed for an
@@ -1243,14 +1246,14 @@ fn pulse(c: &mut Canvas, x: i32, y: i32, w: i32, h: i32, s: &State, p: &Palette)
                 continue;
             }
             let f = by_family[col as usize];
-            let mut fam = 3;
-            for next in 0..4 {
+            let mut fam = OTHER;
+            for next in 0..=OTHER {
                 if f[next] > f[fam] {
                     fam = next;
                 }
             }
             let lift = 0.1 + 0.3 * (1. - row as f64 / h as f64);
-            let color = if fam == 3 {
+            let color = if fam == OTHER {
                 ramp(p, 0.4 + 0.6 * (1. - row as f64 / h as f64))
             } else {
                 mix(family_color(p, fam), p.bright, lift)
@@ -1291,11 +1294,11 @@ fn pulse(c: &mut Canvas, x: i32, y: i32, w: i32, h: i32, s: &State, p: &Palette)
     );
     c.right(x + w, y + h + 1, "now", p.dim);
     let mut lx = x + 8;
-    for fam in 0..4 {
+    for fam in 0..=OTHER {
         if !s.snap.agents.iter().any(|a| family_of(a) == fam) {
             continue;
         }
-        let name = ["claude", "gpt · codex", "grok", "other"][fam];
+        let name = ["claude", "gpt · codex", "grok", "gemini", "other"][fam];
         if lx + width(name) + 4 > x + w - 5 {
             break;
         }

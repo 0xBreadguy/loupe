@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { test } from "node:test"
 import { BIG_BASE, BIG_ROWS, Braille, Canvas, bigGlyph, bigWidth, drawBig, fit, hbar, spark, textWidth, type Face } from "../src/canvas.ts"
 import { buildAgents, type Agent } from "../src/source.ts"
-import { chroma, contrast, derivePalette, family, parseColorsToml } from "../src/theme.ts"
+import { chroma, colorblindDelta, contrast, deltaE, derivePalette, family, parseColorsToml } from "../src/theme.ts"
 import { parseProvider, windowLength } from "../src/usage.ts"
 import { doing, draw, fitDoing, initialState, shortModel, tokens } from "../src/view.ts"
 
@@ -312,6 +312,12 @@ test("provider families come from the model, then the provider id", () => {
   assert.equal(family("grok-4.7-build-fast"), "grok")
   assert.equal(family("--", "provider-thread:provider:claudeAgent:native"), "claude")
   assert.equal(family("kimi-k3"), "other")
+  // Gemini: a model named gemini, or a Google or Antigravity provider when the model says nothing.
+  for (const m of ["gemini-4-neon", "gemini-4-carbon", "gemini-4-hydrogen", "gemini-pro-orchestrator-neon"]) assert.equal(family(m), "gemini")
+  assert.equal(family("--", "provider-thread:provider:antigravity:native"), "gemini")
+  assert.equal(family("", "Google"), "gemini")
+  assert.equal(family("claude-sonnet-5-5", "antigravity"), "claude", "the model wins over the provider")
+  assert.equal(family("google/gemma-3"), "other", "only a hint names Google")
 })
 
 test("monochrome themes get the validated provider hues; chromatic themes keep their own", () => {
@@ -320,6 +326,15 @@ test("monochrome themes get the validated provider hues; chromatic themes keep t
   for (const c of [mono.provider.claude, mono.provider.openai, mono.provider.grok]) assert.ok(contrast(c, mono.bg) >= 3)
   const tokyo = derivePalette({ background: "#1a1b26", foreground: "#c0caf5", red: "#f7768e", green: "#9ece6a", blue: "#7aa2f7", magenta: "#bb9af7" })
   assert.deepEqual([tokyo.provider.claude, tokyo.provider.openai, tokyo.provider.grok], [0xbb9af7, 0x9ece6a, 0x7aa2f7])
+  // Gemini is blue in both, and steps past Grok's blue to the next stock one. Rust's
+  // Palette::tokyo() and Palette::fallback() hold the same number.
+  for (const p of [mono, tokyo]) {
+    assert.equal(p.provider.gemini, 0x2867e4)
+    assert.ok(contrast(p.provider.gemini, p.bg) >= 3)
+    for (const s of [p.provider.claude, p.provider.openai, p.provider.grok, p.hot, p.warn]) {
+      assert.ok(deltaE(p.provider.gemini, s) >= 12 && colorblindDelta(p.provider.gemini, s) >= 6)
+    }
+  }
 })
 
 test("nothing moves on a quiet agent's rows", () => {

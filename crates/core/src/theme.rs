@@ -3,8 +3,8 @@
 //! A theme is an Omarchy `colors.toml`, read with the same small parser and the same derivation
 //! as the live Omarchy theme ([`integration::derive_palette`]), plus a few optional keys of the
 //! dashboard's own that pin a role instead of deriving it (`hot`, `warn`, `claude`, `openai`,
-//! `grok`, `other`; see [`integration::ROLE_KEYS`]). `name` gives the theme a display name and
-//! `base` starts it from another theme, whose keys it then overrides one by one.
+//! `grok`, `gemini`, `other`; see [`integration::ROLE_KEYS`]). `name` gives the theme a display
+//! name and `base` starts it from another theme, whose keys it then overrides one by one.
 //!
 //! Where a theme can come from, by name: the user's own files in `~/.config/t3-agents/themes/`,
 //! the built-in themes in the repository's `themes/` folder (compiled in), and any theme Omarchy
@@ -19,6 +19,7 @@
 //!
 //! `T3_AGENTS_NO_THEMES` turns all of this off and keeps the original's behavior (the live
 //! Omarchy theme, or the gray fallback), so the parity checks can compare the two programs.
+pub use crate::integration::{colorblind_delta, delta_e, reads_blue, Vision};
 use crate::{
     integration::{self, MAX_FILE, ROLE_KEYS},
     terminal::{self, Palette, Rgb},
@@ -767,73 +768,9 @@ pub fn light_background(rgb: Rgb) -> bool {
 
 // ── Checking a theme ────────────────────────────────────────────────────────
 
-/// OKLab, from sRGB.
-fn oklab(rgb: [f64; 3]) -> [f64; 3] {
-    let [r, g, b] = rgb;
-    let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
-    let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
-    let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
-    [
-        0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
-        1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
-        0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
-    ]
-}
-
-fn linear(c: Rgb) -> [f64; 3] {
-    let ch = |shift: u32| {
-        let s = ((c >> shift) & 255) as f64 / 255.;
-        if s <= 0.04045 {
-            s / 12.92
-        } else {
-            ((s + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    [ch(16), ch(8), ch(0)]
-}
-
-/// Colorblind simulations at full severity: Machado, Oliveira and Fernandes (2009), on linear RGB.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Vision {
-    Normal,
-    Protan,
-    Deutan,
-}
-
-fn simulate(c: Rgb, vision: Vision) -> [f64; 3] {
-    let m = match vision {
-        Vision::Normal => return linear(c),
-        Vision::Protan => [
-            [0.152286, 1.052583, -0.204868],
-            [0.114503, 0.786281, 0.099216],
-            [-0.003882, -0.048116, 1.051998],
-        ],
-        Vision::Deutan => [
-            [0.367322, 0.860646, -0.227968],
-            [0.280085, 0.672501, 0.047413],
-            [-0.011820, 0.042940, 0.968881],
-        ],
-    };
-    let [r, g, b] = linear(c);
-    let row = |i: usize| (m[i][0] * r + m[i][1] * g + m[i][2] * b).clamp(0., 1.);
-    [row(0), row(1), row(2)]
-}
-
-/// The distance between two colors as seen with `vision`: OKLab ΔE, times 100.
-pub fn delta_e(a: Rgb, b: Rgb, vision: Vision) -> f64 {
-    let (a, b) = (oklab(simulate(a, vision)), oklab(simulate(b, vision)));
-    100. * ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2) + (a[2] - b[2]).powi(2)).sqrt()
-}
-
-/// The smaller of the protanopia and deuteranopia distances.
-pub fn colorblind_delta(a: Rgb, b: Rgb) -> f64 {
-    delta_e(a, b, Vision::Protan).min(delta_e(a, b, Vision::Deutan))
-}
-
 /// OKLCH hue in degrees, and chroma.
 fn hue(c: Rgb) -> (f64, f64) {
-    let [_, a, b] = oklab(linear(c));
-    (b.atan2(a).to_degrees().rem_euclid(360.), a.hypot(b))
+    integration::oklch(c)
 }
 
 fn hue_gap(a: Rgb, b: Rgb) -> f64 {
@@ -848,12 +785,13 @@ pub const COLORBLIND_COMFORT: f64 = 8.;
 /// The least distance two colors that mean different things should have with normal vision.
 pub const NORMAL_FLOOR: f64 = 12.;
 
-/// The roles that have to stay apart, as drawn.
-pub fn signal_roles(p: &Palette) -> [(&'static str, Rgb); 5] {
+/// The roles that have to stay apart, as drawn: the four named providers, then the alerts.
+pub fn signal_roles(p: &Palette) -> [(&'static str, Rgb); 6] {
     [
         ("Claude", p.providers[0]),
         ("OpenAI", p.providers[1]),
         ("Grok", p.providers[2]),
+        ("Gemini", p.providers[3]),
         ("needs you", p.hot),
         ("warning", p.warn),
     ]
@@ -899,9 +837,9 @@ fn distance(a: &str, b: &str) -> usize {
 }
 
 /// The keys the dashboard reads.
-const READ_KEYS: [&str; 15] = [
+const READ_KEYS: [&str; 16] = [
     "name", "base", "mode", "background", "foreground", "accent", "selection", "red", "bright_red",
-    "yellow", "bright_yellow", "magenta", "green", "blue", "theme",
+    "yellow", "bright_yellow", "magenta", "green", "blue", "bright_blue", "theme",
 ];
 
 /// `--theme-check`: what the theme draws with, what the dashboard changed and why, and how far
@@ -932,7 +870,8 @@ pub fn check(reference: &str, paths: &Paths) -> Result<String, String> {
         ("Claude", p.providers[0]),
         ("OpenAI / Codex", p.providers[1]),
         ("Grok", p.providers[2]),
-        ("other providers", p.providers[3]),
+        ("Gemini", p.providers[3]),
+        ("other providers", p.providers[4]),
     ];
     out.push_str("Colors, as drawn\n");
     for (role, c) in rows {
@@ -969,7 +908,7 @@ pub fn check(reference: &str, paths: &Paths) -> Result<String, String> {
         }
     }
     let ac = hue(p.accent).1;
-    for (role, c) in &signal_roles(&p)[..3] {
+    for (role, c) in &signal_roles(&p)[..4] {
         if ac > 0.04 && hue(*c).1 > 0.04 && hue_gap(*c, p.accent) < 20. {
             notes.push(format!("{role}'s color is {:.0}° from the accent's hue: its lanes will look like context bars", hue_gap(*c, p.accent)));
         }
@@ -1006,7 +945,7 @@ pub fn check(reference: &str, paths: &Paths) -> Result<String, String> {
     } else {
         "too close: colorblind readers may see one color"
     };
-    out.push_str("\nSeparation of Claude, OpenAI, Grok, needs you and warning (OKLab ΔE × 100)\n");
+    out.push_str("\nSeparation of Claude, OpenAI, Grok, Gemini, needs you and warning (OKLab ΔE × 100)\n");
     out.push_str(&format!("  colorblind     {cb:5.1}  {a} vs {b}: {verdict} (6 floor, 8 comfortable)\n"));
     out.push_str(&format!(
         "  normal vision  {nv:5.1}  {na} vs {nb}: {}\n",
@@ -1136,9 +1075,9 @@ mod tests {
 
     #[test]
     fn role_keys_pin_their_roles_and_text_roles_keep_their_contrast() {
-        let pinned = format!("{TOKYO}\nclaude=\"#d97757\"\nopenai=\"#91dfd2\"\ngrok=\"#9ea4ff\"\nother=\"#777777\"\nwarn=\"#f2bb25\"");
+        let pinned = format!("{TOKYO}\nclaude=\"#d97757\"\nopenai=\"#91dfd2\"\ngrok=\"#9ea4ff\"\ngemini=\"#4285f4\"\nother=\"#777777\"\nwarn=\"#f2bb25\"");
         let p = integration::derive_themed(&pinned);
-        assert_eq!(p.providers, [0xd97757, 0x91dfd2, 0x9ea4ff, 0x777777]);
+        assert_eq!(p.providers, [0xd97757, 0x91dfd2, 0x9ea4ff, 0x4285f4, 0x777777]);
         assert_eq!(p.warn, 0xf2bb25);
         let o = Palette::tokyo();
         assert_eq!((p.bg, p.fg, p.accent, p.hot, p.sel, p.floor), (o.bg, o.fg, o.accent, o.hot, o.sel, o.floor));
@@ -1148,8 +1087,8 @@ mod tests {
         assert!(integration::contrast(dim.hot, dim.bg) >= 4.5);
         // In a light theme a pinned provider is drawn as written; the derived ones are darkened.
         let light = "mode=\"light\"\nbackground=\"#fafafa\"\nforeground=\"#222222\"\nmagenta=\"#8e24aa\"\ngreen=\"#2e7d32\"\nblue=\"#1565c0\"";
-        let lp = integration::derive_themed(&format!("{light}\nclaude=\"#5f3369\""));
-        assert_eq!(lp.providers[0], 0x5f3369);
+        let lp = integration::derive_themed(&format!("{light}\nclaude=\"#5f3369\"\ngemini=\"#4285f4\""));
+        assert_eq!((lp.providers[0], lp.providers[3]), (0x5f3369, 0x4285f4));
         assert_eq!(lp.providers[1], integration::derive_palette(light).providers[1]);
         // With no usable yellow, the warning comes from the pinned needs-you color.
         let gray = "background=\"#101315\"\nforeground=\"#cacccc\"\nyellow=\"#d9dbdc\"";
@@ -1163,6 +1102,8 @@ mod tests {
         let gray = "background=\"#101315\"\nforeground=\"#cacccc\"\nred=\"#565d60\"";
         let with_role = format!("{gray}\nclaude=\"#ff0000\"");
         assert_eq!(integration::derive_themed(&with_role).hot, integration::derive_palette(gray).hot);
+        let with_gemini = format!("{gray}\ngemini=\"#ff00ff\"");
+        assert_eq!(integration::derive_themed(&with_gemini).hot, integration::derive_palette(gray).hot);
         // The original never knew the key, so for it the value is just another color.
         assert_ne!(integration::derive_palette(&with_role).hot, integration::derive_palette(gray).hot);
     }
@@ -1177,7 +1118,7 @@ mod tests {
             let p = integration::derive_themed(b.text);
             let mode = key(b.text, "mode").unwrap_or("dark");
             assert_eq!(p.dark, mode != "light", "{}: mode", b.name);
-            for (role, c) in &signal_roles(&p)[..3] {
+            for (role, c) in &signal_roles(&p)[..4] {
                 assert!(integration::contrast(*c, p.bg) >= 3., "{}: {role} at 3:1", b.name);
             }
             // Catppuccin keeps its own peach beside its yellow at 11.2; everything else reaches 12.
@@ -1190,6 +1131,64 @@ mod tests {
         // The defaults exist and are the dark and light pair the documentation names.
         assert!(!integration::derive_themed(builtin(DEFAULT_DARK).unwrap().text).dark == false);
         assert!(!integration::derive_themed(builtin(DEFAULT_LIGHT).unwrap().text).dark);
+    }
+
+    #[test]
+    fn gemini_is_blue_and_apart_from_grok_and_openai_in_every_builtin() {
+        for b in BUILTINS {
+            let p = integration::derive_themed(b.text);
+            let roles = integration::Roles::from_vars(&integration::parse_vars(b.text));
+            let gemini = p.providers[3];
+            assert_eq!(roles.gemini, Some(gemini), "{}: pins Gemini, as it pins the other providers", b.name);
+            assert!(reads_blue(gemini), "{}: Gemini {} reads as blue", b.name, hex6(gemini));
+            assert!(integration::contrast(gemini, p.bg) >= 3., "{}: Gemini at 3:1", b.name);
+            for (role, other) in [("Grok", p.providers[2]), ("OpenAI", p.providers[1])] {
+                let (normal, colorblind) = (delta_e(gemini, other, Vision::Normal), colorblind_delta(gemini, other));
+                assert!(normal >= NORMAL_FLOOR, "{}: Gemini vs {role}, normal vision {normal:.1}", b.name);
+                assert!(colorblind >= COLORBLIND_COMFORT, "{}: Gemini vs {role}, colorblind {colorblind:.1}", b.name);
+            }
+            // And from every other color that means something, by the floors the rest are held to.
+            for (role, other) in signal_roles(&p).into_iter().filter(|r| r.0 != "Gemini") {
+                assert!(delta_e(gemini, other, Vision::Normal) >= NORMAL_FLOOR, "{}: Gemini vs {role}", b.name);
+                assert!(colorblind_delta(gemini, other) >= COLORBLIND_FLOOR, "{}: Gemini vs {role}, colorblind", b.name);
+            }
+        }
+        // Frontier's is Google's blue: the product video matches it.
+        assert_eq!(integration::derive_themed(builtin("frontier").unwrap().text).providers[3], 0x4285f4);
+    }
+
+    #[test]
+    fn an_unpinned_gemini_takes_a_blue_that_stands_apart() {
+        let light = "mode=\"light\"\nbackground=\"#fafafa\"\nforeground=\"#222222\"\naccent=\"#3366cc\"\nred=\"#cc3333\"\nyellow=\"#b58900\"\ngreen=\"#2e7d32\"\nblue=\"#1565c0\"\nmagenta=\"#8e24aa\"";
+        let solitude = "mode=\"dark\"\naccent=\"#798186\"\nselection=\"#343d41\"\nbackground=\"#101315\"\nforeground=\"#cacccc\"\nred=\"#565d60\"\nyellow=\"#d9dbdc\"\nbright_red=\"#de6145\"\nbright_yellow=\"#c9c2b4\"";
+        // The original's derivation of every built-in palette, and of the themes the original's
+        // own tests judge by, finds a blue that clears every floor.
+        let plain: Vec<String> = BUILTINS.iter().map(|b| without_roles(b.text)).collect();
+        for text in plain.iter().map(String::as_str).chain(["", TOKYO, light, solitude]) {
+            let p = integration::derive_palette(text);
+            let gemini = p.providers[3];
+            assert!(reads_blue(gemini) && integration::contrast(gemini, p.bg) >= 3., "{}: {}", hex6(gemini), text.lines().next().unwrap_or(""));
+            for (role, other) in signal_roles(&p).into_iter().filter(|r| r.0 != "Gemini") {
+                assert!(delta_e(gemini, other, Vision::Normal) >= NORMAL_FLOOR, "{role} vs {}: {}", hex6(gemini), text.lines().next().unwrap_or(""));
+                assert!(colorblind_delta(gemini, other) >= COLORBLIND_FLOOR, "{role} vs {}: {}", hex6(gemini), text.lines().next().unwrap_or(""));
+            }
+        }
+        // Where Grok holds the theme's blue, Gemini moves to the next stock blue; with no theme,
+        // the gray fallback's stock azure Grok sends it deeper too.
+        assert_eq!(Palette::tokyo().providers[3], 0x2867e4);
+        assert_eq!(Palette::fallback().providers[3], 0x2867e4);
+        assert_eq!(integration::derive_palette("").providers[3], Palette::fallback().providers[3]);
+        // A theme blue that stands apart is used before any stock one, darkened in light mode.
+        let own = "background=\"#1a1b26\"\nforeground=\"#c0caf5\"\nred=\"#f7768e\"\nyellow=\"#e0af68\"\nmagenta=\"#e15b42\"\ngreen=\"#8cf2aa\"\nblue=\"#ad8ee6\"\nbright_blue=\"#3d7eff\"";
+        assert_eq!(integration::derive_palette(own).providers[3], 0x3d7eff);
+        let light_own = "mode=\"light\"\nbackground=\"#fafafa\"\nforeground=\"#222222\"\nred=\"#cc3333\"\nyellow=\"#b58900\"\nmagenta=\"#c2185b\"\ngreen=\"#2e7d32\"\nblue=\"#7b3fa0\"\nbright_blue=\"#3d7eff\"";
+        assert_eq!(integration::derive_palette(light_own).providers[3], terminal::mix(0x3d7eff, 0, 0.12));
+        // A theme with other pins but none for Gemini still gets a readable blue.
+        for b in BUILTINS {
+            let text: String = b.text.lines().filter(|l| !l.trim_start().starts_with("gemini")).map(|l| format!("{l}\n")).collect();
+            let p = integration::derive_themed(&text);
+            assert!(reads_blue(p.providers[3]) && integration::contrast(p.providers[3], p.bg) >= 3., "{}: {}", b.name, hex6(p.providers[3]));
+        }
     }
 
     #[test]

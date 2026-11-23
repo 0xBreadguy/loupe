@@ -33,9 +33,11 @@ bright_cyan = "#b4ece3"
 bright_blue = "#bdc1ff"
 bright_magenta = "#e07fcc"
 
-# T3 Agents roles. Claude wears Anthropic's clay, so "needs you" moves to fuchsia.
+# T3 Agents roles. Claude wears Anthropic's clay, so "needs you" moves to fuchsia, and
+# Gemini wears Google's blue.
 hot    = "#bf3ca4"
 warn   = "#f2bb25"
 claude = "#d97757"
 openai = "#91dfd2"
 grok   = "#9ea4ff"
+gemini = "#4285f4"

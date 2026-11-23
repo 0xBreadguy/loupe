@@ -93,6 +93,128 @@ pub(crate) fn chroma(c: u32) -> u32 {
     let values = [(c >> 16) & 255, (c >> 8) & 255, c & 255];
     values.iter().max().unwrap() - values.iter().min().unwrap()
 }
+
+// ── Telling colors apart ────────────────────────────────────────────────────
+// The same arithmetic as `deltaE`, `colorblindDelta` and `readsBlue` in `oracle/src/theme.ts`,
+// operation for operation, so both derive the same Gemini color.
+
+/// sRGB channels, linearized.
+pub(crate) fn linear(c: u32) -> [f64; 3] {
+    let ch = |shift: u32| {
+        let s = ((c >> shift) & 255) as f64 / 255.;
+        if s <= 0.04045 {
+            s / 12.92
+        } else {
+            ((s + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    [ch(16), ch(8), ch(0)]
+}
+
+/// OKLab, from linear sRGB.
+pub(crate) fn oklab(rgb: [f64; 3]) -> [f64; 3] {
+    let [r, g, b] = rgb;
+    let l = (0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b).cbrt();
+    let m = (0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b).cbrt();
+    let s = (0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b).cbrt();
+    [
+        0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+        1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+        0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+    ]
+}
+
+/// Colorblind simulations at full severity: Machado, Oliveira and Fernandes (2009), on linear RGB.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Vision {
+    Normal,
+    Protan,
+    Deutan,
+}
+
+fn simulate(c: u32, vision: Vision) -> [f64; 3] {
+    let m = match vision {
+        Vision::Normal => return linear(c),
+        Vision::Protan => [
+            [0.152286, 1.052583, -0.204868],
+            [0.114503, 0.786281, 0.099216],
+            [-0.003882, -0.048116, 1.051998],
+        ],
+        Vision::Deutan => [
+            [0.367322, 0.860646, -0.227968],
+            [0.280085, 0.672501, 0.047413],
+            [-0.011820, 0.042940, 0.968881],
+        ],
+    };
+    let [r, g, b] = linear(c);
+    let row = |i: usize| (m[i][0] * r + m[i][1] * g + m[i][2] * b).clamp(0., 1.);
+    [row(0), row(1), row(2)]
+}
+
+/// The distance between two colors as seen with `vision`: OKLab ΔE, times 100.
+pub fn delta_e(a: u32, b: u32, vision: Vision) -> f64 {
+    let (a, b) = (oklab(simulate(a, vision)), oklab(simulate(b, vision)));
+    let (dl, da, db) = (a[0] - b[0], a[1] - b[1], a[2] - b[2]);
+    100. * (dl * dl + da * da + db * db).sqrt()
+}
+
+/// The smaller of the protanopia and deuteranopia distances.
+pub fn colorblind_delta(a: u32, b: u32) -> f64 {
+    delta_e(a, b, Vision::Protan).min(delta_e(a, b, Vision::Deutan))
+}
+
+/// OKLCH hue in degrees, and chroma.
+pub(crate) fn oklch(c: u32) -> (f64, f64) {
+    let [_, a, b] = oklab(linear(c));
+    let h = b.atan2(a).to_degrees();
+    (if h < 0. { h + 360. } else { h }, (a * a + b * b).sqrt())
+}
+
+/// Whether a color reads as blue: OKLCH hue from 230° (past cyan) to 275° (short of violet), and
+/// chroma of at least 0.08, so a blue-gray doesn't count.
+pub fn reads_blue(c: u32) -> bool {
+    let (h, ch) = oklch(c);
+    (230. ..=275.).contains(&h) && ch >= 0.08
+}
+
+/// The blues Gemini takes when a theme's own don't work, in order: Google's blue, then deeper,
+/// lighter and deeper still, all near OKLCH hue 260. A theme whose Grok already holds one of them
+/// still has another.
+pub const GEMINI_STOCK: [u32; 5] = [0x4285f4, 0x2867e4, 0x83c4ff, 0x1e4eac, 0x113585];
+
+/// Gemini's color when the theme doesn't pin one. The candidates are the theme's `blue`, its
+/// `bright_blue`, then [`GEMINI_STOCK`], each darkened in a light theme as the derived providers
+/// are. The first that reads as blue, reaches 3:1 on the background and stands at least 12 apart
+/// (OKLab ΔE × 100) for normal vision, and 6 for protanopia and deuteranopia, from every other
+/// color that means something (`signals`: Claude, OpenAI, Grok, needs you and the warning, as
+/// drawn) is Gemini's. When none qualifies, the stock blue that reaches 3:1 and stands farthest
+/// from its nearest signal; when none reaches 3:1, the one with the most contrast.
+fn derive_gemini(theme: [Option<u32>; 2], shade: impl Fn(u32) -> u32, bg: u32, signals: &[u32; 5]) -> u32 {
+    let fits = |c: u32| {
+        reads_blue(c)
+            && contrast(c, bg) >= 3.
+            && signals
+                .iter()
+                .all(|s| delta_e(c, *s, Vision::Normal) >= 12. && colorblind_delta(c, *s) >= 6.)
+    };
+    let stock = GEMINI_STOCK.map(&shade);
+    if let Some(c) = theme.into_iter().flatten().map(&shade).chain(stock).find(|c| fits(*c)) {
+        return c;
+    }
+    let apart = |c: u32| {
+        signals
+            .iter()
+            .map(|s| (delta_e(c, *s, Vision::Normal) / 12.).min(colorblind_delta(c, *s) / 6.))
+            .fold(f64::INFINITY, f64::min)
+    };
+    let best = |score: &dyn Fn(u32) -> f64, among: &mut dyn Iterator<Item = u32>| {
+        among.fold(None, |best: Option<u32>, c| if best.is_none_or(|b| score(c) > score(b)) { Some(c) } else { best })
+    };
+    let readable = &mut stock.into_iter().filter(|c| contrast(*c, bg) >= 3.);
+    best(&apart, readable)
+        .or_else(|| best(&|c| contrast(c, bg), &mut stock.into_iter()))
+        .unwrap()
+}
 fn most_chromatic(colors: impl IntoIterator<Item = Option<u32>>) -> Option<u32> {
     // Stable first-on-tie ordering matches JS's stable sort and Object.values order.
     colors.into_iter().flatten().fold(None, |best, c| {
@@ -140,8 +262,8 @@ fn dimmest(fg: u32, bg: u32, target: f64, surfaces: &[u32]) -> u32 {
 
 /// The dashboard's own keys a theme may add to an Omarchy `colors.toml`, each pinning one role
 /// that is otherwise derived: `hot` (needs you), `warn` (a limit is near, a run stalled) and the
-/// four provider colors. `derive_palette` ignores them, as the original does.
-pub const ROLE_KEYS: [&str; 6] = ["hot", "warn", "claude", "openai", "grok", "other"];
+/// five provider colors. `derive_palette` ignores them, as the original does.
+pub const ROLE_KEYS: [&str; 7] = ["hot", "warn", "claude", "openai", "grok", "gemini", "other"];
 
 /// Role colors a theme pins. `None` leaves the role to the derivation.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -151,6 +273,7 @@ pub struct Roles {
     pub claude: Option<u32>,
     pub openai: Option<u32>,
     pub grok: Option<u32>,
+    pub gemini: Option<u32>,
     pub other: Option<u32>,
 }
 
@@ -163,6 +286,7 @@ impl Roles {
             claude: color("claude"),
             openai: color("openai"),
             grok: color("grok"),
+            gemini: color("gemini"),
             other: color("other"),
         }
     }
@@ -276,6 +400,12 @@ fn derive_from(vars: &[(&str, &str)], roles: Option<&Roles>) -> Palette {
         [0x8b5896, 0x1f9b82, 0x4c94ec]
     };
     let shade = |c| if dark { c } else { terminal::mix(c, 0, 0.12) };
+    let claude = pins.claude.unwrap_or_else(|| shade(base[0]));
+    let openai = pins.openai.unwrap_or_else(|| shade(base[1]));
+    let grok = pins.grok.unwrap_or_else(|| shade(base[2]));
+    let gemini = pins.gemini.unwrap_or_else(|| {
+        derive_gemini([color("blue"), color("bright_blue")], shade, bg, &[claude, openai, grok, hot, warn])
+    });
     let mut p = Palette {
         dark,
         bg,
@@ -294,9 +424,10 @@ fn derive_from(vars: &[(&str, &str)], roles: Option<&Roles>) -> Palette {
         busy: terminal::mix(bg, accent, 0.16),
         floor: 0.,
         providers: [
-            pins.claude.unwrap_or_else(|| shade(base[0])),
-            pins.openai.unwrap_or_else(|| shade(base[1])),
-            pins.grok.unwrap_or_else(|| shade(base[2])),
+            claude,
+            openai,
+            grok,
+            gemini,
             pins.other.unwrap_or_else(|| terminal::mix(fg, bg, 0.52)),
         ],
     };
@@ -888,7 +1019,7 @@ mod tests {
                 bright: 1118481,
                 busy: 14344947,
                 floor: 0.4,
-                providers: [8200342, 2649644, 1202601, 9605778]
+                providers: [8200342, 2649644, 1202601, 995189, 9605778]
             }
         );
         let solitude = derive_palette(
@@ -913,7 +1044,7 @@ mod tests {
                 bright: 15066854,
                 busy: 2172199,
                 floor: 0.48,
-                providers: [9132182, 2071426, 5018860, 6909037]
+                providers: [9132182, 2071426, 5018860, 2648036, 6909037]
             }
         );
         let temp = Temp::new();

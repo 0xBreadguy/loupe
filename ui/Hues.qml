@@ -1,16 +1,18 @@
 import QtQuick
 import Quickshell.Io
 import qs.Commons as Commons
+import "../Status.js" as Status
 
 // The dashboard's provider hues, from the current Omarchy theme's colors.toml:
-// Claude magenta, OpenAI green, Grok blue, anything else muted, as the dashboard
-// picks them. Omarchy's Color singleton doesn't expose those names, so the
-// theme file is read here.
+// Claude magenta, OpenAI green, Grok blue, Gemini a blue apart from those,
+// anything else muted, as the dashboard picks them. Omarchy's Color singleton
+// doesn't expose those names, so the theme file is read here.
 QtObject {
   id: root
   property var named: ({})
 
   function hue(family) {
+    if (family === "gemini") return Status.geminiHue(named)
     var key = family === "claude" ? "magenta" : family === "openai" ? "green" : family === "grok" ? "blue" : ""
     return key && named[key] ? named[key] : Commons.Color.muted
   }

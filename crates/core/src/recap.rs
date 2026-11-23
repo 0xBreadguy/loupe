@@ -1353,7 +1353,7 @@ pub struct Tasks {
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Model {
     pub name: String,
-    /// claude, openai, grok or other: which provider color it wears.
+    /// claude, openai, grok, gemini or other: which provider color it wears.
     pub family: &'static str,
     pub hours: f64,
     pub runs: u32,
@@ -1557,6 +1557,7 @@ fn family_name(family: ProviderFamily) -> &'static str {
         ProviderFamily::Claude => "claude",
         ProviderFamily::OpenAi => "openai",
         ProviderFamily::Grok => "grok",
+        ProviderFamily::Gemini => "gemini",
         ProviderFamily::Other => "other",
     }
 }

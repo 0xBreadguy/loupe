@@ -63,7 +63,7 @@ Home, End and Page Up/Down act like the main keys.
 | `14:02╷` `╷14:12` | on the lane axis: when the selected agent's latest run started and ended |
 | `┄` N earlier | subagents folded away: finished over 3 hours ago, or before the latest 3. `→`, `Enter` or a click lists them |
 | `✓` `✗` `⊘` | done, failed, interrupted |
-| `●` | provider: each theme gives Claude, GPT / Codex, Grok and the rest their own colors |
+| `●` | provider: each theme gives Claude, GPT / Codex, Grok, Gemini and the rest their own colors |
 | `▎` and a band | the thread open in T3 and its subagents |
 | `×` in a lane | a failed tool call |
 

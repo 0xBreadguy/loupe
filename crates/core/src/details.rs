@@ -1549,6 +1549,9 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
             y += 1;
         }
         c.text(x0, y, "● provider", p.bright);
+        // The original's four, as it draws them. Gemini's blue is left off this line: it has no
+        // room check at narrow widths, and the recorded help screens hold it as it is. Pulse's
+        // legend names Gemini whenever a Gemini agent is on screen.
         let mut lx = x0 + 11;
         for (name, model) in [
             ("claude", "claude"),
