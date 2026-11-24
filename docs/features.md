@@ -79,6 +79,8 @@ The short list is in the [README](../README.md). This is the long one.
   line above the footer says how much is left. It identifies temporary space
   backed by memory. The demo uses example data.
 
+![Storage: worktree, build and scratch disk use by project, on demo data](storage.png)
+
 ## Insights
 
 Press `i` on the dashboard to see how this week's agent time was spent.
@@ -91,6 +93,8 @@ The report stays in place while you read, even as Live keeps updating.
 Press `r` for fresh numbers or leave and reopen Insights. In `--demo`,
 Recap and Tools each use a separate made-up dataset. Their totals can differ
 from each other and from the sample agents on Live.
+
+![Insights Recap: last week across every thread, on demo data](insights-recap.png)
 
 ## Recap
 
@@ -205,6 +209,8 @@ Sunday, and what failed. T3 shows tool calls one at a time, inside a
 conversation. This is every thread at once. `loupe --tools --demo` shows a
 made-up week.
 
+![Insights Tools: calls, durations, programs and exit codes, on demo data](insights-tools.png)
+
 - **Calls, call time and failed,** as three tiles. A call is a command, a file
   change, a search or a named tool; an agent handing work to another isn't
   one. Calls overlap, so call time is more than the clock time, and the notes
@@ -276,6 +282,8 @@ work to, all on one time axis, live. It answers "why is this taking so long?"
 while it's happening, and "where did the time go?" once it's done.
 `loupe --trace` prints the latest task the same way, and
 `loupe --trace --demo` shows a made-up one.
+
+![Task Trace: every step, delegate and wait on one time axis, on demo data](trace.png)
 
 - **Where the time went,** split the way Recap splits a week: tools, the model,
   waiting on you, and the stretches when no run was open because a delegate

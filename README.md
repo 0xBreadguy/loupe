@@ -22,7 +22,7 @@ bar.
 > Unofficial. Not made by or affiliated with the T3 Code team or Omarchy. It
 > reads T3's local database, which can change in any T3 update.
 
-![The Loupe dashboard, running on made-up demo data](docs/dashboard.png)
+![The Loupe dashboard in Kanagawa, running on made-up demo data](docs/dashboard.png)
 
 ## Where it runs
 
@@ -106,7 +106,17 @@ removing are all in [docs/install.md](docs/install.md).
 - **A bar widget** on Omarchy: a count in the bar, and a card of who's doing
   what when you click it.
 
-![The bar widget's card on stock Omarchy, with demo data](docs/bar-widget.png)
+![The Omarchy bar widget card, with demo data](docs/bar-widget.png)
+
+### More views
+
+![Insights Recap: a week of agent hours, models, handoffs and output, on demo data](docs/insights-recap.png)
+
+![Insights Tools: calls, durations, programs and exit codes, on demo data](docs/insights-tools.png)
+
+![Task Trace: every step, delegate and wait on one time axis, on demo data](docs/trace.png)
+
+![Storage: worktree, build and scratch disk use by project, on demo data](docs/storage.png)
 
 It's one small Rust program. It only reads T3's data, never writes it, and
 makes no network connections.
