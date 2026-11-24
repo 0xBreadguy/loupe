@@ -7,7 +7,7 @@
 mod support;
 use serde_json::Value;
 
-const BINARY: &str = env!("CARGO_BIN_EXE_t3-agents-core");
+const BINARY: &str = env!("CARGO_BIN_EXE_loupe-core");
 
 fn close(a: f64, b: f64) -> bool {
     (a - b).abs() <= 1e-12 || (a.is_nan() && b.is_nan())

@@ -6,8 +6,8 @@ version = 4
 name = "asks-count"
 version = "0.0.0"
 dependencies = [
+ "loupe-core",
  "serde_json",
- "t3-agents-core",
 ]
 
 [[package]]
@@ -107,6 +107,18 @@ dependencies = [
  "cc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "loupe-core"
+version = "1.5.0"
+dependencies = [
+ "indexmap",
+ "libc",
+ "memchr",
+ "rusqlite",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -237,18 +249,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "t3-agents-core"
-version = "1.4.0"
-dependencies = [
- "indexmap",
- "libc",
- "memchr",
- "rusqlite",
- "serde",
- "serde_json",
 ]
 
 [[package]]

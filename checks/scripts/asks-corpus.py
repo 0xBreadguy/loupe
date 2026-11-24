@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The asks-count corpus: made-up messages, and the count the prototype gives each.
 
-`t3_agents_core::asks::count_asks(text)` answers one number for one message: the
+`loupe_core::asks::count_asks(text)` answers one number for one message: the
 questions and statements put to the person in it. The specification is the prototype
 `asks/questions.py` from the Insights thread (2026-11-18), whose `asks(text)` returns
 `(questions, statements)`; the count is their sum. The corpus in

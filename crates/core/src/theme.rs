@@ -6,18 +6,18 @@
 //! `grok`, `gemini`, `other`; see [`integration::ROLE_KEYS`]). `name` gives the theme a display
 //! name and `base` starts it from another theme, whose keys it then overrides one by one.
 //!
-//! Where a theme can come from, by name: the user's own files in `~/.config/t3-agents/themes/`,
+//! Where a theme can come from, by name: the user's own files in `~/.config/loupe/themes/`,
 //! the built-in themes in the repository's `themes/` folder (compiled in), and any theme Omarchy
 //! has installed (`~/.config/omarchy/themes/NAME/` and `$OMARCHY_PATH/themes/NAME/`). A folder
-//! of Omarchy's may carry a `t3-agents.toml` next to its `colors.toml`, the way Omarchy themes
+//! of Omarchy's may carry a `loupe.toml` next to its `colors.toml`, the way Omarchy themes
 //! carry a file per app; its keys override the palette's. `omarchy` is the live Omarchy theme.
 //!
-//! Which theme is used: `--theme`, then `T3_AGENTS_THEME`, then `theme = "..."` in
-//! `~/.config/t3-agents/config.toml`, then the live Omarchy theme when there is one, and
+//! Which theme is used: `--theme`, then `LOUPE_THEME`, then `theme = "..."` in
+//! `~/.config/loupe/config.toml`, then the live Omarchy theme when there is one, and
 //! otherwise Frontier in dark mode and Paper in light. `dark:NAME,light:NAME` picks one for each:
 //! on Omarchy the live theme's mode says which, elsewhere the terminal's background does.
 //!
-//! `T3_AGENTS_NO_THEMES` turns all of this off and keeps the original's behavior (the live
+//! `LOUPE_NO_THEMES` turns all of this off and keeps the original's behavior (the live
 //! Omarchy theme, or the gray fallback), so the parity checks can compare the two programs.
 pub use crate::integration::{colorblind_delta, delta_e, reads_blue, Vision};
 use crate::{
@@ -38,7 +38,7 @@ pub struct Builtin {
     /// The name `--theme` takes, and the file's name without `.toml`.
     pub name: &'static str,
     pub text: &'static str,
-    /// Where the palette comes from: `T3 Agents`, `Omarchy` or `Dracula`.
+    /// Where the palette comes from: `Loupe`, `Omarchy` or `Dracula`.
     pub from: &'static str,
 }
 
@@ -55,9 +55,9 @@ macro_rules! builtin {
 /// In the order `c` steps through them: the dashboard's own, Dracula, then Omarchy's defaults
 /// in the order Omarchy lists them.
 pub const BUILTINS: &[Builtin] = &[
-    builtin!("frontier", "T3 Agents"),
-    builtin!("paper", "T3 Agents"),
-    builtin!("phosphor", "T3 Agents"),
+    builtin!("frontier", "Loupe"),
+    builtin!("paper", "Loupe"),
+    builtin!("phosphor", "Loupe"),
     builtin!("dracula", "Dracula"),
     builtin!("catppuccin", "Omarchy"),
     builtin!("catppuccin-latte", "Omarchy"),
@@ -97,7 +97,7 @@ pub fn builtin(name: &str) -> Option<&'static Builtin> {
 
 /// Whether the original's behavior was asked for: no themes, no `c`, no theme options.
 pub fn disabled() -> bool {
-    std::env::var_os("T3_AGENTS_NO_THEMES").is_some_and(|v| !v.is_empty())
+    std::env::var_os("LOUPE_NO_THEMES").is_some_and(|v| !v.is_empty())
 }
 
 // ── Where things are ────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ pub fn disabled() -> bool {
 #[derive(Clone, Debug, Default)]
 pub struct Paths {
     pub home: Option<PathBuf>,
-    /// `$XDG_CONFIG_HOME/t3-agents`, or `~/.config/t3-agents`: `config.toml` and `themes/`.
+    /// `$XDG_CONFIG_HOME/loupe`, or `~/.config/loupe`: `config.toml` and `themes/`.
     pub config: Option<PathBuf>,
     /// `~/.local/state/omarchy/current`, where Omarchy assembles the live theme.
     pub omarchy_live: Option<PathBuf>,
@@ -135,7 +135,7 @@ impl Paths {
         let xdg = xdg_config.map(PathBuf::from).filter(|p| p.is_absolute());
         let config = xdg
             .or_else(|| home.as_ref().map(|h| h.join(".config")))
-            .map(|c| c.join("t3-agents"));
+            .map(|c| c.join("loupe"));
         let omarchy_path = omarchy_path
             .filter(|p| !p.is_empty())
             .map(PathBuf::from)
@@ -176,9 +176,9 @@ impl Paths {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Source {
     Builtin(&'static str),
-    /// A theme file of the user's: `~/.config/t3-agents/themes/NAME.toml`, or a path.
+    /// A theme file of the user's: `~/.config/loupe/themes/NAME.toml`, or a path.
     File(PathBuf),
-    /// An installed Omarchy theme's folder: its `colors.toml`, then its `t3-agents.toml`.
+    /// An installed Omarchy theme's folder: its `colors.toml`, then its `loupe.toml`.
     OmarchyDir(PathBuf),
     /// The live Omarchy theme.
     OmarchyLive,
@@ -298,7 +298,7 @@ fn text_at(source: &Source, paths: &Paths, depth: usize) -> io::Result<String> {
         Source::File(path) => read(path)?,
         Source::OmarchyDir(dir) => {
             let mut text = read(&dir.join("colors.toml"))?;
-            if let Ok(extra) = read(&dir.join("t3-agents.toml")) {
+            if let Ok(extra) = read(&dir.join("loupe.toml")) {
                 text.push('\n');
                 text.push_str(&extra);
             }
@@ -309,7 +309,7 @@ fn text_at(source: &Source, paths: &Paths, depth: usize) -> io::Result<String> {
                 .live_dir()
                 .ok_or_else(|| not_found("no home folder".into()))?;
             let mut text = read(&dir.join("colors.toml"))?;
-            match read(&dir.join("t3-agents.toml")) {
+            match read(&dir.join("loupe.toml")) {
                 Ok(extra) => {
                     text.push('\n');
                     text.push_str(&extra);
@@ -494,7 +494,7 @@ pub fn check_choice(value: &str, paths: &Paths) -> Result<Choice, String> {
     let choice = Choice::parse(value)?;
     for reference in choice.references() {
         if find(reference, paths).is_none() {
-            return Err(format!("no theme named {reference:?} (t3-agents --themes lists them)"));
+            return Err(format!("no theme named {reference:?} (loupe --themes lists them)"));
         }
     }
     Ok(choice)
@@ -516,7 +516,7 @@ pub fn setting(flag: Option<&str>, env: Option<&str>, paths: &Paths) -> Result<(
     if let Some(value) = env.filter(|v| !v.trim().is_empty()) {
         match check_choice(value, paths) {
             Ok(choice) => return Ok((Setting { choice, origin: Origin::Env }, skipped)),
-            Err(e) => skipped.push(format!("T3_AGENTS_THEME: {e}")),
+            Err(e) => skipped.push(format!("LOUPE_THEME: {e}")),
         }
     }
     if let Some(value) = config_value(paths) {
@@ -676,10 +676,10 @@ impl Themes {
         let omarchy = paths.omarchy_present();
         Self { paths, setting, omarchy, terminal_dark: None }
     }
-    /// From the command line's `--theme`, `T3_AGENTS_THEME`, the config file and this machine.
+    /// From the command line's `--theme`, `LOUPE_THEME`, the config file and this machine.
     pub fn from_environment(flag: Option<&str>) -> Result<(Self, Vec<String>), String> {
         let paths = Paths::current();
-        let env = std::env::var("T3_AGENTS_THEME").ok();
+        let env = std::env::var("LOUPE_THEME").ok();
         let (setting, skipped) = setting(flag, env.as_deref(), &paths)?;
         Ok((Self::new(setting, paths), skipped))
     }
@@ -720,7 +720,7 @@ impl Themes {
         }
     }
     /// `c` (or `C`, `back`): the next theme in [`entries`], for the current mode when the choice
-    /// is a pair. Saved to the config file unless `--theme` or `T3_AGENTS_THEME` chose the theme.
+    /// is a pair. Saved to the config file unless `--theme` or `LOUPE_THEME` chose the theme.
     /// Returns the notice to show.
     pub fn cycle(&mut self, back: bool) -> String {
         let list = entries(&self.paths);
@@ -746,7 +746,7 @@ impl Themes {
         };
         let saved = match self.setting.origin {
             Origin::Flag => " · not saved: --theme chose it".to_owned(),
-            Origin::Env => " · not saved: T3_AGENTS_THEME chose it".to_owned(),
+            Origin::Env => " · not saved: LOUPE_THEME chose it".to_owned(),
             Origin::Config | Origin::Default => match save(&self.paths, &self.setting.choice) {
                 Ok(_) => {
                     self.setting.origin = Origin::Config;
@@ -845,7 +845,7 @@ const READ_KEYS: [&str; 16] = [
 /// `--theme-check`: what the theme draws with, what the dashboard changed and why, and how far
 /// apart the colors that mean different things are.
 pub fn check(reference: &str, paths: &Paths) -> Result<String, String> {
-    let source = find(reference, paths).ok_or_else(|| format!("no theme named {reference:?} (t3-agents --themes lists them)"))?;
+    let source = find(reference, paths).ok_or_else(|| format!("no theme named {reference:?} (loupe --themes lists them)"))?;
     let text = text(&source, paths).map_err(|e| format!("can't read the theme {reference:?}: {e}"))?;
     let vars = integration::parse_vars(&text);
     let p = integration::derive_themed(&text);
@@ -992,7 +992,7 @@ pub fn list(themes: Option<&Themes>, paths: &Paths) -> String {
     if let Some(t) = themes {
         let how = match t.setting.origin {
             Origin::Flag => "--theme",
-            Origin::Env => "T3_AGENTS_THEME",
+            Origin::Env => "LOUPE_THEME",
             Origin::Config => "the config file",
             Origin::Default => "the default",
         };
@@ -1026,7 +1026,7 @@ mod tests {
         fn new() -> Self {
             static N: AtomicU64 = AtomicU64::new(0);
             let path = std::env::temp_dir().join(format!(
-                "t3-agents-theme-{}-{}",
+                "loupe-theme-{}-{}",
                 std::process::id(),
                 N.fetch_add(1, Ordering::Relaxed)
             ));
@@ -1214,7 +1214,7 @@ mod tests {
         assert_eq!(find("omarchy", &paths), Some(Source::OmarchyLive));
         assert_eq!(find("nothing-by-that-name", &paths), None);
         assert_eq!(find("../escape", &paths), None);
-        let mine = t.write(".config/t3-agents/themes/paper.toml", "background=\"#ffffff\"");
+        let mine = t.write(".config/loupe/themes/paper.toml", "background=\"#ffffff\"");
         assert_eq!(find("paper", &paths), Some(Source::File(mine)));
         t.write(".config/omarchy/themes/osaka-jade/colors.toml", "background=\"#111c18\"");
         assert_eq!(find("osaka-jade", &paths), Some(Source::OmarchyDir(t.0.join(".config/omarchy/themes/osaka-jade"))));
@@ -1233,14 +1233,14 @@ mod tests {
     fn a_theme_starts_from_its_base_and_overrides_it_key_by_key() {
         let t = Temp::new();
         let paths = t.paths();
-        let file = t.write(".config/t3-agents/themes/mine.toml", "base = \"tokyo-night\"\nclaude = \"#ff0000\"\n");
+        let file = t.write(".config/loupe/themes/mine.toml", "base = \"tokyo-night\"\nclaude = \"#ff0000\"\n");
         let p = palette(&Source::File(file), &paths);
         let base = integration::derive_themed(builtin("tokyo-night").unwrap().text);
         assert_eq!(p.providers[0], 0xff0000);
         assert_eq!((p.bg, p.providers[1], p.providers[2]), (base.bg, base.providers[1], base.providers[2]));
-        let looped = t.write(".config/t3-agents/themes/loop.toml", "base = \"loop\"\n");
+        let looped = t.write(".config/loupe/themes/loop.toml", "base = \"loop\"\n");
         assert!(text(&Source::File(looped), &paths).is_err());
-        let missing = t.write(".config/t3-agents/themes/orphan.toml", "base = \"no-such-theme\"\n");
+        let missing = t.write(".config/loupe/themes/orphan.toml", "base = \"no-such-theme\"\n");
         assert!(text(&Source::File(missing.clone()), &paths).is_err());
         assert_eq!(palette(&Source::File(missing), &paths), Palette::fallback());
     }
@@ -1259,8 +1259,8 @@ mod tests {
         let edited = shipped.replace("#1a1b26", "#16161e");
         t.write(".local/state/omarchy/current/theme/colors.toml", &edited);
         assert_eq!(palette(&Source::OmarchyLive, &paths), integration::derive_palette(&edited));
-        // A theme's own t3-agents.toml wins over everything.
-        t.write(".local/state/omarchy/current/theme/t3-agents.toml", "claude = \"#123456\"\n");
+        // A theme's own loupe.toml wins over everything.
+        t.write(".local/state/omarchy/current/theme/loupe.toml", "claude = \"#123456\"\n");
         assert_eq!(palette(&Source::OmarchyLive, &paths).providers[0], 0x123456);
         assert_eq!(label(OMARCHY, &Source::OmarchyLive, &paths), "Omarchy (Tokyo Night)");
     }
@@ -1274,7 +1274,7 @@ mod tests {
         assert_eq!(s.origin, Origin::Default);
         t.write(".local/state/omarchy/current/theme/colors.toml", TOKYO);
         assert_eq!(setting(None, None, &paths).unwrap().0.choice, Choice::One(OMARCHY.into()));
-        t.write(".config/t3-agents/config.toml", "# mine\ntheme = \"dracula\"\n");
+        t.write(".config/loupe/config.toml", "# mine\ntheme = \"dracula\"\n");
         assert_eq!(setting(None, None, &paths).unwrap().0, Setting { choice: Choice::One("dracula".into()), origin: Origin::Config });
         assert_eq!(setting(None, Some("paper"), &paths).unwrap().0.origin, Origin::Env);
         assert_eq!(setting(Some("white"), Some("paper"), &paths).unwrap().0.origin, Origin::Flag);
@@ -1345,7 +1345,7 @@ mod tests {
     fn the_check_says_what_changed_and_spots_a_misspelt_key() {
         let t = Temp::new();
         let paths = t.paths();
-        t.write(".config/t3-agents/themes/odd.toml", "background = \"#1a1b26\"\nforeground = \"#c0caf5\"\naccent = \"#7aa2f7\"\nhot = \"#401020\"\ngrok = \"#7ba3f8\"\nclaud = \"#d97757\"\n");
+        t.write(".config/loupe/themes/odd.toml", "background = \"#1a1b26\"\nforeground = \"#c0caf5\"\naccent = \"#7aa2f7\"\nhot = \"#401020\"\ngrok = \"#7ba3f8\"\nclaud = \"#d97757\"\n");
         let report = check("odd", &paths).unwrap();
         assert!(report.contains("hot #401020 is drawn"), "{report}");
         assert!(report.contains("\"claud\" is not a key the dashboard reads; did you mean \"claude\"?"), "{report}");

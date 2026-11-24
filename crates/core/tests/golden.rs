@@ -71,7 +71,7 @@ fn check_grids(file: &str) {
         let grid = expected["grid"].as_str().unwrap();
         let actions = expected["actions"].as_str().unwrap();
         states += 1;
-        let mut command = Command::new(env!("CARGO_BIN_EXE_t3-agents-core"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_loupe-core"));
         command.env("TZ", "UTC");
         match expected.get("home") {
             Some(Value::String(home)) => {
@@ -88,7 +88,7 @@ fn check_grids(file: &str) {
             .args(["--snapshot", dir.join(format!("{input}.json")).to_str().unwrap()])
             .args(["--grid", grid, "--actions", actions, "--frame-json"])
             .output()
-            .expect("run t3-agents-core");
+            .expect("run loupe-core");
         let name = format!("fixture={input} grid={grid} actions={actions:?}");
         if !output.status.success() {
             failures.push(format!("{name}: {}", String::from_utf8_lossy(&output.stderr).trim()));

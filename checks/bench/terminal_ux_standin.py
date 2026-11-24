@@ -86,12 +86,12 @@ def lines() -> list[str]:
         else:
             out += ["  reading…"]
         return out + ["", " tab report · j k scroll · i Esc back"]
-    out = [" T3 Agents  ● LIVE (stand-in)" + (f" tick {state['tick']}" if state["tick"] else ""), ""]
+    out = [" Loupe  ● LIVE (stand-in)" + (f" tick {state['tick']}" if state["tick"] else ""), ""]
     for i, t in enumerate(cache["titles"]):
         out.append(f"{'▌' if i == state['sel'] else ' '} ◉ {t}")
     out += ["", " AGENTS " + "─" * 90, " ? help  i insights  q quit"]
     if state["help"]:
-        out[2] = out[2][:10] + "╭─ T3 Agents · help ─────────╮"
+        out[2] = out[2][:10] + "╭─ Loupe · help ─────────╮"
         out[len(out) - 2] = " " * 8 + "│ AGENTS help"
     return out
 
@@ -178,7 +178,7 @@ def product_rows() -> list[str]:
     view_period = view.get("wrong_dates", pv["period"]) if view is not None else pv["period"]
     dates = labels()[PERIODS[view_period if (fresh or (shown and reading["body"] == "snapshot")) else pv["period"]]]
     right = lambda text, row: row + " " * max(1, W - len(row) - len(text)) + text
-    rows = [right(f"lane 30m  {hms()}", " T3 Agents  ● LIVE 2s   " + ("RECAP  TOOLS"))]
+    rows = [right(f"lane 30m  {hms()}", " Loupe  ● LIVE 2s   " + ("RECAP  TOOLS"))]
     tabs = "  " + "   ".join(WORDS[p] for p in PERIODS)
     # the body the screen shows: a finished read, or the old snapshot while a refresh runs, else the loading sentence
     scrollable = fresh or (shown and reading["body"] == "snapshot" and view is not None)

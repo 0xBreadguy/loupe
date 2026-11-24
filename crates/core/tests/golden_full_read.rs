@@ -11,7 +11,7 @@ mod support;
 use rusqlite::types::Value as SqlValue;
 use serde_json::Value;
 
-const BINARY: &str = env!("CARGO_BIN_EXE_t3-agents-core");
+const BINARY: &str = env!("CARGO_BIN_EXE_loupe-core");
 
 #[test]
 fn canonical_digest_matches_the_typescript_vectors() {

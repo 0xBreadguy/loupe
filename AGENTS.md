@@ -1,22 +1,22 @@
-# T3 Agents: notes for coding agents
+# Loupe: notes for coding agents
 
-T3 Agents is a terminal dashboard for T3 Code agents, and an Omarchy bar widget that shows their status. The dashboard is one Rust program, `t3-agents-term`, installed as the command `t3-agents`. It reads T3 Code's local SQLite database read-only and never writes to it.
+Loupe is a terminal dashboard for T3 Code agents, and an Omarchy bar widget that shows their status. The dashboard is one Rust program, `loupe-term`, installed as the command `loupe`. It reads T3 Code's local SQLite database read-only and never writes to it.
 
 This file covers two jobs: installing it for someone, and working on the code. [CONTRIBUTING.md](CONTRIBUTING.md) has the detail for the second, [README.md](README.md) describes the product, and [docs/](docs/) has the full install guide, the keys and options, and what the program reads.
 
 ## Installing it for someone
 
-It runs on Linux. T3 Code's desktop app must be on the same machine, because the dashboard reads its database. For macOS there is a preview build with no installer: follow [docs/install.md](docs/install.md#macos-preview) (download, unpack, run `./t3-agents-term --demo`, and copy the program onto `PATH` only if the person wants to keep it), and say that it is a preview. Windows is not supported yet.
+It runs on Linux. T3 Code's desktop app must be on the same machine, because the dashboard reads its database. For macOS there is a preview build with no installer: follow [docs/install.md](docs/install.md#macos-preview) (download, unpack, run `./loupe-term --demo`, and copy the program onto `PATH` only if the person wants to keep it), and say that it is a preview. Windows is not supported yet.
 
-**With a release archive.** No toolchain is needed. The [releases page](https://github.com/0xBreadguy/t3-agents/releases/latest) has one archive for x86-64 and one for ARM, and a `SHA256SUMS` file listing both. Check the page for the newest version and use its number for `v`.
+**With a release archive.** No toolchain is needed. The [releases page](https://github.com/0xBreadguy/loupe/releases/latest) has one archive for x86-64 and one for ARM, and a `SHA256SUMS` file listing all release archives. Check the page for the newest version and use its number for `v`.
 
 ```sh
-v=1.4.0 t=$(uname -m)-unknown-linux-gnu
-curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/t3-agents-$v-$t.tar.gz"
-curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/SHA256SUMS"
+v=1.5.0 t=$(uname -m)-unknown-linux-gnu
+curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/loupe-$v-$t.tar.gz"
+curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/SHA256SUMS"
 sha256sum -c --ignore-missing SHA256SUMS
-tar -xzf "t3-agents-$v-$t.tar.gz"
-cd "t3-agents-$v-$t" && ./install.sh --binary ./t3-agents-term
+tar -xzf "loupe-$v-$t.tar.gz"
+cd "loupe-$v-$t" && ./install.sh --binary ./loupe-term
 ```
 
 Stop if the checksum does not match. Compare the highest glibc symbol version in the archive’s `BUILD-INFO` with the installed version shown by `ldd --version`. If the installed glibc is older, build from source.
@@ -24,34 +24,34 @@ Stop if the checksum does not match. Compare the highest glibc symbol version in
 **From source.** This needs a Rust toolchain with `cargo`. Check for one before starting, and ask before installing one.
 
 ```sh
-git clone https://github.com/0xBreadguy/t3-agents
-./t3-agents/install.sh
+git clone https://github.com/0xBreadguy/loupe
+./loupe/install.sh
 ```
 
 **On Omarchy, with the bar widget.**
 
 ```sh
-omarchy plugin add https://github.com/0xBreadguy/t3-agents --enable
-~/.config/omarchy/plugins/0xbreadguy.t3-agents/install.sh
+omarchy plugin add https://github.com/0xBreadguy/loupe --enable
+~/.config/omarchy/plugins/0xbreadguy.loupe/install.sh
 ```
 
-What the installer writes, all for the current user: the program in `~/.local/share/t3-agents/`, the command `~/.local/bin/t3-agents`, and a launcher entry. It adds no autostart, keybinding or window rule, and needs no root. `--name NAME` installs under another name beside an existing install. `--uninstall` removes what an install wrote and nothing else.
+What the installer writes, all for the current user: the program in `~/.local/share/loupe/`, the command `~/.local/bin/loupe`, and a launcher entry. It adds no autostart, keybinding or window rule, and needs no root. `--name NAME` installs under another name beside an existing install. `--uninstall` removes what an install wrote and nothing else.
 
 Check the result without touching anyone's data:
 
 ```sh
-t3-agents --status --demo        # one line of JSON
-t3-agents --once --demo          # the list, printed once
+loupe --status --demo        # one line of JSON
+loupe --once --demo          # the list, printed once
 ```
 
-Then `t3-agents` opens the dashboard on the real data, and `t3-agents --window` opens it in its own terminal window.
+Then `loupe` opens the dashboard on the real data, and `loupe --window` opens it in its own terminal window.
 
 Things not to do while installing:
 
 - Do not run the installer with `sudo`. It installs for one user.
 - Do not open, copy or edit T3 Code's database. If the dashboard says it cannot read it, report what it says.
 - Do not add autostart entries, keybindings or shell configuration the person did not ask for. If `~/.local/bin` is not on `PATH`, the installer says so; tell the person rather than editing their shell files unasked.
-- If an older Node.js install of T3 Agents is present, run the installer the same way. It upgrades that install in place.
+- If an older Node.js install of Loupe is present, run the installer the same way. It upgrades that install in place.
 
 ## Working on the code
 
@@ -68,8 +68,8 @@ install.sh      the installer
 
 ```sh
 cargo build --release --locked
-cargo run --release -p t3-agents-term -- --demo
-cargo test --release --locked -p t3-agents-core
+cargo run --release -p loupe-term -- --demo
+cargo test --release --locked -p loupe-core
 checks/scripts/ci.sh             # everything CI runs; about 25 minutes; needs Node.js 26.4+, tmux
 ```
 

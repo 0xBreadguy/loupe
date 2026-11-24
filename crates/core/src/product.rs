@@ -19,7 +19,7 @@ use std::{
 };
 
 /// Byte-for-byte `USAGE` from `oracle/src/main.ts`.
-pub const USAGE: &str = "Usage: t3-agents [--window] [--once | --status [--watch]] [--db PATH | --demo] [--interval SECONDS] [--calm]
+pub const USAGE: &str = "Usage: loupe [--window] [--once | --status [--watch]] [--db PATH | --demo] [--interval SECONDS] [--calm]
 
   --window          open in a dedicated terminal window, or focus it (launcher only)
   --once            print a plain-text snapshot and exit
@@ -34,7 +34,7 @@ pub const USAGE: &str = "Usage: t3-agents [--window] [--once | --status [--watch
 ";
 
 /// What `--help` adds to [`USAGE`] where the product's themes are on (not with
-/// `T3_AGENTS_NO_THEMES`, the original's behavior, which the parity checks compare).
+/// `LOUPE_NO_THEMES`, the original's behavior, which the parity checks compare).
 pub const THEME_USAGE: &str = "  --theme NAME      color theme: a built-in, a theme file, omarchy (follow
                     Omarchy's live theme), or dark:NAME,light:NAME to follow
                     light and dark mode; c and C step through them while it runs
@@ -46,8 +46,8 @@ pub const THEME_USAGE: &str = "  --theme NAME      color theme: a built-in, a th
 /// What `--help` adds for Recap, beside the theme options: the original has neither.
 pub const RECAP_USAGE: &str = "  --recap           the last full week of agent work on one card: hours and
                     where they went, tasks, output and models, read from T3's
-                    records. For Recap and Tools, T3_AGENTS_CACHE=1 lets them
-                    save finished-run facts locally. T3_AGENTS_NO_CACHE=1
+                    records. For Recap and Tools, LOUPE_CACHE=1 lets them
+                    save finished-run facts locally. LOUPE_NO_CACHE=1
                     always turns it off. Nothing is sent
   --this-week       with --recap, the current week so far
   --month, --this-month
@@ -142,7 +142,7 @@ pub struct Environment {
     /// Omarchy's `animationsOff()`. `None` detects it only when an interactive command is
     /// built, so `--once` and `--status` never look at the user's state directory.
     pub animations_off: Option<bool>,
-    /// The product's themes, and their options, are on: not under `T3_AGENTS_NO_THEMES`.
+    /// The product's themes, and their options, are on: not under `LOUPE_NO_THEMES`.
     pub themes: bool,
 }
 
@@ -591,7 +591,7 @@ pub fn headless() -> Result<bool, Box<dyn std::error::Error>> {
         }
         Command::Themes { theme } => {
             let paths = theme::Paths::current();
-            let env_theme = std::env::var("T3_AGENTS_THEME").ok();
+            let env_theme = std::env::var("LOUPE_THEME").ok();
             let (setting, skipped) = match theme::setting(theme.as_deref(), env_theme.as_deref(), &paths) {
                 Ok(found) => found,
                 Err(e) => {
@@ -780,7 +780,7 @@ pub fn load_recap(
 fn tools_command(database: &Database, now: f64, which: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> {
     let local: recap::Local = &crate::platform::local_time;
     let month = which.span() == recap::Span::Month;
-    let (span, demo_tip) = if month { ("month", "Just looking? t3-agents --tools --month --demo shows a made-up month.") } else { ("week", "Just looking? t3-agents --tools --demo shows a made-up week.") };
+    let (span, demo_tip) = if month { ("month", "Just looking? loupe --tools --month --demo shows a made-up month.") } else { ("week", "Just looking? loupe --tools --demo shows a made-up week.") };
     let read = load_tools(database, now, which, local).map(|read| read.value);
     let source = if matches!(database, Database::Demo) { recap_view::Source::Demo } else { recap_view::Source::Records };
     let terminal = io::stdout().is_terminal();
@@ -831,7 +831,7 @@ fn tools_command(database: &Database, now: f64, which: recap::Which, json: bool,
             }
             let period = recap::Period::new(now, which, local);
             let dates = |stamp: f64| recap::local_date(local, stamp);
-            let first = advice.lines().next().unwrap_or_default().trim_start_matches("t3-agents: ");
+            let first = advice.lines().next().unwrap_or_default().trim_start_matches("loupe: ");
             let mut message: String = first.chars().take(1).flat_map(char::to_uppercase).chain(first.chars().skip(1)).collect();
             if !message.ends_with('.') {
                 message.push('.');
@@ -859,7 +859,7 @@ fn tools_command(database: &Database, now: f64, which: recap::Which, json: bool,
 fn recap_command(database: &Database, now: f64, which: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<&str>) -> Result<i32, Box<dyn std::error::Error>> {
     let local: recap::Local = &crate::platform::local_time;
     let month = which.span() == recap::Span::Month;
-    let (span, demo_tip) = if month { ("month", "Just looking? t3-agents --recap --month --demo shows a made-up month.") } else { ("week", "Just looking? t3-agents --recap --demo shows a made-up week.") };
+    let (span, demo_tip) = if month { ("month", "Just looking? loupe --recap --month --demo shows a made-up month.") } else { ("week", "Just looking? loupe --recap --demo shows a made-up week.") };
     let read = load_recap(database, now, which, local).map(|read| read.value);
     let source = if matches!(database, Database::Demo) { recap_view::Source::Demo } else { recap_view::Source::Records };
     let terminal = io::stdout().is_terminal();
@@ -915,7 +915,7 @@ fn recap_command(database: &Database, now: f64, which: recap::Which, json: bool,
             let period = recap::Period::new(now, which, local);
             let dates = |stamp: f64| recap::local_date(local, stamp);
             // The advice's own first line, as a sentence: "No T3 database at PATH."
-            let first = advice.lines().next().unwrap_or_default().trim_start_matches("t3-agents: ");
+            let first = advice.lines().next().unwrap_or_default().trim_start_matches("loupe: ");
             let mut message: String = first.chars().take(1).flat_map(char::to_uppercase).chain(first.chars().skip(1)).collect();
             if !message.ends_with('.') {
                 message.push('.');
@@ -958,7 +958,7 @@ fn too_wide(drawn: Option<usize>, columns: Option<usize>, size: Option<recap_vie
     // Short lines: the terminal this is written for is a narrow one, often a phone.
     let list = card == recap_view::LIST_COLUMNS;
     let name = if list { "list" } else { "card" };
-    let mut note = format!("t3-agents: the {name} is {card} columns wide,\nthis terminal is {columns}, so its lines wrap.\n");
+    let mut note = format!("loupe: the {name} is {card} columns wide,\nthis terminal is {columns}, so its lines wrap.\n");
     if !list {
         match size {
             Some(recap_view::Size::Wide) => note.push_str("Leave out --wide for what fits here.\n"),
@@ -977,7 +977,7 @@ pub fn advice(err: &SourceError, origin: Origin) -> String {
             format!("no T3 database at {}", err.path.display()),
             "Is T3 Code installed, and has it been opened at least once?".into(),
             where_to_look(origin, &env_home),
-            "To try the dashboard without T3 data: t3-agents --demo".into(),
+            "To try the dashboard without T3 data: loupe --demo".into(),
         ],
         "unreadable" => vec![
             format!(
@@ -987,7 +987,7 @@ pub fn advice(err: &SourceError, origin: Origin) -> String {
             ),
             "Check that it is T3 Code's statev2.sqlite and that your user can read it.".into(),
             where_to_look(origin, &env_home),
-            "To try the dashboard without T3 data: t3-agents --demo".into(),
+            "To try the dashboard without T3 data: loupe --demo".into(),
         ],
         _ => vec![
             format!(
@@ -995,12 +995,12 @@ pub fn advice(err: &SourceError, origin: Origin) -> String {
                 err.path.display(),
                 err.detail
             ),
-            "T3 Code may have changed its database in an update: check for a newer T3 Agents."
+            "T3 Code may have changed its database in an update: check for a newer Loupe."
                 .into(),
-            "To try the dashboard without T3 data: t3-agents --demo".into(),
+            "To try the dashboard without T3 data: loupe --demo".into(),
         ],
     };
-    let mut out = format!("t3-agents: {}\n", lines[0]);
+    let mut out = format!("loupe: {}\n", lines[0]);
     for line in &lines[1..] {
         out.push_str("  ");
         out.push_str(line);
@@ -1027,7 +1027,7 @@ pub fn once(snap: &Snapshot, now: f64, demo: bool) -> String {
     let live = snap.agents.iter().filter(|a| model::running(a)).count();
     let waiting = snap.agents.iter().filter(|a| model::needs_you(a)).count();
     let mut out = format!(
-        "T3 AGENTS · {} · {} · {live} running · {waiting} waiting · {} agents\n",
+        "LOUPE · {} · {} · {live} running · {waiting} waiting · {} agents\n",
         if demo { "demo data" } else { "read-only" },
         clock::clock(now),
         snap.agents.len()
@@ -1480,11 +1480,11 @@ mod tests {
         use recap_view::Size;
         // A phone of 60 columns asked for the 80-column card: it is drawn, and this follows it.
         let note = too_wide(Some(80), Some(60), Some(Size::Compact)).unwrap();
-        assert_eq!(note, "t3-agents: the card is 80 columns wide,\nthis terminal is 60, so its lines wrap.\nLeave out --compact for what fits here.\n");
+        assert_eq!(note, "loupe: the card is 80 columns wide,\nthis terminal is 60, so its lines wrap.\nLeave out --compact for what fits here.\n");
         // Each line fits a phone of 40 columns, for the wide card too.
         assert!(note.lines().all(|line| line.len() <= 40));
         let note = too_wide(Some(120), Some(100), Some(Size::Wide)).unwrap();
-        assert_eq!(note, "t3-agents: the card is 120 columns wide,\nthis terminal is 100, so its lines wrap.\nLeave out --wide for what fits here.\n");
+        assert_eq!(note, "loupe: the card is 120 columns wide,\nthis terminal is 100, so its lines wrap.\nLeave out --wide for what fits here.\n");
         assert!(note.lines().all(|line| line.len() <= 40));
         // A card that fits, a terminal that does not give its width, and a list that was not drawn: nothing.
         assert_eq!(too_wide(Some(80), Some(80), Some(Size::Compact)), None);
@@ -1492,7 +1492,7 @@ mod tests {
         assert_eq!(too_wide(Some(80), None, Some(Size::Compact)), None);
         assert_eq!(too_wide(None, Some(40), None), None);
         // The list is 39 columns. Under that, the note names the list and stops, asked for or not.
-        let list_note = "t3-agents: the list is 39 columns wide,\nthis terminal is 30, so its lines wrap.\n";
+        let list_note = "loupe: the list is 39 columns wide,\nthis terminal is 30, so its lines wrap.\n";
         assert_eq!(too_wide(Some(39), Some(30), Some(Size::Narrow)).as_deref(), Some(list_note));
         assert_eq!(too_wide(Some(39), Some(30), None).as_deref(), Some(list_note));
         assert_eq!(too_wide(Some(39), Some(39), Some(Size::Narrow)), None);
@@ -1655,7 +1655,7 @@ mod tests {
         };
         assert_eq!(
             advice(&error, Origin::Db),
-            "t3-agents: no T3 database at /tmp/synthetic/statev2.sqlite\n  Is T3 Code installed, and has it been opened at least once?\n  Check the path given to --db.\n  To try the dashboard without T3 data: t3-agents --demo\n"
+            "loupe: no T3 database at /tmp/synthetic/statev2.sqlite\n  Is T3 Code installed, and has it been opened at least once?\n  Check the path given to --db.\n  To try the dashboard without T3 data: loupe --demo\n"
         );
         let schema = SourceError {
             kind: "schema",
@@ -1664,7 +1664,7 @@ mod tests {
         };
         assert_eq!(
             advice(&schema, Origin::Default),
-            "t3-agents: unsupported T3 schema in /tmp/synthetic/statev2.sqlite; missing table\n  T3 Code may have changed its database in an update: check for a newer T3 Agents.\n  To try the dashboard without T3 data: t3-agents --demo\n"
+            "loupe: unsupported T3 schema in /tmp/synthetic/statev2.sqlite; missing table\n  T3 Code may have changed its database in an update: check for a newer Loupe.\n  To try the dashboard without T3 data: loupe --demo\n"
         );
     }
 
@@ -1705,7 +1705,7 @@ mod tests {
         assert_eq!(
             lines.next().unwrap(),
             format!(
-                "T3 AGENTS · read-only · {} · 1 running · 0 waiting · 1 agents",
+                "LOUPE · read-only · {} · 1 running · 0 waiting · 1 agents",
                 clock::clock(now)
             )
         );

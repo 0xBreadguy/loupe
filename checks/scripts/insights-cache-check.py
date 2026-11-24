@@ -173,7 +173,7 @@ class Scenario:
         self.t3.mkdir(parents=True)
         home.mkdir()
         self.cache_home = root / "cache"
-        self.cache = self.cache_home / "t3-agents" / "insights.sqlite3"
+        self.cache = self.cache_home / "loupe" / "insights.sqlite3"
         self.env = {
             "HOME": str(home),
             "XDG_CONFIG_HOME": str(home / "config"),
@@ -190,14 +190,14 @@ class Scenario:
     def command(self, path, args, off=False, color=False, cache_stats=False, opt_in=True):
         env = dict(self.env)
         if opt_in:
-            env["T3_AGENTS_CACHE"] = "1"
+            env["LOUPE_CACHE"] = "1"
         if off:
-            env["T3_AGENTS_NO_CACHE"] = "1"
+            env["LOUPE_NO_CACHE"] = "1"
         if color:
             del env["NO_COLOR"]
             env["FORCE_COLOR"] = "1"
         if cache_stats:
-            env["T3_AGENTS_CACHE_STATS"] = "1"
+            env["LOUPE_CACHE_STATS"] = "1"
         database = ["--db", str(path)] if path else ["--demo"]
         return [str(self.program), "--recap", *database, "--now-ms", NOW, *args], env
 
@@ -281,7 +281,7 @@ def expect_stats(s, path, live, label, *, hits=None, writes=None, off=False):
     status, stdout, stderr = live
     finished = RUN_COUNTS[WEEK]
     message = "not used" if off else f"{hits} of {finished} finished runs from the cache, {writes} written"
-    diagnostic = f"t3-agents: cache: {message}\n".encode()
+    diagnostic = f"loupe: cache: {message}\n".encode()
     equal(
         s.recap(path, off=off, cache_stats=True),
         (status, stdout, stderr + diagnostic),
@@ -691,7 +691,7 @@ def main(program, scratch):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("program", nargs="?", type=Path, default=ROOT / "target/release/t3-agents-term")
+    parser.add_argument("program", nargs="?", type=Path, default=ROOT / "target/release/loupe-term")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="t3-insights-cache-") as scratch:
         main(args.program.resolve(), Path(scratch))

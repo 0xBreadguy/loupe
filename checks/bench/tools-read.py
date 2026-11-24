@@ -18,8 +18,8 @@ for that label; the executable checked before and after is PROGRAM.
 
     python3 checks/bench/tools-read.py --db checks/generated/tools-lab/week.sqlite \
       --now-ms 1794816000000 --trials 5 \
-      recap='target/release/t3-agents-term --recap --json --db {db} --now-ms {now}' \
-      recap_again='target/release/t3-agents-term --db {db} --now-ms {now} --json --recap'
+      recap='target/release/loupe-term --recap --json --db {db} --now-ms {now}' \
+      recap_again='target/release/loupe-term --db {db} --now-ms {now} --json --recap'
 
 Add --payload-cost to alternate the two Python sqlite3 queries described in
 the lab's notes: the Tools read with and without length($.input), over every

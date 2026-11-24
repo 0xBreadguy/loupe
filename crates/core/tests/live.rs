@@ -1,7 +1,7 @@
 mod support;
 use std::sync::Arc;
 use support::Db;
-use t3_agents_core::{
+use loupe_core::{
     live::{FallbackReason, Reader, Served},
     model::{Changed, Snapshot},
     source,
@@ -23,7 +23,7 @@ fn poll(
     db: &Db,
     now: f64,
     previous: &mut Option<Snapshot>,
-) -> t3_agents_core::live::Update {
+) -> loupe_core::live::Update {
     let u = reader.poll(now).unwrap();
     assert_eq!(
         u.counters.fallback_reason.is_some(),
@@ -235,7 +235,7 @@ fn worker_delivers_latest_errors_and_stops() {
     let db = Db::new();
     let (tx, rx) = std::sync::mpsc::channel();
     let handle =
-        t3_agents_core::live::spawn(&db.path, std::time::Duration::from_secs(60), move || {
+        loupe_core::live::spawn(&db.path, std::time::Duration::from_secs(60), move || {
             let _ = tx.send(());
         });
     rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
@@ -244,7 +244,7 @@ fn worker_delivers_latest_errors_and_stops() {
     drop(handle);
     assert!(rx.recv_timeout(std::time::Duration::from_secs(1)).is_err());
     let (tx, rx) = std::sync::mpsc::channel();
-    let h = t3_agents_core::live::spawn(
+    let h = loupe_core::live::spawn(
         db.path.with_extension("missing"),
         std::time::Duration::from_secs(60),
         move || {
@@ -967,17 +967,17 @@ fn poll_profile_is_opt_in_and_excludes_the_canary() {
     let mut db = Db::new();
     db.write("profile-thread", 1);
     for enabled in [false, true] {
-        let mut command = Command::new(env!("CARGO_BIN_EXE_t3-agents-core"));
+        let mut command = Command::new(env!("CARGO_BIN_EXE_loupe-core"));
         command
             .args(["--bench-reader-poll", "--db"])
             .arg(&db.path)
             .args(["--now-ms", "1794484800000", "--self-check"])
-            .env_remove("T3_AGENTS_READER_POLL_PROFILE")
+            .env_remove("LOUPE_READER_POLL_PROFILE")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
         if enabled {
-            command.env("T3_AGENTS_READER_POLL_PROFILE", "1");
+            command.env("LOUPE_READER_POLL_PROFILE", "1");
         }
         let mut child = command.spawn().unwrap();
         child.stdin.take().unwrap().write_all(b"\n\n").unwrap();
@@ -2141,20 +2141,20 @@ fn subagent_without_payload_owner_is_served_from_the_cache() {
 // Every poll below goes through `poll`, which holds the snapshot to the
 // oracle, the Arcs to content equality, and `Changed` to the exact difference.
 
-fn agent<'a>(snapshot: &'a Snapshot, id: &str) -> &'a t3_agents_core::model::Agent {
+fn agent<'a>(snapshot: &'a Snapshot, id: &str) -> &'a loupe_core::model::Agent {
     snapshot
         .agents
         .iter()
         .find(|agent| agent.id == id)
         .unwrap_or_else(|| panic!("no agent {id}"))
 }
-fn changed_ids(update: &t3_agents_core::live::Update) -> Vec<String> {
+fn changed_ids(update: &loupe_core::live::Update) -> Vec<String> {
     match &update.changed {
         Changed::Agents(ids) => ids.clone(),
         Changed::Everything => panic!("expected precise changes"),
     }
 }
-fn incremental(update: &t3_agents_core::live::Update, what: &str) {
+fn incremental(update: &loupe_core::live::Update, what: &str) {
     assert_eq!(update.served, Served::Incremental, "{what}: {:?}", update.counters.fallback_reason);
     assert_eq!(update.counters.fallback_reason, None, "{what}");
 }
@@ -2611,7 +2611,7 @@ fn log_write(db: &mut Db, real: bool, id: &str, step: u64) {
 fn title_of(snapshot: &Snapshot, id: &str) -> String {
     agent(snapshot, id).title.clone()
 }
-fn quiet(update: &t3_agents_core::live::Update, what: &str) {
+fn quiet(update: &loupe_core::live::Update, what: &str) {
     assert_eq!(update.served, Served::Incremental, "{what}: {:?}", update.counters.fallback_reason);
     assert_eq!(update.counters.fallback_reason, None, "{what}");
     assert!(!update.counters.feed_complete, "{what}: no event was appended");
@@ -3022,7 +3022,7 @@ fn the_status_only_reader_follows_the_ledger_and_commits_without_an_event() {
     let reduced = |db: &Db, now: f64| {
         let mut full = source::snapshot(&db.path, now).unwrap();
         for agent in &mut full.agents {
-            t3_agents_core::live::status_view(Arc::make_mut(agent));
+            loupe_core::live::status_view(Arc::make_mut(agent));
         }
         serde_json::to_value(&full).unwrap()
     };
@@ -3055,7 +3055,7 @@ fn the_status_only_reader_follows_the_ledger_and_commits_without_an_event() {
 
 #[test]
 fn exact_runtime_asks_follow_the_request_node_and_activity_survives_message_mode() {
-    use t3_agents_core::{
+    use loupe_core::{
         model::{State, blocks_activity, needs_you, running, wants_attention},
         ui,
     };
@@ -3118,7 +3118,7 @@ fn exact_runtime_asks_follow_the_request_node_and_activity_survives_message_mode
     let draw = |s: &State| {
         let (grid, frame) = ui::draw_grid(s, 120, 40, &s.palette);
         let row = frame.hits.iter().find(|hit| hit.id == "child").unwrap().rect.y as usize;
-        let text = |cells: &[t3_agents_core::terminal::Cell]| -> String {
+        let text = |cells: &[loupe_core::terminal::Cell]| -> String {
             cells.iter().map(|c| c.ch).collect()
         };
         (text(&grid.cells[row * 120..][..120]), text(&grid.cells[frame.detail.y as usize * 120..]))
@@ -3157,7 +3157,7 @@ fn exact_runtime_asks_follow_the_request_node_and_activity_survives_message_mode
 
 #[test]
 fn exact_cards_use_their_own_run_and_clear_links_only_on_later_human_messages() {
-    use t3_agents_core::model::{AskCards, State, blocks_activity, needs_you, running, wants_attention};
+    use loupe_core::model::{AskCards, State, blocks_activity, needs_you, running, wants_attention};
 
     let mut db = Db::with_schema(include_str!("../../../checks/fixtures/t3-schema-main-096.sql"));
     db.write("a", 1);

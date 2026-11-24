@@ -10,7 +10,7 @@ import {enabled as recording, recordAsset, recordCase} from './record.ts'
 const root=resolve('checks'),generated=resolve(root,'generated/behavior')
 mkdirSync(generated,{recursive:true})
 const snapshot=JSON.parse(readFileSync(resolve(root,'fixtures/demo.json'),'utf8'))
-const binary=resolve(process.argv[2]??process.env.T3_NATIVE_BINARY??'target/release/t3-agents-core')
+const binary=resolve(process.argv[2]??process.env.T3_NATIVE_BINARY??'target/release/loupe-core')
 const epoch=snapshot.at
 const copy=<T>(x:T):T=>JSON.parse(JSON.stringify(x))
 const update=(ms:number,edit:(snapshot:any)=>void)=>{const next=copy(snapshot);next.at=epoch+ms;edit(next);return {ms,snapshot:next}}

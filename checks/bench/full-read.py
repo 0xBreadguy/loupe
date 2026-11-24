@@ -10,7 +10,7 @@ The fields the reader selects (startedAt, toolName, exitCode, title, label, inpu
 fileName, steps, schema, status) keep their exact values, so the dense database
 must give the same snapshot as the lab tier; `build` checks that.
 
-`run` times `t3-agents-core --bench-source N` for several binaries on several
+`run` times `loupe-core --bench-source N` for several binaries on several
 databases, alternating the binary order on every trial, and records per-query
 milliseconds (prepare + step, from the binary's own phase timing), the whole
 read, the snapshot checksum (which must be identical across binaries) and the
@@ -257,7 +257,7 @@ def main():
     b = sub.add_parser("build")
     b.add_argument("--lab", default=str(LAB))
     b.add_argument("--out", default=str(DENSE))
-    b.add_argument("--binary", default=str(ROOT / "target/release/t3-agents-core"))
+    b.add_argument("--binary", default=str(ROOT / "target/release/loupe-core"))
     r = sub.add_parser("run")
     r.add_argument("--binary", action="append", required=True, help="NAME=PATH, repeatable")
     r.add_argument("--db", action="append", help="NAME=PATH, repeatable (default: skewed lab tier and dense copy)")

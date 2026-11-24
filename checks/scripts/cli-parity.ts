@@ -16,7 +16,7 @@ import { PREFIX } from "../../oracle/src/source.ts"
 import { enabled as recording, recordAsset, recordCase, recordTree } from "./record.ts"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
-const binary = resolve(process.argv[2] ?? process.env.T3_NATIVE_BINARY ?? join(ROOT, "..", "target/release/t3-agents-core"))
+const binary = resolve(process.argv[2] ?? process.env.T3_NATIVE_BINARY ?? join(ROOT, "..", "target/release/loupe-core"))
 const main = join(ROOT, "..", "oracle/src/main.ts")
 const fixedClock = pathToFileURL(join(ROOT, "scripts/fixed-clock.mjs")).href
 const NODE = ["--experimental-ffi", "--disable-warning=ExperimentalWarning", "--import", fixedClock]
@@ -46,9 +46,9 @@ interface Run {
 }
 
 function environment(options: Options): Env {
-  // T3_AGENTS_NO_THEMES: the original's command line. The product adds --theme, --themes and
+  // LOUPE_NO_THEMES: the original's command line. The product adds --theme, --themes and
   // --theme-check, and their lines in --help (THEME_USAGE in crates/core/src/product.rs), on purpose.
-  const env: Env = { ...process.env, HOME: baseHome, TZ: "UTC", T3_FIXED_NOW: String(options.now ?? EPOCH), T3_AGENTS_NO_THEMES: "1" }
+  const env: Env = { ...process.env, HOME: baseHome, TZ: "UTC", T3_FIXED_NOW: String(options.now ?? EPOCH), LOUPE_NO_THEMES: "1" }
   delete env.T3CODE_HOME
   delete env.XDG_STATE_HOME
   for (const [key, value] of Object.entries(options.env ?? {})) {
@@ -409,7 +409,7 @@ try {
   if (!recording) {
     const unused = join(dir, "unused-t3-home")
     mkdirSync(unused, { recursive: true })
-    const absent = join(userInfo().homedir, ".cache", `t3-agents-gate-absent-${process.pid}`, "statev2.sqlite")
+    const absent = join(userInfo().homedir, ".cache", `loupe-gate-absent-${process.pid}`, "statev2.sqlite")
     for (const mode of ["--status", "--once"]) {
       compare(`${mode.slice(2)}:missing:no-HOME`, [mode, "--db", absent], {
         now: EPOCH, env: { HOME: undefined, T3CODE_HOME: unused }, nativeArgs: ["--now-ms", String(EPOCH)],

@@ -1,8 +1,8 @@
 //! Presenter proof under a pseudo-terminal. No emulator and no window.
 //!
-//! The child is `t3-agents-term`. Its bytes go through the same virtual screen
+//! The child is `loupe-term`. Its bytes go through the same virtual screen
 //! the unit tests use, and that screen is compared cell for cell with
-//! `t3-agents-core --frame-json`.
+//! `loupe-core --frame-json`.
 //!
 //! Unix only: `openpty` and the controlling-terminal ioctl do not exist on Windows, where the
 //! presenter is a stub for now. Waits use `pselect`, as the presenter does, because `poll` on a
@@ -17,8 +17,8 @@ use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
-use t3_agents_core::terminal::{Canvas, Cell};
-use t3_agents_term::{LEAVE_TERM, Screen, cells_match};
+use loupe_core::terminal::{Canvas, Cell};
+use loupe_term::{LEAVE_TERM, Screen, cells_match};
 
 const COLS: u16 = 233;
 const ROWS: u16 = 55;
@@ -28,11 +28,11 @@ fn fixture() -> PathBuf {
 }
 
 fn core_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_t3-agents-term")).with_file_name("t3-agents-core")
+    PathBuf::from(env!("CARGO_BIN_EXE_loupe-term")).with_file_name("loupe-core")
 }
 
 fn term_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_t3-agents-term"))
+    PathBuf::from(env!("CARGO_BIN_EXE_loupe-term"))
 }
 
 struct Pty {
@@ -382,7 +382,7 @@ fn frame_json(grid: &str, actions: Option<&str>) -> Canvas {
         .unwrap_or_else(|e| panic!("spawn {}: {e}", core_bin().display()));
     assert!(
         out.status.success(),
-        "t3-agents-core --frame-json failed ({:?}): {}",
+        "loupe-core --frame-json failed ({:?}): {}",
         out.status,
         String::from_utf8_lossy(&out.stderr)
     );
@@ -420,12 +420,12 @@ fn sgr_wheel(x: i32, y: i32, down: bool) -> Vec<u8> {
     format!("\x1b[<{button};{};{}M", x + 1, y + 1).into_bytes()
 }
 
-fn layout() -> (t3_agents_core::ui::Surface, String) {
-    let snap: t3_agents_core::model::Snapshot =
+fn layout() -> (loupe_core::ui::Surface, String) {
+    let snap: loupe_core::model::Snapshot =
         serde_json::from_str(&std::fs::read_to_string(fixture()).unwrap()).unwrap();
-    let mut state = t3_agents_core::model::State::new(snap);
+    let mut state = loupe_core::model::State::new(snap);
     let (_, surface) =
-        t3_agents_core::ui::draw_grid(&state, COLS as usize, ROWS as usize, &state.palette);
+        loupe_core::ui::draw_grid(&state, COLS as usize, ROWS as usize, &state.palette);
     let selected = state.selected.clone().unwrap_or_default();
     // A press on the selected row does not move. Pick another row the click can reach.
     let _ = &mut state;
@@ -564,17 +564,17 @@ fn mouse_press_and_wheel_reach_the_model() {
     assert!(pty.wait().success());
 }
 
-fn demo_state() -> t3_agents_core::model::State {
-    let snap: t3_agents_core::model::Snapshot =
+fn demo_state() -> loupe_core::model::State {
+    let snap: loupe_core::model::Snapshot =
         serde_json::from_str(&std::fs::read_to_string(fixture()).unwrap()).unwrap();
-    t3_agents_core::model::State::new(snap)
+    loupe_core::model::State::new(snap)
 }
 
 fn detail_point() -> (u16, u16, i32, i32) {
     for rows in [55u16, 40, 30, 24, 18, 12] {
         let mut state = demo_state();
         let (_, surface) =
-            t3_agents_core::ui::draw_grid(&state, 233, rows as usize, &state.palette);
+            loupe_core::ui::draw_grid(&state, 233, rows as usize, &state.palette);
         if surface.detail_max > 0 && surface.detail.w > 0 && surface.detail.h > 0 {
             let x = surface.detail.x + surface.detail.w / 2;
             let y = surface.detail.y;
@@ -590,9 +590,9 @@ fn detail_point() -> (u16, u16, i32, i32) {
 /// clamped to the surface the first paint published.
 fn scrolled_detail(cols: usize, rows: usize, by: usize) -> Canvas {
     let mut state = demo_state();
-    let (_, surface) = t3_agents_core::ui::draw_grid(&state, cols, rows, &state.palette);
+    let (_, surface) = loupe_core::ui::draw_grid(&state, cols, rows, &state.palette);
     state.detail_scroll = (state.detail_scroll + by).min(surface.detail_max);
-    let (canvas, _) = t3_agents_core::ui::draw_grid(&state, cols, rows, &state.palette);
+    let (canvas, _) = loupe_core::ui::draw_grid(&state, cols, rows, &state.palette);
     canvas
 }
 
@@ -600,7 +600,7 @@ fn help_size() -> (u16, u16) {
     for rows in [24u16, 20, 16, 12] {
         let mut state = demo_state();
         state.action("?");
-        let (_, surface) = t3_agents_core::ui::draw_grid(&state, 80, rows as usize, &state.palette);
+        let (_, surface) = loupe_core::ui::draw_grid(&state, 80, rows as usize, &state.palette);
         if surface.help_max >= 3 {
             return (80, rows);
         }
@@ -611,10 +611,10 @@ fn help_size() -> (u16, u16) {
 fn help_scrolled(cols: usize, rows: usize) -> Canvas {
     let mut state = demo_state();
     state.action("?");
-    let (_, surface) = t3_agents_core::ui::draw_grid(&state, cols, rows, &state.palette);
+    let (_, surface) = loupe_core::ui::draw_grid(&state, cols, rows, &state.palette);
     assert!(surface.help_max > 0, "help has nothing to scroll");
     state.help_scroll = 3.min(surface.help_max);
-    let (canvas, _) = t3_agents_core::ui::draw_grid(&state, cols, rows, &state.palette);
+    let (canvas, _) = loupe_core::ui::draw_grid(&state, cols, rows, &state.palette);
     canvas
 }
 
@@ -746,7 +746,7 @@ fn an_idle_presenter_sleeps_instead_of_spinning() {
 struct Home(PathBuf);
 impl Home {
     fn new(tag: &str) -> Self {
-        let path = std::env::temp_dir().join(format!("t3-agents-pty-{tag}-{}", std::process::id()));
+        let path = std::env::temp_dir().join(format!("loupe-pty-{tag}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&path);
         std::fs::create_dir_all(path.join("t3")).unwrap();
         Self(path)
@@ -759,7 +759,7 @@ impl Drop for Home {
 }
 
 /// The variables that could lead the child to a real theme or config file.
-const OUTSIDE: &[&str] = &["XDG_CONFIG_HOME", "OMARCHY_PATH", "T3_AGENTS_THEME", "T3_AGENTS_NO_THEMES", "TMUX", "STY"];
+const OUTSIDE: &[&str] = &["XDG_CONFIG_HOME", "OMARCHY_PATH", "LOUPE_THEME", "LOUPE_NO_THEMES", "TMUX", "STY"];
 
 fn background(rgb: u32) -> Vec<u8> {
     format!("48;2;{};{};{}", rgb >> 16, (rgb >> 8) & 255, rgb & 255).into_bytes()
@@ -768,7 +768,7 @@ fn background(rgb: u32) -> Vec<u8> {
 /// With no Omarchy and nothing chosen, the dashboard asks the terminal for its background and
 /// draws Paper on a light one and Frontier on a dark one, and follows a color scheme change. This
 /// is a deliberate difference from the original, which draws its gray fallback here; under
-/// `T3_AGENTS_NO_THEMES` it asks nothing (below).
+/// `LOUPE_NO_THEMES` it asks nothing (below).
 #[test]
 fn the_default_theme_follows_the_terminals_light_or_dark_background() {
     let home = Home::new("mode");
@@ -792,7 +792,7 @@ fn the_default_theme_follows_the_terminals_light_or_dark_background() {
     let status = pty.wait();
     assert!(status.success(), "{status:?}");
     assert!(pty.buf.windows(8).any(|w| w == b"\x1b[?2031l"), "color scheme reports are switched off on the way out");
-    let config = std::fs::read_to_string(home.0.join(".config/t3-agents/config.toml")).unwrap();
+    let config = std::fs::read_to_string(home.0.join(".config/loupe/config.toml")).unwrap();
     assert_eq!(config, "theme = \"dark:paper,light:paper\"\n");
 }
 
@@ -802,11 +802,11 @@ fn without_themes_nothing_is_asked_and_c_is_not_a_key() {
     let home = Home::new("off");
     let h = home.0.to_str().unwrap();
     let t3 = home.0.join("t3");
-    let env = [("HOME", h), ("T3CODE_HOME", t3.to_str().unwrap()), ("TERM", "xterm-256color"), ("COLORTERM", "truecolor"), ("T3_AGENTS_NO_THEMES", "1")];
+    let env = [("HOME", h), ("T3CODE_HOME", t3.to_str().unwrap()), ("TERM", "xterm-256color"), ("COLORTERM", "truecolor"), ("LOUPE_NO_THEMES", "1")];
     let mut pty = Pty::spawn_args(160, 45, &["--demo", "--calm"], &env, &OUTSIDE[..3]);
     pty.wait_for(b"\x1b[c", 1);
     pty.send(b"\x1b[?62;22c");
-    pty.wait_for(b"T3 Agents", 1);
+    pty.wait_for(b"Loupe", 1);
     pty.send(b"c");
     pty.send(b"q");
     let status = pty.wait();
@@ -814,7 +814,7 @@ fn without_themes_nothing_is_asked_and_c_is_not_a_key() {
     let out = String::from_utf8_lossy(&pty.buf);
     assert!(!out.contains("\x1b[?2031h") && !out.contains("\x1b]11;?"), "{out}");
     assert!(!out.contains("theme:"), "{out}");
-    assert!(!home.0.join(".config/t3-agents").exists());
+    assert!(!home.0.join(".config/loupe").exists());
 }
 
 #[test]
@@ -947,7 +947,7 @@ impl Shown {
             ("TERM", "dumb"),
             ("TZ", "America/Los_Angeles"),
             ("T3_FIXED_NOW", "1795026000000"),
-            ("T3_AGENTS_NO_CACHE", "1"),
+            ("LOUPE_NO_CACHE", "1"),
             ("HYPRLAND_INSTANCE_SIGNATURE", ""), // No desktop focus watcher for synthetic databases.
         ];
         let pty = Pty::spawn_args(cols, rows, args, &env, OUTSIDE);
@@ -1041,11 +1041,11 @@ fn on_dashboard(rows: &[String]) -> bool {
     header(rows).contains("DEMO")
         && !header(rows).contains("STORAGE")
         && rows.iter().any(|r| r.starts_with(" AGENTS"))
-        && !rows.iter().any(|r| r.contains("T3 Agents · help"))
+        && !rows.iter().any(|r| r.contains("Loupe · help"))
         && footer(rows).contains("demo data · made up")
 }
 fn on_help(rows: &[String]) -> bool {
-    rows.iter().any(|r| r.contains("╭─ T3 Agents · help")) && !header(rows).contains("TRACE")
+    rows.iter().any(|r| r.contains("╭─ Loupe · help")) && !header(rows).contains("TRACE")
 }
 fn on_storage(rows: &[String]) -> bool {
     header(rows).contains("STORAGE") && rows.iter().any(|r| r.starts_with(" BY PROJECT")) && footer(rows).contains("s back")
@@ -1064,7 +1064,7 @@ fn on_trace(rows: &[String]) -> bool {
 }
 #[test]
 fn partial_trace_help_is_not_a_completed_navigation_frame() {
-    let rows = ["T3 Agents  TRACE  Example · made up", "TRACE HELP", "previous task", "open a delegate", "w back"]
+    let rows = ["Loupe  TRACE  Example · made up", "TRACE HELP", "previous task", "open a delegate", "w back"]
         .map(str::to_owned);
     assert!(!on_trace(&rows));
     assert!(!on_trace_help(&rows));
@@ -1077,7 +1077,7 @@ fn notice(rows: &[String], title: &str, size: &str, keys: &str) -> bool {
         && rows.get(3).is_some_and(|r| r.trim() == keys)
 }
 fn trace_small(rows: &[String]) -> bool {
-    notice(rows, "T3 Agents", "60 × 16", "w back   q quit")
+    notice(rows, "Loupe", "60 × 16", "w back   q quit")
 }
 
 #[test]
@@ -1185,8 +1185,8 @@ fn combined_navigation_returns_to_each_view_at_every_size() {
 /// notice says the full minimum and the way back.
 #[test]
 fn view_size_floors_hold_across_resizes() {
-    let dash_small = |r: &[String]| notice(r, "T3 Agents", "48 × 14", "q quit");
-    let storage_small = |r: &[String]| notice(r, "T3 Agents · Storage", "48 × 14", "s back   q quit");
+    let dash_small = |r: &[String]| notice(r, "Loupe", "48 × 14", "q quit");
+    let storage_small = |r: &[String]| notice(r, "Loupe · Storage", "48 × 14", "s back   q quit");
     let mut v = Shown::open("floors", 60, 16);
     v.until("the dashboard at 60 × 16", on_dashboard);
     v.key(b"w", "Trace at 60 × 16", on_trace);
@@ -1274,7 +1274,7 @@ fn insights_demo_loads_refreshes_and_returns_to_the_same_board() {
 
     v.key(b"i", "reopening at Recap this week", |rows| insights_ready(rows) && rows[1].contains("this week"));
     v.resize(40, 12, "Insights size notice", |rows| {
-        rows.iter().any(|row| row.contains("T3 Agents · Insights"))
+        rows.iter().any(|row| row.contains("Loupe · Insights"))
             && rows.iter().any(|row| row.contains("i back"))
     });
     v.key(b"i", "back to the tiny Live board", |rows| !header(rows).contains("Insights"));
@@ -1377,7 +1377,7 @@ fn insights_unreadable_and_snapshot_routes_preserve_terminal_shutdown() {
         Home::new("insights-standalone"), 80, 24,
         &["--snapshot", path.to_str().unwrap()],
     );
-    v.until("a standalone board", |rows| header(rows).contains("T3 Agents"));
+    v.until("a standalone board", |rows| header(rows).contains("Loupe"));
     v.pty.send(b"i\t\x1b[Z");
     v.still("the standalone board never opens a report", |rows| !header(rows).contains("RECAP"));
     v.quit(b"q");

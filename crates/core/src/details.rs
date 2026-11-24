@@ -1497,7 +1497,7 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
     ] {
         c.set(x, y, g, p.accent, None, false)
     }
-    c.text_bold(bx + 2, by, " T3 Agents · help ", p.bright);
+    c.text_bold(bx + 2, by, " Loupe · help ", p.bright);
     if scroll < max {
         c.right(
             bx + bw - 2,

@@ -1,6 +1,6 @@
 .pragma library
 
-// Pure helpers for the T3 Agents bar widget, shared by the QML and its tests.
+// Pure helpers for the Loupe bar widget, shared by the QML and its tests.
 
 var SPIN = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 var BEAT_MS = 100
@@ -41,7 +41,7 @@ function frameAt(ms) {
   return Math.floor(ms / BEAT_MS) % SPIN.length
 }
 
-// One line from `t3-agents --status --watch`, validated and bounded; null when unusable.
+// One line from `loupe --status --watch`, validated and bounded; null when unusable.
 function parse(line) {
   var raw
   try {

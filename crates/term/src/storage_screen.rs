@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
-use t3_agents_core::{
+use loupe_core::{
     headroom::{Volume, WarningVolume},
     host::{self, Host},
     model::{self, Agent, State},
@@ -15,7 +15,7 @@ use t3_agents_core::{
     },
     terminal::{Canvas, short_duration},
 };
-use t3_agents_term::{
+use loupe_term::{
     platform::Wake,
     storage::{Decision, OwnedInput, ScanState, Session, StorageSource, StorageWorker, walk_key},
 };

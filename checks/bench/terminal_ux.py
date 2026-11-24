@@ -567,7 +567,7 @@ def char_width(ch: str) -> int:
 
 
 class ReferenceScreen:
-    """The small ANSI subset emitted by t3-agents-term, including OSC 66, applied one byte at a time.
+    """The small ANSI subset emitted by loupe-term, including OSC 66, applied one byte at a time.
     This is the reference: simple and slow (about 5 ms for a full Insights frame). `Screen` below is the
     one the harness uses, and the selftest checks it against this on recorded and random input."""
     def __init__(self, w: int = COLS, h: int = ROWS):
@@ -892,7 +892,7 @@ class Pty:
             "XDG_CONFIG_HOME": str(self.home / ".config"), "XDG_DATA_HOME": str(self.home / ".local/share"),
             "XDG_CACHE_HOME": str(self.home / ".cache"), "XDG_STATE_HOME": str(self.home / ".local/state"),
             "XDG_RUNTIME_DIR": str(self.scratch / "run"),
-            "T3_AGENTS_NO_CACHE": "1",  # the persistent report cache is opt-in; measure without it
+            "LOUPE_NO_CACHE": "1",  # the persistent report cache is opt-in; measure without it
         }
         if now_ms is not None:
             self.env["T3_FIXED_NOW"] = str(int(now_ms))
@@ -1545,7 +1545,7 @@ def esc_control(p: Pty, cfg: dict, pairs: int, delay_ms: float) -> dict:
     return {"esc_ms": esc, "alt_ms": alt}
 
 
-ESC_CONTROL_BOARD = {"open_key": "?", "open_expect": r"T3 Agents · help", "alt_key": "?",
+ESC_CONTROL_BOARD = {"open_key": "?", "open_expect": r"Loupe · help", "alt_key": "?",
                      "close_expect": r"AGENTS ─{60}"}
 
 

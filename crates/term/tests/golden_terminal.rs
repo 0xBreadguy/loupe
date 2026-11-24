@@ -1,5 +1,5 @@
 //! The real terminal, against what the TypeScript original showed and left behind (main
-//! `2f1d553`), recorded from `checks/scripts/terminal-parity.ts`. Only `t3-agents-term` runs
+//! `2f1d553`), recorded from `checks/scripts/terminal-parity.ts`. Only `loupe-term` runs
 //! here, inside a private tmux server, driven through the same steps the gate drove both
 //! programs through. No Node.
 //!
@@ -81,9 +81,9 @@ use std::{
     thread::sleep,
     time::{Duration, Instant},
 };
-use t3_agents_core::terminal::cell_width;
+use loupe_core::terminal::cell_width;
 
-const BINARY: &str = env!("CARGO_BIN_EXE_t3-agents-term");
+const BINARY: &str = env!("CARGO_BIN_EXE_loupe-term");
 const NOW: &str = "1794484800000"; // 2026-11-12T12:00:00Z, the instant the gate pins
 const FIXTURE: &str = "terminal.json.gz";
 
@@ -196,7 +196,7 @@ impl Tmux {
             .env("T3CODE_HOME", &self.t3home)
             // The original's theme behavior, which the recording holds; the product's themes are
             // a deliberate difference, tested in pty.rs.
-            .env("T3_AGENTS_NO_THEMES", "1");
+            .env("LOUPE_NO_THEMES", "1");
         for name in ["TMPDIR", "TMUX_TMPDIR", "SQLITE_TMPDIR"] {
             if let Some(path) = std::env::var_os(name) {
                 command.env(name, path);
@@ -295,7 +295,7 @@ fn base_exports(work: &Work, term: &str, colorterm: Option<&str>) -> Vec<String>
         "export LANG=C.UTF-8".into(),
         format!("export PATH={}", quote(&format!("{}:{path}", work.stub.display()))),
         format!("export T3_FIXED_NOW={}", quote(NOW)),
-        "export T3_AGENTS_NO_THEMES=1".into(),
+        "export LOUPE_NO_THEMES=1".into(),
         format!("export TERM={}", quote(term)),
         "unset HYPRLAND_INSTANCE_SIGNATURE NO_COLOR FORCE_COLOR COLORTERM".into(),
     ];
@@ -516,7 +516,7 @@ fn wait_stable(tmux: &Tmux, session: &str, timeout: Duration) -> Result<Vec<u8>,
     while start.elapsed() < timeout {
         last = tmux.capture(session);
         let text = visible(&last);
-        let ready = text.contains("T3 Agents") || text.contains("help") || text.contains("Calm");
+        let ready = text.contains("Loupe") || text.contains("help") || text.contains("Calm");
         if previous.as_deref() == Some(last.as_slice()) && !last.is_empty() && ready {
             return Ok(last);
         }
@@ -1083,13 +1083,13 @@ fn survival_case(label: &str) {
             let output = tmux.command(&inner_sock).args(["display-message", "-p", "#{pane_current_command}"]).output();
             if let Ok(output) = output {
                 let command = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if output.status.success() && (command == "node" || command.contains("t3-agents")) {
+                if output.status.success() && (command == "node" || command.contains("loupe")) {
                     return format!("still running after q (inner {command}): {text}");
                 }
             }
         } else if dead_now != "1" && !text.contains("DONE") && !text.to_lowercase().contains("exit") {
             let command = tmux.text(&["display-message", "-p", "-t", "rust", "#{pane_current_command}"]);
-            if command == "node" || command.contains("t3-agents") {
+            if command == "node" || command.contains("loupe") {
                 return format!("still running after q ({command}): {text}");
             }
         }
@@ -1153,7 +1153,7 @@ fn not_a_terminal_matches_the_recording() {
         .env("XDG_RUNTIME_DIR", &work.runtime)
         .env("TZ", "UTC")
         .env("T3_FIXED_NOW", NOW)
-        .env("T3_AGENTS_NO_THEMES", "1")
+        .env("LOUPE_NO_THEMES", "1")
         .stdin(Stdio::null())
         .output()
         .unwrap();

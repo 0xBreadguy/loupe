@@ -3,7 +3,7 @@ import Quickshell
 import Quickshell.Io
 import "Status.js" as Status
 
-// One watcher for every bar on every screen. `t3-agents --status --watch` reads
+// One watcher for every bar on every screen. `loupe --status --watch` reads
 // T3's database only after T3 has written to it, and prints a line only when the
 // status changes, so an idle machine costs next to nothing.
 Item {
@@ -15,7 +15,7 @@ Item {
   // Last status from the watcher (see Status.parse), an unavailable status when
   // the watcher cannot run, or null until its first line.
   property var status: null
-  readonly property string launcher: Quickshell.env("HOME") + "/.local/bin/t3-agents"
+  readonly property string launcher: Quickshell.env("HOME") + "/.local/bin/loupe"
   property bool started: false // the current watcher run got as far as starting
   property bool restarting: false // a stop asked for by restart(), not a failure
 

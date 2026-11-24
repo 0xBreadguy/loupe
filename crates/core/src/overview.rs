@@ -278,7 +278,7 @@ pub(crate) fn draw_header_badge(
 ) {
     let w = c.w as i32;
     c.fill(0, 0, w, 1, p.panel);
-    let mut x = 1 + c.text_bold(1, 0, "T3 Agents", p.bright) + 2;
+    let mut x = 1 + c.text_bold(1, 0, "Loupe", p.bright) + 2;
     if s.paused {
         x += c.text_bold(x, 0, "‖ PAUSED", p.warn);
     } else if s.error.is_some() {

@@ -1,16 +1,16 @@
-# Contributing to T3 Agents
+# Contributing to Loupe
 
-T3 Agents is a terminal dashboard for T3 Code agents, with a bar widget for Omarchy. The dashboard is a Rust program. It began as a TypeScript app, which is kept in `oracle/` as the reference: the Rust program must put the same thing on the screen and answer the same commands as that app, and the checks in `checks/` compare the two.
+Loupe is a terminal dashboard for T3 Code agents, with a bar widget for Omarchy. The dashboard is a Rust program. It began as a TypeScript app, which is kept in `oracle/` as the reference: the Rust program must put the same thing on the screen and answer the same commands as that app, and the checks in `checks/` compare the two.
 
 That is the rule that shapes most contributions. A change that makes the Rust program behave differently from `oracle/` is either a bug or a decision. If it is a decision, say so in the pull request and change the reference or the check with it.
 
 ## Layout
 
 ```text
-crates/core/          t3-agents-core: the model, the read-only T3 reader (full and
+crates/core/          loupe-core: the model, the read-only T3 reader (full and
                       incremental), the demo, the status line, the command line, and the
                       composition of the dashboard into a grid of cells. No screen.
-crates/term/          t3-agents-term: the terminal presenter, and the program that is
+crates/term/          loupe-term: the terminal presenter, and the program that is
                       installed. It turns the grid into terminal output and keys into actions.
 oracle/               The original TypeScript app. The reference. Do not edit it to make a
                       check pass.
@@ -26,7 +26,7 @@ manifest.json, Service.qml, BarWidget.qml, Status.js, ui/, i18n/, test/
                       The Omarchy bar widget
 ```
 
-The core never depends on a presenter. Another front end gets its own crate under `crates/` and depends on `t3-agents-core`.
+The core never depends on a presenter. Another front end gets its own crate under `crates/` and depends on `loupe-core`.
 
 ## Build and run
 
@@ -34,8 +34,8 @@ You need a Rust toolchain. The first build takes about a minute.
 
 ```sh
 cargo build --release --locked
-cargo run --release -p t3-agents-term -- --demo     # the dashboard on made-up data
-target/release/t3-agents-term --help
+cargo run --release -p loupe-term -- --demo     # the dashboard on made-up data
+target/release/loupe-term --help
 ```
 
 If you add a dependency, build once without `--locked`, commit `Cargo.lock`, and update `THIRD-PARTY-NOTICES.md` (`checks/scripts/list-notice-crates.sh` prints the list to compare).
@@ -61,8 +61,8 @@ What it compares, each on the same input for both programs:
 Faster loops while you work:
 
 ```sh
-cargo test --release --locked -p t3-agents-core            # the core, about two minutes
-cargo test --release --locked -p t3-agents-core -p t3-agents-term \
+cargo test --release --locked -p loupe-core            # the core, about two minutes
+cargo test --release --locked -p loupe-core -p loupe-term \
   --test golden --test golden_status --test golden_cli     # recorded results, no Node.js
 node --test test/                                           # the bar widget
 ```
@@ -82,7 +82,7 @@ bases before measuring this workload, and rebuild the dense copy with
 to check that tier's watcher and cross-machine writes.
 
 The asks count has its own harness. `checks/scripts/asks-count.sh` runs
-`t3_agents_core::asks::count_asks` over the made-up messages in
+`loupe_core::asks::count_asks` over the made-up messages in
 `checks/fixtures/asks-counts.json`, whose expected numbers came from the
 `asks/questions.py` prototype. `python3 checks/scripts/asks-corpus.py --check` holds
 the corpus together with no prototype and no Node; naming the prototype with
@@ -95,11 +95,11 @@ The built-in themes are the files in `themes/`, compiled in by `crates/core/src/
 files, copied unchanged from the commit their header names, with the dashboard's role keys
 added at the end. To add one, put the file in `themes/`, add a line to `BUILTINS` in
 `theme.rs`, and run the core's tests: `every_builtin_reads_and_keeps_what_means_different_things_apart`
-holds every built-in to the contrast and separation floors. `t3-agents --theme-check NAME`
+holds every built-in to the contrast and separation floors. `loupe --theme-check NAME`
 shows where a theme stands.
 
 The theme options, the `c` key and the light and dark detection are the product's, not the
-original's. `T3_AGENTS_NO_THEMES=1` turns them off, and the checks that compare the two
+original's. `LOUPE_NO_THEMES=1` turns them off, and the checks that compare the two
 programs set it; `crates/term/tests/pty.rs` and the tests in `theme.rs` cover the rest.
 
 ## The bar widget

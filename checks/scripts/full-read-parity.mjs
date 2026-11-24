@@ -9,7 +9,7 @@
 // nodes, so the node map decides where they land.
 //
 // Every state is read by the TypeScript Source and by
-// `t3-agents-core --db PATH --now-ms N --dump-snapshot` at three clocks, then
+// `loupe-core --db PATH --now-ms N --dump-snapshot` at three clocks, then
 // compared whole (null fields stripped, root path ignored, as scale-parity.mjs
 // does). For the displaced malformed item, compare Rust's successful read
 // with the original's successful read after deleting that one row.
@@ -36,7 +36,7 @@ import {canonicalDigest} from './golden.ts'
 import {enabled as recording, recordAsset, recordCase} from './record.ts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const binary = resolve(process.env.T3_NATIVE_BINARY ?? join(root, '..', 'target/release/t3-agents-core'))
+const binary = resolve(process.env.T3_NATIVE_BINARY ?? join(root, '..', 'target/release/loupe-core'))
 const out = join(root, 'generated/full-read-parity')
 const SCHEMA = readFileSync(join(root, 'fixtures/t3-schema.sql'), 'utf8')
 const P = 'orchestration_v2_projection_'

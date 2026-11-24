@@ -165,11 +165,11 @@ def benchmark(args, scratch, source, meter):
     """Alternate configurations and verify all timed outputs against the baseline."""
     modes = [
         ("before", args.before, {}),
-        ("off/1", args.after, {"T3_AGENTS_SKIM": "off", "T3_AGENTS_READ_THREADS": "1"}),
-        ("full/1", args.after, {"T3_AGENTS_READ_THREADS": "1"}),
-        ("full/4", args.after, {"T3_AGENTS_READ_THREADS": "4"}),
-        ("full/8", args.after, {"T3_AGENTS_READ_THREADS": "8"}),
-        ("head/4", args.after, {"T3_AGENTS_SKIM": "head", "T3_AGENTS_READ_THREADS": "4"}),
+        ("off/1", args.after, {"LOUPE_SKIM": "off", "LOUPE_READ_THREADS": "1"}),
+        ("full/1", args.after, {"LOUPE_READ_THREADS": "1"}),
+        ("full/4", args.after, {"LOUPE_READ_THREADS": "4"}),
+        ("full/8", args.after, {"LOUPE_READ_THREADS": "8"}),
+        ("head/4", args.after, {"LOUPE_SKIM": "head", "LOUPE_READ_THREADS": "4"}),
     ]
     empty = scratch / "empty"
     empty.mkdir()
@@ -184,11 +184,11 @@ def benchmark(args, scratch, source, meter):
     print(f"{expected_runs} runs, {report['tool_calls']} tool calls; JSON SHA-256 {hashlib.sha256(baseline).hexdigest()}")
     for index, (name, program, settings) in enumerate(modes):
         cache = str(scratch / f"verification-cache-{index}")
-        env = {**base_env, **settings, "XDG_CACHE_HOME": cache, "T3_AGENTS_CACHE": "1",
-               "T3_AGENTS_CACHE_STATS": "1"}
+        env = {**base_env, **settings, "XDG_CACHE_HOME": cache, "LOUPE_CACHE": "1",
+               "LOUPE_CACHE_STATS": "1"}
         for hits, writes in [(0, expected_runs), (expected_runs, 0)]:
             out, stderr, _ = invoke(meter, program, source, env)
-            expected = f"t3-agents: cache: {hits} of {expected_runs} finished runs from the cache, {writes} written\n".encode()
+            expected = f"loupe: cache: {hits} of {expected_runs} finished runs from the cache, {writes} written\n".encode()
             if out != baseline or stderr != expected:
                 raise RuntimeError(f"{name} cache verification failed: {stderr!r}, expected {expected!r}")
 
@@ -202,7 +202,7 @@ def benchmark(args, scratch, source, meter):
                 raise RuntimeError(f"trial {trial + 1}: {name} uncached output differs")
             results["off", name].append(stats)
             cache = str(scratch / f"trial-{trial}-cache-{index}")
-            env = {**base_env, **settings, "XDG_CACHE_HOME": cache, "T3_AGENTS_CACHE": "1"}
+            env = {**base_env, **settings, "XDG_CACHE_HOME": cache, "LOUPE_CACHE": "1"}
             for state in ("cold", "warm"):
                 out, stderr, stats = invoke(meter, program, source, env)
                 if (out, stderr) != (baseline, b""):
@@ -222,7 +222,7 @@ def main():
     """Parse the fixture size and binary paths, then remove only our scratch folder."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--before", required=True, type=Path, help="baseline release executable")
-    parser.add_argument("--after", type=Path, default=Path("target/release/t3-agents-term"))
+    parser.add_argument("--after", type=Path, default=Path("target/release/loupe-term"))
     parser.add_argument("--payload-bytes", type=int, default=400, help="size of each regular item")
     parser.add_argument("--days", type=int, default=7, help="days of history before the last full week's end")
     parser.add_argument("--trials", type=int, default=7)

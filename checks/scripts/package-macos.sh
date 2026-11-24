@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Build t3-agents-term for macOS and package it for release:
-# checks/generated/macos-release/t3-agents-VERSION-universal-apple-darwin.tar.gz and SHA256SUMS beside it.
+# Build loupe-term for macOS and package it for release:
+# checks/generated/macos-release/loupe-VERSION-universal-apple-darwin.tar.gz and SHA256SUMS beside it.
 # The program is built for aarch64-apple-darwin and x86_64-apple-darwin and joined with lipo, so one archive serves
 # every Mac. With --native-only it builds only this Mac's architecture (for a Mac without the other Rust target) and
-# names the archive t3-agents-VERSION-aarch64-apple-darwin.tar.gz or ...-x86_64-apple-darwin.tar.gz.
+# names the archive loupe-VERSION-aarch64-apple-darwin.tar.gz or ...-x86_64-apple-darwin.tar.gz.
 # The archive unpacks into one folder holding the program, LICENSE, THIRD-PARTY-NOTICES.md, README and BUILD-INFO
 # (the commit, the Rust version, the architectures, the minimum macOS, the dynamic dependencies, the signature).
 # There is no install.sh: it is written for Linux and has not been run on macOS. Nothing is published.
@@ -49,9 +49,9 @@ fi
 # both architectures, so every slice of the program asks for the same system. Read back from the binary below.
 export MACOSX_DEPLOYMENT_TARGET=11.0
 
-version=$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(p["version"] for p in d["packages"] if p["name"] == "t3-agents-term"))')
+version=$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(p["version"] for p in d["packages"] if p["name"] == "loupe-term"))')
 out="$PWD/checks/generated/macos-release"
-folder="t3-agents-$version-$label"
+folder="loupe-$version-$label"
 archive="$folder.tar.gz"
 rm -rf -- "$out/$folder"
 rm -f -- "$out/$archive" "$out/SHA256SUMS"
@@ -71,11 +71,11 @@ min_macos() { vtool -arch "$2" -show-build "$1" | awk '$1 == "minos" {print $2}'
 
 thin=''
 for target in $targets; do
-  cargo build --release --locked -p t3-agents-term --target "$target"
-  thin="$thin $CARGO_TARGET_DIR/$target/release/t3-agents-term"
+  cargo build --release --locked -p loupe-term --target "$target"
+  thin="$thin $CARGO_TARGET_DIR/$target/release/loupe-term"
 done
 
-program="$out/$folder/t3-agents-term"
+program="$out/$folder/loupe-term"
 if [[ $native_only == 1 ]]; then
   cp "${thin# }" "$program"
   expected_archs=${host%%-*}
@@ -87,7 +87,7 @@ else
 fi
 
 # lipo (and a copy) drop or invalidate the linker's signature; sign again, ad hoc, with a fixed identifier.
-codesign --force --sign - --identifier t3-agents-term "$program"
+codesign --force --sign - --identifier loupe-term "$program"
 codesign --verify --strict --all-architectures "$program"
 
 archs=$(lipo -archs "$program")
@@ -116,23 +116,23 @@ printf 'Signature:\n%s\n' "$signature"
 
 cp LICENSE THIRD-PARTY-NOTICES.md "$out/$folder/"
 cat > "$out/$folder/README" <<EOF
-T3 Agents $version for macOS ($label)
+Loupe $version for macOS ($label)
 
 This is a preview of the standalone macOS dashboard.
 
-T3 Agents shows your T3 Code agents in the terminal. T3 Code must be installed
+Loupe shows your T3 Code agents in the terminal. T3 Code must be installed
 on this same Mac: the program reads its local database, read-only.
 
 Try it, from this folder, on made-up data (it touches none of yours):
 
-  ./t3-agents-term --demo
+  ./loupe-term --demo
 
 Keep it: copy the program to a folder on your PATH, for example
 
   mkdir -p ~/.local/bin
-  cp t3-agents-term ~/.local/bin/t3-agents
+  cp loupe-term ~/.local/bin/loupe
 
-then run t3-agents. If ~/.local/bin is not on your PATH, add it to your shell
+then run loupe. If ~/.local/bin is not on your PATH, add it to your shell
 configuration yourself; nothing here changes it for you.
 
 The program is signed ad hoc, not by an Apple developer account. If macOS blocks

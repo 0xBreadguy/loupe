@@ -1,7 +1,7 @@
 //! One pass over a JSON object's text: the values of a few top-level keys, found without
 //! building anything for what is skipped. By default the Tools reader passes each call's
 //! payload to the SQL function `t3_call`; `t3_times` gives Recap the two times of any turn
-//! item the same way. `T3_AGENTS_SKIM` means one thing for every reader (`choice`): unset or
+//! item the same way. `LOUPE_SKIM` means one thing for every reader (`choice`): unset or
 //! `full` is the skim, `off` is `json_extract`.
 //!
 //! What it reads is what SQLite's `json_extract` (3.51, the bundled one) reads from the same
@@ -39,7 +39,7 @@ use std::{cell::RefCell, fmt};
 pub enum Mode { Full, Early, Head }
 
 /// The variable every reader reads its choice from.
-pub const VARIABLE: &str = "T3_AGENTS_SKIM";
+pub const VARIABLE: &str = "LOUPE_SKIM";
 
 /// What a value of `VARIABLE` chooses, the same for every reader: `off` is SQLite's own JSON
 /// parser (None), `early` is early, `head` is head reads, and anything else, unset included,
@@ -1421,7 +1421,7 @@ mod tests {
     fn the_skim_reads_what_json_extract_reads() { run(20261118, 20_000, false); }
 
     #[test]
-    #[ignore = "a long run: cargo test --release -p t3-agents-core -- --ignored skim"]
+    #[ignore = "a long run: cargo test --release -p loupe-core -- --ignored skim"]
     fn the_skim_reads_what_json_extract_reads_long() {
         for seed in 1..=20 { run(seed, 5000, true); }
     }
@@ -1534,16 +1534,16 @@ mod tests {
     }
 
     // What the function costs apart from loading the rows, on a lab built under checks/generated:
-    // T3_AGENTS_SKIM_BENCH_DB=checks/generated/tools-lab/week.sqlite T3CODE_HOME=<empty folder> \
-    //   cargo test --release --locked -p t3-agents-core --lib -- --ignored skim_cost --nocapture
+    // LOUPE_SKIM_BENCH_DB=checks/generated/tools-lab/week.sqlite T3CODE_HOME=<empty folder> \
+    //   cargo test --release --locked -p loupe-core --lib -- --ignored skim_cost --nocapture
     #[test]
     #[ignore = "a measurement on a lab database; see the comment"]
     fn skim_cost() {
         use std::time::Instant;
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../checks/generated").canonicalize().unwrap();
-        let path = std::path::PathBuf::from(std::env::var("T3_AGENTS_SKIM_BENCH_DB").expect("T3_AGENTS_SKIM_BENCH_DB")).canonicalize().unwrap();
+        let path = std::path::PathBuf::from(std::env::var("LOUPE_SKIM_BENCH_DB").expect("LOUPE_SKIM_BENCH_DB")).canonicalize().unwrap();
         assert!(path.starts_with(&root), "only a lab under {root:?}");
-        let trials: usize = std::env::var("T3_AGENTS_SKIM_TRIALS").ok().and_then(|n| n.parse().ok()).unwrap_or(7);
+        let trials: usize = std::env::var("LOUPE_SKIM_TRIALS").ok().and_then(|n| n.parse().ok()).unwrap_or(7);
         let open = || {
             let db = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
             db.execute_batch("PRAGMA query_only=ON").unwrap();
@@ -1792,17 +1792,17 @@ mod tests {
 
     // The head-reading functions' own cost against json_extract and the whole-value functions,
     // over every item of a lab week (Recap's read) and over its tool calls (Tools'):
-    // T3_AGENTS_SKIM_BENCH_DB=<absolute path under checks/generated> \
-    //   cargo test --release --locked -p t3-agents-core --lib -- --ignored head_cost --nocapture
-    // With T3_AGENTS_SKIM_ONE=<label> it runs that one query once (for a cold run).
+    // LOUPE_SKIM_BENCH_DB=<absolute path under checks/generated> \
+    //   cargo test --release --locked -p loupe-core --lib -- --ignored head_cost --nocapture
+    // With LOUPE_SKIM_ONE=<label> it runs that one query once (for a cold run).
     #[test]
     #[ignore = "a measurement on a lab database; see the comment"]
     fn head_cost() {
         use std::time::Instant;
         let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../checks/generated").canonicalize().unwrap();
-        let path = std::path::PathBuf::from(std::env::var("T3_AGENTS_SKIM_BENCH_DB").expect("T3_AGENTS_SKIM_BENCH_DB")).canonicalize().unwrap();
+        let path = std::path::PathBuf::from(std::env::var("LOUPE_SKIM_BENCH_DB").expect("LOUPE_SKIM_BENCH_DB")).canonicalize().unwrap();
         assert!(path.starts_with(&root), "only a lab under {root:?}");
-        let trials: usize = std::env::var("T3_AGENTS_SKIM_TRIALS").ok().and_then(|n| n.parse().ok()).unwrap_or(7);
+        let trials: usize = std::env::var("LOUPE_SKIM_TRIALS").ok().and_then(|n| n.parse().ok()).unwrap_or(7);
         let db = Connection::open_with_flags(&path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
         db.execute_batch("PRAGMA query_only=ON").unwrap();
         program::register(&db).unwrap();
@@ -1840,7 +1840,7 @@ mod tests {
             }
             (n, digest)
         };
-        if let Ok(one) = std::env::var("T3_AGENTS_SKIM_ONE") {
+        if let Ok(one) = std::env::var("LOUPE_SKIM_ONE") {
             let (_, sql) = queries.iter().find(|(label, _)| *label == one).expect("a label");
             let started = Instant::now();
             let (n, digest) = run(sql);

@@ -19,8 +19,8 @@
 
 use std::time::{Duration, Instant};
 
-use t3_agents_core::storage::{Coverage, Inventory};
-use t3_agents_core::storage_view::data::Shown;
+use loupe_core::storage::{Coverage, Inventory};
+use loupe_core::storage_view::data::Shown;
 
 use super::{OwnedInput, StorageSource};
 
@@ -192,8 +192,8 @@ mod tests {
     use super::*;
     use std::path::Path;
     use std::sync::Arc;
-    use t3_agents_core::model::{Agent, Shelf, Snapshot, ThreadStorage};
-    use t3_agents_core::storage::{Coverage, Inventory, Usage};
+    use loupe_core::model::{Agent, Shelf, Snapshot, ThreadStorage};
+    use loupe_core::storage::{Coverage, Inventory, Usage};
 
     use crate::storage::{ScanRoots, StorageSource};
 

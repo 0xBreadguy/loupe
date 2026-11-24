@@ -25,7 +25,7 @@ const integer = (name: string, fallback: number, min: number, max: number) => {
 const seed = integer("--seed", 0xb4ead202, 0, 0xffffffff) >>> 0
 const cases = integer("--cases", 45, 1, 45)
 const caseOnly = args.includes("--case") ? integer("--case", 0, 0, 44) : null
-const binary = resolve(option("--native", process.env.T3_NATIVE_BINARY ?? join(ROOT, "..", "target/release/t3-agents-core")))
+const binary = resolve(option("--native", process.env.T3_NATIVE_BINARY ?? join(ROOT, "..", "target/release/loupe-core")))
 const output = resolve(option("--output", join(ROOT, "generated/semantic-fuzz")))
 const MAX_OPERATIONS = 1000
 const ACTIONS_PER_CASE = 20

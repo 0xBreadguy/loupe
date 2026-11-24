@@ -344,7 +344,7 @@ pub const AGENT_TITLES: &[&str] = &[
 pub const AGENT_PROJECTS: &[&str] = &[
     "dotfiles",
     "other",
-    "t3-agents",
+    "loupe",
     "proj \u{1f35e}",
     "",
     " x ",

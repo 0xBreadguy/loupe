@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install, update or remove the Rust T3 Agents build for the current user. Safe to rerun.
+# Install, update or remove the Rust Loupe build for the current user. Safe to rerun.
 #
 # Everything this writes is keyed by --name: the command ~/.local/bin/NAME, the program
 # directory ${XDG_DATA_HOME:-~/.local/share}/NAME/, the launcher entry NAME.desktop and the
@@ -10,13 +10,16 @@ source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
 bin_dir="$HOME/.local/bin"
 
-marker='Managed by t3-agents-rust (github.com/0xBreadguy/t3-agents)'
+marker='Managed by loupe-rust (github.com/0xBreadguy/loupe)'
+# Legacy Rust marker from before the rename to Loupe, so `./install.sh --name t3-agents --uninstall`
+# cleanly removes an earlier install.
+legacy_rust_marker='Managed by t3-agents-rust (github.com/0xBreadguy/t3-agents)'
 # The Node installer's own marker. Its files may be replaced, so an existing Node install
 # upgrades in place; anything without a marker of ours or of the original is left alone.
-original_marker='Managed by t3-agents (github.com/0xBreadguy/t3-agents)'
-old_marker='Managed by omarchy-config/tools/t3-agents' # earlier installs; replaced on upgrade
+original_marker='Managed by loupe (github.com/0xBreadguy/loupe)'
+old_marker='Managed by omarchy-config/tools/loupe' # earlier installs; replaced on upgrade
 
-name='t3-agents'
+name='loupe'
 title=''
 binary=''
 uninstall=0
@@ -26,10 +29,10 @@ usage() {
 Usage: install.sh [--name NAME] [--title TITLE] [--binary PATH] [--uninstall]
 
   --name NAME      command, program directory, launcher entry and window app id
-                   (default: t3-agents)
-  --title TITLE    display name in the app launcher (default: T3 Agents, or
-                   "T3 Agents (NAME)" for another name)
-  --binary PATH    install a prebuilt t3-agents-term instead of building one
+                   (default: loupe)
+  --title TITLE    display name in the app launcher (default: Loupe, or
+                   "Loupe (NAME)" for another name)
+  --binary PATH    install a prebuilt loupe-term instead of building one
   --uninstall      remove what an install with this name wrote, and nothing else
 USAGE
 }
@@ -79,10 +82,10 @@ fi
 [[ $name =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
   die "The installer needs a --name that is safe as a file name, got '$name'."
 if [[ -z $title ]]; then
-  if [[ $name == 't3-agents' ]]; then
-    title='T3 Agents'
+  if [[ $name == 'loupe' ]]; then
+    title='Loupe'
   else
-    title="T3 Agents ($name)"
+    title="Loupe ($name)"
   fi
 fi
 
@@ -91,7 +94,7 @@ desktop_file="$data_dir/applications/$name.desktop"
 launcher="$bin_dir/$name"
 app_id="TUI.$name" # TUI.* is the convention Omarchy treats as a terminal app
 
-has_marker() { [[ -f $1 && ! -L $1 ]] && grep -qF -e "$marker" -- "$1"; }
+has_marker() { [[ -f $1 && ! -L $1 ]] && grep -qF -e "$marker" -e "$legacy_rust_marker" -- "$1"; }
 
 # The bar keeps the status watcher it started, even after that program's files are replaced or
 # removed, and it starts a new one a few seconds after one exits. So end this install's
@@ -107,7 +110,7 @@ end_watchers() {
       *) escaped+=$ch ;;
     esac
   done
-  pkill -u "$UID" -f -- "${escaped}/(t3-agents-term|src/main\\.ts) --status --watch" 2>/dev/null || true
+  pkill -u "$UID" -f -- "${escaped}/(loupe-term|t3-agents-term|src/main\\.ts) --status --watch" 2>/dev/null || true
 }
 has_original_marker() { [[ -f $1 && ! -L $1 ]] && grep -qF -e "$original_marker" -e "$old_marker" -- "$1"; }
 
@@ -123,7 +126,7 @@ if ((uninstall)); then
   if [[ -L $cache_base || -L $cache_dir ]]; then
     printf 'Leaving cache at %s: its directory is a symbolic link.\n' "$cache_dir" >&2
   elif [[ -d $cache_dir && -f $cache_owner && ! -L $cache_owner ]] &&
-       [[ $(cat -- "$cache_owner") == 't3-agents insights cache v1' ]]; then
+       [[ $(cat -- "$cache_owner") == 'loupe insights cache v1' || $(cat -- "$cache_owner") == 't3-agents insights cache v1' ]]; then
     if [[ -f $cache_lock && ! -L $cache_lock ]] && command -v flock >/dev/null &&
        { exec {cache_fd}<"$cache_lock"; } && flock -n -x "$cache_fd"; then
       database="$cache_dir/insights.sqlite3"
@@ -131,7 +134,7 @@ if ((uninstall)); then
       # Check the SQLite header and our application_id before unlinking anything.
       if [[ -f $database && ! -L $database ]] && command -v od >/dev/null && command -v tr >/dev/null &&
          [[ $(od -An -tx1 -N16 -- "$database" | tr -d ' \n') == 53514c69746520666f726d6174203300 ]] &&
-         [[ $(od -An -tx1 -j68 -N4 -- "$database" | tr -d ' \n') == 54534143 ]]; then
+         [[ $(od -An -tx1 -j68 -N4 -- "$database" | tr -d ' \n') == 4c504943 || $(od -An -tx1 -j68 -N4 -- "$database" | tr -d ' \n') == 54534143 ]]; then
         for path in "$database" "$database-wal" "$database-shm" "$database-journal"; do
           if [[ -f $path && ! -L $path ]]; then
             rm -f -- "$path"
@@ -141,7 +144,7 @@ if ((uninstall)); then
         done
         rm -f -- "$cache_owner"
       else
-        printf 'Leaving cache at %s: the database is missing or is not owned by T3 Agents.\n' "$cache_dir" >&2
+        printf 'Leaving cache at %s: the database is missing or is not owned by Loupe.\n' "$cache_dir" >&2
       fi
       flock -u "$cache_fd"
       exec {cache_fd}<&-
@@ -160,7 +163,7 @@ if ((uninstall)); then
     fi
   done
   if [[ -e $app_dir ]]; then
-    if [[ -d $app_dir && ! -L $app_dir ]] && has_marker "$app_dir/.t3-agents-install"; then
+    if [[ -d $app_dir && ! -L $app_dir ]] && { has_marker "$app_dir/.loupe-install" || has_marker "$app_dir/.t3-agents-install"; }; then
       rm -rf -- "$app_dir"
       printf 'Removed %s\n' "$app_dir"
       removed=1
@@ -186,7 +189,7 @@ if [[ -n $binary ]]; then
 else
   cargo_bin=$(type -P cargo || true)
   if [[ -z $cargo_bin ]]; then
-    printf 'cargo is required to build t3-agents-term (install Rust from https://rustup.rs, or pass --binary PATH).\n' >&2
+    printf 'cargo is required to build loupe-term (install Rust from https://rustup.rs, or pass --binary PATH).\n' >&2
     exit 1
   fi
 fi
@@ -209,7 +212,7 @@ if [[ -e $app_dir ]]; then
     printf 'Refusing to overwrite existing path: %s\n' "$app_dir" >&2
     exit 1
   fi
-  if has_marker "$app_dir/.t3-agents-install"; then
+  if has_marker "$app_dir/.loupe-install"; then
     : # ours: the rerun path
   elif has_original_marker "$launcher" || has_original_marker "$desktop_file"; then
     : # the Node installer's: upgraded below, with no node_modules left behind
@@ -217,7 +220,7 @@ if [[ -e $app_dir ]]; then
     : # empty
   else
     printf 'Refusing to overwrite existing directory: %s\n' "$app_dir" >&2
-    printf 'It has no marker from this installer or the Node.js installer; remove it yourself if it is a T3 Agents install.\n' >&2
+    printf 'It has no marker from this installer or the Node.js installer; remove it yourself if it is a Loupe install.\n' >&2
     exit 1
   fi
 fi
@@ -228,14 +231,14 @@ if [[ -z $binary ]]; then
   # plugin validator rejects parts of a Cargo build directory, so the default is the user's
   # cache. An existing CARGO_TARGET_DIR still wins.
   if [[ -z ${CARGO_TARGET_DIR:-} ]]; then
-    CARGO_TARGET_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/t3-agents/target"
+    CARGO_TARGET_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/loupe/target"
     export CARGO_TARGET_DIR
   fi
-  printf 'Building t3-agents-term (release)...\n' >&2
-  (cd -- "$source_dir" && "$cargo_bin" build --release --locked -p t3-agents-term)
+  printf 'Building loupe-term (release)...\n' >&2
+  (cd -- "$source_dir" && "$cargo_bin" build --release --locked -p loupe-term)
   target_dir=$CARGO_TARGET_DIR
   [[ $target_dir == /* ]] || target_dir="$source_dir/$target_dir"
-  binary="$target_dir/release/t3-agents-term"
+  binary="$target_dir/release/loupe-term"
   [[ -x $binary ]] || die "The build did not produce $binary."
 fi
 
@@ -245,15 +248,15 @@ install -d -- "$bin_dir" "$data_dir/applications"
 rm -rf -- "$app_dir"
 install -d -- "$app_dir"
 
-program_tmp=$(mktemp "$app_dir/.t3-agents-term.XXXXXX")
+program_tmp=$(mktemp "$app_dir/.loupe-term.XXXXXX")
 trap 'rm -f -- "$program_tmp"' EXIT
 install -m 755 -- "$binary" "$program_tmp"
-mv -f -- "$program_tmp" "$app_dir/t3-agents-term"
+mv -f -- "$program_tmp" "$app_dir/loupe-term"
 trap - EXIT
-printf '%s\n' "$marker" >"$app_dir/.t3-agents-install"
+printf '%s\n' "$marker" >"$app_dir/.loupe-install"
 
 # The JSON the bar widget can show when the program is gone; valid JSON whatever --title was.
-status_error="t3-agents-term not found. Rerun the $title installer."
+status_error="loupe-term not found. Rerun the $title installer."
 status_error=${status_error//\\/\\\\}
 status_error=${status_error//\"/\\\"}
 status_error=${status_error//$'\n'/ }
@@ -269,11 +272,11 @@ trap 'rm -f -- "$launcher_tmp"' EXIT
   printf 'name=%q # command name and app-id suffix\napp_id=%q # app id of the dashboard window\ntitle=%q # display name\nstatus_error=%q # JSON reason when the program is gone\n' \
     "$name" "$app_id" "$title" "$status_error"
   cat <<'SH'
-export T3_AGENTS_INSTALL_NAME="$name"
+export LOUPE_INSTALL_NAME="$name"
 app="${XDG_DATA_HOME:-$HOME/.local/share}/$name"
-program="$app/t3-agents-term"
+program="$app/loupe-term"
 if [[ ! -x $program ]]; then
-  printf '%s: t3-agents-term not found (it was at %s at install time). Rerun the %s installer.\n' "$name" "$program" "$title" >&2
+  printf '%s: loupe-term not found (it was at %s at install time). Rerun the %s installer.\n' "$name" "$program" "$title" >&2
   # The bar widget reads stdout: give it a reason it can show.
   if [[ " $* " == *' --status '* ]]; then
     printf '{"v":1,"running":0,"waiting":0,"failed":0,"agents":[],"error":"%s"}\n' "$status_error"

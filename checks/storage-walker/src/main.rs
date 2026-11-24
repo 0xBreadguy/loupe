@@ -7,7 +7,7 @@ use std::process::ExitCode;
 use std::time::Instant;
 
 use serde_json::{Value, json};
-use t3_agents_core::storage::{
+use loupe_core::storage::{
     Folder, Inventory, InventoryInput, Owner, Project, Thread, Usage, inventory,
 };
 

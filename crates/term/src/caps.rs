@@ -47,7 +47,7 @@ pub struct Change {
     /// Mode 2027 was found off and can be switched on. It is put back on exit.
     pub grapheme_on: bool,
     /// The terminal's report on mode 2027 (0 to 4), which the original's choice of width method
-    /// follows (see `t3_agents_core::cluster::select_width_method`).
+    /// follows (see `loupe_core::cluster::select_width_method`).
     pub mode_2027: Option<u8>,
     /// The terminal's XTVERSION answer, as sent (`kitty(0.49.2)`, `ghostty 1.4.0`).
     pub xtversion: Option<String>,

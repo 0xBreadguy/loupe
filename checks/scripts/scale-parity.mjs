@@ -1,5 +1,5 @@
 // Scale-lab correctness cross-check per tier: the TypeScript Source snapshot
-// against `t3-agents-core --db PATH --now-ms N --dump-snapshot`, normalized the
+// against `loupe-core --db PATH --now-ms N --dump-snapshot`, normalized the
 // way checks/scripts/demo-parity.mjs does it (recursive null stripping, root
 // path ignored). The product suppresses private fields on secret and link cards.
 // Apply that rule only to the reference so a disclosure in Rust fails the check.
@@ -17,7 +17,7 @@ import { spawnSync } from 'node:child_process'
 import { Source } from '../../oracle/src/source.ts'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const binary = resolve(process.env.T3_NATIVE_BINARY ?? join(root, '..', 'target/release/t3-agents-core'))
+const binary = resolve(process.env.T3_NATIVE_BINARY ?? join(root, '..', 'target/release/loupe-core'))
 const DEFAULT_NOW = 1794484800000
 // The port to newest main is in: nothing is excluded any more.
 const KNOWN_GAP = new Set([])

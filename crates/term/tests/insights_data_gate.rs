@@ -4,7 +4,7 @@
 //! `poll`, then the borrowed `visible()` snapshot the renderer receives. It reads the
 //! typed `Recap` or `Tools` value and `Loaded::returned`, serializes that value with the
 //! CLI's own serializer, and compares it field for field with a separately spawned
-//! `t3-agents-term --recap/--tools --json` on the same synthetic database and the same
+//! `loupe-term --recap/--tools --json` on the same synthetic database and the same
 //! pinned clock. There is no product diagnostic switch: both arms are the shipped paths.
 //!
 //! Independence: every expected number comes from the fixture's generator parameters
@@ -17,7 +17,7 @@
 //! cannot race another test, and because that is the whole gate:
 //!
 //! ```sh
-//! taskset -c 0-3 cargo test --release --locked -p t3-agents-term \
+//! taskset -c 0-3 cargo test --release --locked -p loupe-term \
 //!   --test insights_data_gate -- --test-threads=1
 //! ```
 //!
@@ -36,13 +36,13 @@ use std::{
 };
 
 use serde_json::{json, Value as Json};
-use t3_agents_core::{
+use loupe_core::{
     platform,
     product::{self, Database, Origin},
     recap::{self, Span, Which},
     recap_view,
 };
-use t3_agents_term::insights_data::{
+use loupe_term::insights_data::{
     InsightsData, Loaded, ReadError, Report, Selection, Value,
 };
 
@@ -115,7 +115,7 @@ fn isolate(command: &mut Command, scratch: &Scratch) {
         .env("XDG_CACHE_HOME", scratch.home.join(".cache"))
         .env("XDG_STATE_HOME", scratch.home.join(".local/state"))
         .env("TZ", ZONE)
-        .env("T3_AGENTS_NO_CACHE", "1")
+        .env("LOUPE_NO_CACHE", "1")
         .env("TMPDIR", &scratch.root);
 }
 
@@ -286,7 +286,7 @@ fn period_argument(which: Which) -> &'static str {
 
 /// Run the shipped binary on the same database, clock and reader settings.
 fn cli(scratch: &Scratch, database: &Database, report: Report, which: Which) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_t3-agents-term"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_loupe-term"));
     command.arg(match report {
         Report::Recap => "--recap",
         Report::Tools => "--tools",
@@ -306,7 +306,7 @@ fn cli(scratch: &Scratch, database: &Database, report: Report, which: Which) -> 
         }
     }
     isolate(&mut command, scratch);
-    command.output().expect("the compiled t3-agents-term must run")
+    command.output().expect("the compiled loupe-term must run")
 }
 
 /// The first field that differs, so a failure names a path instead of dumping two reports.
@@ -642,9 +642,9 @@ fn error_case(scratch: &Scratch, path: &Path, report: Report, kind: &str) {
 
     let advice = product::advice(source, Origin::Db);
     let first = if kind == "missing" {
-        format!("t3-agents: no T3 database at {}", path.display())
+        format!("loupe: no T3 database at {}", path.display())
     } else {
-        format!("t3-agents: can't read the T3 database at {}: ", path.display())
+        format!("loupe: can't read the T3 database at {}: ", path.display())
     };
     assert!(advice.starts_with(&first), "{label}: advice names the failure: {advice}");
     assert!(advice.contains("Check the path given to --db."), "{label}: advice points at --db");

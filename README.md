@@ -1,13 +1,15 @@
+**loupe** *(n.)* — a small magnifying glass used by jewelers and watchmakers to inspect fine moving parts.
+
 ```
-▀█▀ ▀▀▀▄    ▄▀▀▄ ▄▀▀▀ █▀▀▀ █▄ █ ▀█▀ ▄▀▀▀
- █   ▀▀▄    █▀▀█ █ ▀█ █▀▀  █ ▀█  █   ▀▀▄
- ▀  ▀▀▀     ▀  ▀  ▀▀▀ ▀▀▀▀ ▀  ▀  ▀  ▀▀▀
+█    ▄▀▀▄ █  █ █▀▀▄ █▀▀▀
+█    █  █ █  █ █▀▀▀ █▀▀
+▀▀▀▀ ▀▄▄▀ ▀▄▄▀ ▀    ▀▀▀▀
 ```
 
-# T3 Agents
+# Loupe
 
-[![test](https://github.com/0xBreadguy/t3-agents/actions/workflows/test.yml/badge.svg)](https://github.com/0xBreadguy/t3-agents/actions/workflows/test.yml)
-[![Release 1.4.0](https://img.shields.io/badge/release-1.4.0-2ea44f)](https://github.com/0xBreadguy/t3-agents/releases/latest)
+[![test](https://github.com/0xBreadguy/loupe/actions/workflows/test.yml/badge.svg)](https://github.com/0xBreadguy/loupe/actions/workflows/test.yml)
+[![Release 1.5.0](https://img.shields.io/badge/release-1.5.0-2ea44f)](https://github.com/0xBreadguy/loupe/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-2024%20edition-b7410e?logo=rust&logoColor=white)
 ![Omarchy bar widget](https://img.shields.io/badge/Omarchy-bar%20widget-5c6b73)
@@ -20,7 +22,7 @@ bar.
 > Unofficial. Not made by or affiliated with the T3 Code team or Omarchy. It
 > reads T3's local database, which can change in any T3 update.
 
-![The T3 Agents dashboard, running on made-up demo data](docs/dashboard.png)
+![The Loupe dashboard, running on made-up demo data](docs/dashboard.png)
 
 ## Where it runs
 
@@ -38,22 +40,21 @@ bar.
 Linux:
 
 ```sh
-v=1.4.0 t=$(uname -m)-unknown-linux-gnu
-curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/t3-agents-$v-$t.tar.gz"
-tar -xzf "t3-agents-$v-$t.tar.gz"
-cd "t3-agents-$v-$t" && ./install.sh --binary ./t3-agents-term
+v=1.5.0 t=$(uname -m)-unknown-linux-gnu
+curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/loupe-$v-$t.tar.gz"
+tar -xzf "loupe-$v-$t.tar.gz"
+cd "loupe-$v-$t" && ./install.sh --binary ./loupe-term
 ```
 
-Then run `t3-agents`, or `t3-agents --demo` to look around on made-up agents
-first.
+Then run `loupe`, or `loupe --demo` to look around on made-up agents first.
 
 macOS:
 
 ```sh
-v=1.4.0 f=t3-agents-$v-universal-apple-darwin
-curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/$f.tar.gz"
+v=1.5.0 f=loupe-$v-universal-apple-darwin
+curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/$f.tar.gz"
 tar -xzf "$f.tar.gz"
-"$f/t3-agents-term" --demo
+"$f/loupe-term" --demo
 ```
 
 Drop `--demo` to see your own agents.
@@ -61,7 +62,7 @@ Drop `--demo` to see your own agents.
 The Omarchy bar widget:
 
 ```sh
-omarchy plugin add https://github.com/0xBreadguy/t3-agents --enable
+omarchy plugin add https://github.com/0xBreadguy/loupe --enable
 ```
 
 Building from source, keeping the Mac build on your `PATH`, updating and
@@ -88,10 +89,13 @@ removing are all in [docs/install.md](docs/install.md).
   your terminal between light and dark, `c` steps through them, and your own
   theme is one small file.
 - **Calm mode,** for when you want nothing moving.
-- **A recap.** `t3-agents --recap` puts last week on one card: agent hours and
+- **Insights, right in the dashboard.** Press `i` for this week's Recap,
+  `Tab` for Tools, and `←` / `→` to step between periods without leaving the
+  board.
+- **A recap.** `loupe --recap` puts last week on one card: agent hours and
   where they went, tasks, output, and the models that did it. `--month` does
   the same for last month.
-- **A tools report.** `t3-agents --tools` lists what agents ran last week and
+- **A tools report.** `loupe --tools` lists what agents ran last week and
   what failed, by program, with how long it all took.
 - **A trace of any task.** Press `w` on an agent to see its task on a clock:
   every step, every wait on you, every delegate, live.

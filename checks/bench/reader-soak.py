@@ -2,7 +2,7 @@
 """Soak the incremental reader against the full reader under an endless, randomized write stream.
 
 One run copies a lab database, starts `scale-db.ts --stream SEED --serve` on the copy, and
-starts two `t3-agents-core --bench-reader-poll` processes on it: a timed reader (no self-check,
+starts two `loupe-core --bench-reader-poll` processes on it: a timed reader (no self-check,
 so its poll time and resident memory are the reader's own) and a checking reader (`--self-check`:
 every poll also runs the full reader in the same transaction and says whether the two agree).
 Each round asks the stream for one write (now and then several) and then polls both readers at
@@ -22,7 +22,7 @@ on a deleted -shm. A disagreement counts as a mismatch.
 
 On the first mismatch (or a reader error) it stops and writes a reproducer directory: the seed,
 tier, poll and step, the shapes, the schedule seed, a consistent copy of the database as the
-checking reader saw it, the snapshot the reader served (T3_AGENTS_DUMP_MISMATCH), the full
+checking reader saw it, the snapshot the reader served (LOUPE_DUMP_MISMATCH), the full
 reader's snapshot of the same file, the first differing paths, and the last writes. With
 --continue-after-mismatch it only counts them.
 
@@ -195,7 +195,7 @@ def save_repro(out, work, db, args, state, reason, native, env, dump):
         "first_differing_paths": paths, "poll_record": state["record"], "last_writes": state["recent"][-40:],
         "replay": f"python3 checks/bench/reader-soak.py --replay {repro}",
         "by_hand": ["copy the base database and environment-id", f"node ... scale-db.ts --db COPY --stream {args.seed} --count N",
-                    "or open state.sqlite here and run t3-agents-core --bench-reader-poll --self-check --db state.sqlite --now-ms NOW"],
+                    "or open state.sqlite here and run loupe-core --bench-reader-poll --self-check --db state.sqlite --now-ms NOW"],
     }
     (repro / "repro.json").write_text(json.dumps(info, indent=2) + "\n")
     return repro
@@ -209,7 +209,7 @@ def main():
     ap.add_argument("--writes", type=int, default=1000, help="committed writes to apply (time-passes steps are extra)")
     ap.add_argument("--base", type=Path, default=ROOT / "checks/generated/soak/base", help="directory holding <tier>.sqlite and environment-id")
     ap.add_argument("--out", type=Path, help="result directory (default checks/generated/soak/out/<tier>-<seed>)")
-    ap.add_argument("--native", type=Path, default=ROOT / "target/release/t3-agents-core")
+    ap.add_argument("--native", type=Path, default=ROOT / "target/release/loupe-core")
     ap.add_argument("--exclude", default="", help="comma-separated shapes to leave out of the stream")
     ap.add_argument("--include", default="", help="comma-separated off-by-default shapes to put in")
     ap.add_argument("--sample", type=int, default=100, help="sample resident memory and row counts every N polls")
@@ -249,7 +249,7 @@ def main():
     dump = work / "dump"
     dump.mkdir()
     env = {**os.environ, "T3CODE_HOME": str(home), "T3_STREAM_TIMING": "1"}
-    env.pop("T3_AGENTS_READER_POLL_PROFILE", None)
+    env.pop("LOUPE_READER_POLL_PROFILE", None)
     reader_env = {k: v for k, v in env.items() if k != "T3_STREAM_TIMING"}
     stream_log = open(out / "stream.stderr", "w")
     stream = Stream(db, args.seed, args.exclude, args.include, env, stream_log)
@@ -267,7 +267,7 @@ def main():
     stream_ms = []
     try:
         timed = Reader(args.native, db, stream.now_ms, False, reader_env)
-        checked = Reader(args.native, db, stream.now_ms, True, {**reader_env, "T3_AGENTS_DUMP_MISMATCH": str(dump)})
+        checked = Reader(args.native, db, stream.now_ms, True, {**reader_env, "LOUPE_DUMP_MISMATCH": str(dump)})
         now = stream.now_ms
         first = timed.poll(now)
         verdict = checked.poll(now)

@@ -80,7 +80,7 @@ class Surface extends Renderable {
   host: App
   constructor(ctx: RenderContext, host: App) {
     super(ctx, {
-      id: "t3-agents", width: "100%", height: "100%",
+      id: "loupe", width: "100%", height: "100%",
       onMouseDown: (e: MouseEvent) => host.click(e),
       onMouseScroll: (e: MouseEvent) => host.wheel(e),
     })

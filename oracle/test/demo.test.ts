@@ -220,7 +220,7 @@ test("--once --demo and --status --demo work without any T3 or Omarchy data and 
 
   const once = run("--once", "--demo")
   assert.equal(once.status, 0, once.stderr)
-  assert.match(once.stdout, /^T3 AGENTS · demo data · .* 1 waiting · 25 agents/)
+  assert.match(once.stdout, /^LOUPE · demo data · .* 1 waiting · 25 agents/)
   assert.match(once.stdout, /◆ Plan the search index rebuild/)
 
   const status = run("--status", "--demo")

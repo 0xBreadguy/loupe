@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """What one poll of the incremental reader costs, next to the full reader.
 
-For each tier this copies a real-schema lab database, starts `t3-agents-core
+For each tier this copies a real-schema lab database, starts `loupe-core
 --bench-reader-poll` on the copy, and between polls applies synthetic writes with the lab's
 mutator. It records how each poll was served and what it cost when nothing changed, when one
 write landed, and when a burst touched 1% of threads. A second pass repeats the writes with
@@ -44,13 +44,13 @@ class Poller:
     def __init__(self, binary, db, self_check, profile=False, status_view=False):
         argv = [str(binary), "--bench-reader-poll", "--db", str(db), "--now-ms", NOW] + (["--self-check"] if self_check else [])
         env = os.environ.copy()
-        env.pop("T3_AGENTS_READER_POLL_PROFILE", None)
-        env.pop("T3_AGENTS_STATUS_ONLY", None)
+        env.pop("LOUPE_READER_POLL_PROFILE", None)
+        env.pop("LOUPE_STATUS_ONLY", None)
         if profile:
-            env["T3_AGENTS_READER_POLL_PROFILE"] = "1"
+            env["LOUPE_READER_POLL_PROFILE"] = "1"
         if status_view:
             # The status watcher's reader; its self-check compares with status_view of the full reader.
-            env["T3_AGENTS_STATUS_ONLY"] = "1"
+            env["LOUPE_STATUS_ONLY"] = "1"
         self.p = subprocess.Popen(argv, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     def poll(self):
@@ -94,7 +94,7 @@ class Watcher:
 
     def __init__(self, binary, db, env_extra=None):
         env = os.environ.copy()
-        env.pop("T3_AGENTS_SYNC_READ", None)
+        env.pop("LOUPE_SYNC_READ", None)
         env.update(env_extra or {})
         self.p = subprocess.Popen([str(binary), "--status", "--probe-status-db", "--db", str(db)], env=env,
                                   stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -230,7 +230,7 @@ def main():
     ap.add_argument("--status-view", action="store_true",
                     help="run both readers as the status watcher's (live::status_view, no item text)")
     args = ap.parse_args()
-    args.native = args.native or [ROOT / "target/release/t3-agents-core"]
+    args.native = args.native or [ROOT / "target/release/loupe-core"]
     if args.memory:
         return memory_main(args)
     if len(args.native) > 1:

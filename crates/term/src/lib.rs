@@ -1,4 +1,4 @@
-//! Terminal presenter for the T3 Agents cell grid.
+//! Terminal presenter for the Loupe cell grid.
 //!
 //! The core crate composes the screen. This crate diffs that grid against the
 //! previous frame and writes colors at the depth the terminal reports.
@@ -15,7 +15,7 @@ pub use encode::{ENTER_TERM, Encoder, LEAVE_TERM, Screen, ScreenCell, screen_mat
 pub use caps::{Change, GRAPHEME_OFF, GRAPHEME_ON, PROBE, Probe, WINDOW, wanted as probe_wanted};
 pub use keys::{Event, Parser, Report};
 pub use platform::write_all_fd;
-use t3_agents_core::{model::State, terminal::Canvas, ui};
+use loupe_core::{model::State, terminal::Canvas, ui};
 
 /// Draw one frame the way the dashboard does: the grid is the whole terminal,
 /// with no padding, and a system-reduced copy is what gets composed when the
@@ -39,9 +39,9 @@ pub fn compose(s: &mut State, cols: usize, rows: usize) -> Canvas {
 }
 
 /// Whether the virtual screen shows the canvas as the original would draw it: laid out by
-/// [`t3_agents_core::cluster::lay_out`] with the screen's width method, then cell by cell.
+/// [`loupe_core::cluster::lay_out`] with the screen's width method, then cell by cell.
 pub fn cells_match(screen: &Screen, canvas: &Canvas) -> Result<(), String> {
-    screen_matches(screen, &t3_agents_core::cluster::lay_out(canvas, screen.method))
+    screen_matches(screen, &loupe_core::cluster::lay_out(canvas, screen.method))
 }
 
 #[cfg(all(test, unix))]

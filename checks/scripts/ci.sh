@@ -33,7 +33,7 @@ step 'Generate replay' node_gate replay.ts
 step 'Rust tests' cargo test --release --locked
 # The recorded fixtures replay what the original produced, with no Node and no generated inputs.
 # golden_terminal drives only the Rust program inside tmux; where tmux is missing it says so and passes.
-step 'Recorded fixtures without Node' cargo test --release --locked -p t3-agents-core -p t3-agents-term --test golden --test golden_status --test golden_cli --test golden_semantic --test golden_behavior --test golden_fuzz --test golden_demo --test golden_cross --test golden_full_read --test golden_text --test golden_terminal
+step 'Recorded fixtures without Node' cargo test --release --locked -p loupe-core -p loupe-term --test golden --test golden_status --test golden_cli --test golden_semantic --test golden_behavior --test golden_fuzz --test golden_demo --test golden_cross --test golden_full_read --test golden_text --test golden_terminal
 step 'Grid parity: demo UTC' env TZ=UTC node --experimental-ffi --disable-warning=ExperimentalWarning checks/scripts/grid-parity.ts
 step 'Grid parity: edge UTC' env TZ=UTC node --experimental-ffi --disable-warning=ExperimentalWarning checks/scripts/grid-parity.ts checks/generated/edge.json
 step 'Grid parity: hidden characters UTC' env TZ=UTC node --experimental-ffi --disable-warning=ExperimentalWarning checks/scripts/grid-parity.ts checks/fixtures/hidden.json
@@ -56,7 +56,7 @@ step 'Status watcher on changing databases' node_gate status-live-parity.ts
 step 'Installer and launcher parity' node_gate install-parity.mjs
 step 'T3 schema versions 054 to 096' python3 checks/scripts/schema-compat.py
 step 'Tools report against an independent count' python3 checks/scripts/tools-check.py
-step 'Tools report, one connection and SQLite'"'"'s parser' env T3_AGENTS_READ_THREADS=1 T3_AGENTS_SKIM=off python3 checks/scripts/tools-check.py
+step 'Tools report, one connection and SQLite'"'"'s parser' env LOUPE_READ_THREADS=1 LOUPE_SKIM=off python3 checks/scripts/tools-check.py
 step 'Real terminal parity (tmux)' node_gate terminal-parity.ts
 # The Rust layout of grapheme clusters against the original renderer's own buffer.
 step 'Cluster layout fuzz (20,000 seeded strings)' node_gate cluster-fuzz.ts

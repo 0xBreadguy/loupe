@@ -1,11 +1,11 @@
 use std::time::Duration;
-use t3_agents_core::headroom::Volume;
-use t3_agents_core::model::{Snapshot, State};
-use t3_agents_core::storage_view::data::{
+use loupe_core::headroom::Volume;
+use loupe_core::model::{Snapshot, State};
+use loupe_core::storage_view::data::{
     Bytes, Entry, FolderProgress, Inventory, Project, Scan, Shown, Sizes, ThreadState, VolumePath,
 };
-use t3_agents_core::storage_view::{Effect, StorageView};
-use t3_agents_core::terminal::{self, Canvas};
+use loupe_core::storage_view::{Effect, StorageView};
+use loupe_core::terminal::{self, Canvas};
 
 const GB: u64 = 1_000_000_000;
 const MB: u64 = 1_000_000;
@@ -121,14 +121,14 @@ fn inventory() -> Inventory {
 fn frame(view: &mut StorageView, data: &Inventory, w: usize, h: usize) -> Canvas {
     let mut state = State::new(Snapshot::default());
     state.demo = false;
-    let theme = t3_agents_core::theme::builtin(if w < 80 { "paper" } else { "frontier" }).unwrap();
-    let palette = t3_agents_core::integration::derive_themed(theme.text);
+    let theme = loupe_core::theme::builtin(if w < 80 { "paper" } else { "frontier" }).unwrap();
+    let palette = loupe_core::integration::derive_themed(theme.text);
     view.render(data, &state, w, h, &palette)
 }
 
 fn show(name: &str, canvas: &Canvas) {
     if std::env::var_os("T3_STORAGE_TEST_ANSI").is_some() {
-        use t3_agents_core::recap_view::{Color, paint};
+        use loupe_core::recap_view::{Color, paint};
         println!(
             "FRAME {name} {} {}\n{}\nEND FRAME",
             canvas.w,

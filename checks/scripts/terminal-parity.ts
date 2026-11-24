@@ -1,7 +1,7 @@
 // Differential gate: what a real terminal shows, and what it is left in.
 //
 // A private tmux server (never the default one) runs the original dashboard and
-// t3-agents-term at the same size, on the same synthetic input, with the same
+// loupe-term at the same size, on the same synthetic input, with the same
 // keystrokes, SGR mouse bytes and resize. After each step both panes are captured
 // with `tmux capture-pane -p -e -N` and compared cell by cell, including colour
 // and bold. Exit checks cover q, C-c, SIGTERM and SIGHUP: alternate screen, cursor,
@@ -26,7 +26,7 @@ import { DatabaseSync } from "node:sqlite"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const REPO = resolve(ROOT, "..")
-const termBin = resolve(process.env.T3_NATIVE_BINARY ?? join(ROOT, "..", "target/release/t3-agents-term"))
+const termBin = resolve(process.env.T3_NATIVE_BINARY ?? join(ROOT, "..", "target/release/loupe-term"))
 const mainTs = join(REPO, "oracle/src/main.ts")
 const fixedClock = pathToFileURL(join(ROOT, "scripts/fixed-clock.mjs")).href
 const NOW = 1_794_484_800_000 // 2026-11-12T12:00:00Z, the same instant cli-parity pins
@@ -124,7 +124,7 @@ function baseExports(term: string, colorterm: string | undefined, now: number): 
     `export T3_FIXED_NOW=${quote(String(now))}`,
     // The original's theme behavior (the live Omarchy theme, else its gray fallback). The product's
     // themes are a deliberate difference, tested in crates/term/tests/pty.rs.
-    `export T3_AGENTS_NO_THEMES=1`,
+    `export LOUPE_NO_THEMES=1`,
     `export TERM=${quote(term)}`,
     "unset HYPRLAND_INSTANCE_SIGNATURE NO_COLOR FORCE_COLOR COLORTERM",
   ]
@@ -306,7 +306,7 @@ function waitStable(session: string, cols: number, rows: number, timeoutMs: numb
   while (Date.now() - start < timeoutMs) {
     last = capture(session)
     const text = visible(last)
-    const ready = text.includes("T3 Agents") || text.includes("help") || text.includes("Calm")
+    const ready = text.includes("Loupe") || text.includes("help") || text.includes("Calm")
     if (previous && previous.equals(last) && last.length > 0 && ready) return last
     previous = last
     sleep(80)
@@ -850,14 +850,14 @@ function survival(label: string, cols: number, rows: number, term: string, inner
       if (inner) {
         const innerCmd = spawnSync("tmux", ["-L", innerSock, "-f", "/dev/null", "display-message", "-p", "#{pane_current_command}"], { timeout: 5_000 })
         const cmd = (innerCmd.stdout ?? Buffer.alloc(0)).toString().trim()
-        if (innerCmd.status === 0 && (cmd === "node" || cmd.includes("t3-agents"))) {
+        if (innerCmd.status === 0 && (cmd === "node" || cmd.includes("loupe"))) {
           return `still running after q (inner ${cmd}): ${text}`
         }
       } else if (after !== "1" && !text.includes("DONE") && !text.toLowerCase().includes("exit")) {
         // The app may have exited back to a shell that is still alive. A second q
         // would hit the shell. Look for the process instead.
         const cmd = tmux(["display-message", "-p", "-t", session, "#{pane_current_command}"], true).toString().trim()
-        if (cmd === "node" || cmd.includes("t3-agents")) return `still running after q (${cmd}): ${text}`
+        if (cmd === "node" || cmd.includes("loupe")) return `still running after q (${cmd}): ${text}`
       }
       return `alive then quit (${text.replace(/\s+/g, " ").trim()})`
     } catch (err) {
@@ -889,7 +889,7 @@ function nonTTY() {
     XDG_RUNTIME_DIR: runtime,
     TZ: "UTC",
     T3_FIXED_NOW: String(NOW),
-    T3_AGENTS_NO_THEMES: "1",
+    LOUPE_NO_THEMES: "1",
     PATH: `${stub}:${process.env.PATH ?? ""}`,
   }
   delete env.HYPRLAND_INSTANCE_SIGNATURE

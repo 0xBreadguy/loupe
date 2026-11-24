@@ -1,6 +1,6 @@
 //! OpenTUI v0.8.3 terminal.zig color capabilities and renderer.zig palette search.
 use std::collections::HashMap;
-use t3_agents_core::cluster::Xtversion;
+use loupe_core::cluster::Xtversion;
 
 pub struct Colors {
     ansi256: bool,

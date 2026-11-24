@@ -1,6 +1,6 @@
 # How it works, and what it touches
 
-T3 Agents reads T3 Code's local database and draws what it finds. It never
+Loupe reads T3 Code's local database and draws what it finds. It never
 writes to it, and it makes no network connections.
 
 ## What it reads and touches
@@ -45,15 +45,15 @@ writes to it, and it makes no network connections.
   `worktreeCleanup` settings. The demo uses example folder sizes. An explicit
   `--db` skips filesystem measurements. Disk measurements are Linux-only.
 - **Reading everything, on several connections:** `--once`, `--status` and
-  the dashboard's first data read every table it uses once. That read runs on
+  the dashboard's initial read scan every table they use once. That read runs on
   up to three read-only connections at the same time. Before any of them
   reads, it asks SQLite (`PRAGMA data_version`) whether a write landed while
   they were starting, so all of them see the same moment, and it checks that
   the database files are still the ones it opened. If it can't be sure, or
   anything fails, it reads on one connection instead.
-  `T3_AGENTS_FULL_READ_THREADS=1` always reads on one connection.
-- **Staying current without rereading everything:** every two seconds it asks
-  SQLite whether T3 has written anything by default. If it has, it reads the new entries
+  `LOUPE_FULL_READ_THREADS=1` always reads on one connection.
+- **Staying current without rereading everything:** by default, every two seconds it asks
+  SQLite whether T3 has written anything. If it has, it reads the new entries
   in T3's event log to learn which threads changed, and rereads only those. From
   the log it takes each entry's sequence number, the id of the thread or
   project it names, and its kind and version, plus T3's own note of how far
@@ -62,7 +62,7 @@ writes to it, and it makes no network connections.
   what an event contains. Whenever it can't be sure that shortcut gives the
   same answer as reading everything, it reads everything.
 - **If you'd rather it didn't read the event log:** start it with
-  `T3_AGENTS_SYNC_READ=1` in its environment. It then rereads the tables it
+  `LOUPE_SYNC_READ=1` in its environment. It then rereads the tables it
   uses directly, the way the Node.js version did. That
   costs more CPU on a large database and changes nothing you see.
 - **Insights** uses the same read-only report data as `--recap --json` and
@@ -103,9 +103,9 @@ writes to it, and it makes no network connections.
   75 programs, or nothing. Tools never returns, stores, prints or logs the
   command line. Its SQL functions can parse item records and command input
   internally. Their results contain only the fields above.
-- **Report cache:** With `T3_AGENTS_CACHE=1`, Recap and Tools can reuse
+- **Report cache:** With `LOUPE_CACHE=1`, Recap and Tools can reuse
   facts for finished runs from
-  `insights.sqlite3` in `${XDG_CACHE_HOME:-$HOME/.cache}/t3-agents/` (an
+  `insights.sqlite3` in `${XDG_CACHE_HOME:-$HOME/.cache}/loupe/` (an
   install made with `--name NAME` uses `NAME` for the folder when started
   through its own command). The cache stores derived facts such as timings,
   counts and program-list indices, plus hashed lookup keys and structural
@@ -113,8 +113,8 @@ writes to it, and it makes no network connections.
   lines and message bodies stay out of the cache. Cache reuse requires
   Linux with the source on a supported local filesystem (ext, Btrfs, XFS
   or tmpfs). Otherwise the reports read directly from T3.
-  The default is off. `T3_AGENTS_NO_CACHE=1` takes precedence, even when
-  the cache is enabled. Demo reports use no cache. `T3_AGENTS_CACHE_STATS=1`
+  The default is off. `LOUPE_NO_CACHE=1` takes precedence, even when
+  the cache is enabled. Demo reports use no cache. `LOUPE_CACHE_STATS=1`
   prints hit and write counts or a cache-unused diagnostic on standard error.
   [Uninstalling](install.md#remove) explains when the installer can remove the file.
 - **Trace:** `w` and `--trace` read one task the same way, read-only, and store
@@ -139,20 +139,20 @@ writes to it, and it makes no network connections.
 - **Usage limits:** read from Omarchy's agent usage records in
   `~/.local/state/omarchy/agents/usage/`, if they exist.
 - **Themes:** it reads the theme it's told to use, once a second so edits
-  show: its own files in `~/.config/t3-agents/themes/`, and on Omarchy the live
+  show: its own files in `~/.config/loupe/themes/`, and on Omarchy the live
   theme in `~/.local/state/omarchy/current/theme/` (`colors.toml`,
-  `t3-agents.toml` and `theme.name` beside it) and installed theme folders. The
+  `loupe.toml` and `theme.name` beside it) and installed theme folders. The
   theme picker saves its choice to the `theme` line in
-  `~/.config/t3-agents/config.toml` when you press `c`. With a dark and light pair away from
+  `~/.config/loupe/config.toml` when you press `c`. With a dark and light pair away from
   Omarchy it asks the terminal for its background color and for color scheme
   reports, and switches those reports off when it quits.
-- **Network:** none. The bar widget runs one `t3-agents --status --watch`
+- **Network:** none. The bar widget runs one `loupe --status --watch`
   process that checks the database and WAL file sizes and modification times
   every two seconds. It rereads after a change and at least every 30 seconds (so the failed-call
   count ages out) and prints only when the status changes. If that process
   can't start or stops, the widget tries again every 15 seconds.
 - **The window:** The Linux installer's launcher handles `--window` and
-  opens the dashboard with the app ID `TUI.t3-agents` by default. With
+  opens the dashboard with the app ID `TUI.loupe` by default. With
   `hyprctl` and `jq` under Hyprland, it can focus a matching window first.
   Omarchy treats `TUI.*` windows as terminal apps (Super+C
   copies instead of sending Ctrl+C, terminal opacity) and still tiles them; you

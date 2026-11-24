@@ -17,7 +17,7 @@
 #                     LANG, none of the variables a terminal sets to name itself
 #   --term NAME       tell the app TERM is NAME, whatever the terminal set
 #   --binary PATH     the Rust dashboard, somewhere inside this checkout: the box sees nothing
-#                     else of the machine (default: target/release/t3-agents-term)
+#                     else of the machine (default: target/release/loupe-term)
 #   --terminals DIR   a folder holding unpacked terminal packages (usr/bin, usr/lib, usr/share).
 #                     A terminal found there runs from there; otherwise it must be installed.
 #                     (default: checks/generated/terminals/root)
@@ -34,7 +34,7 @@
 set -euo pipefail
 repo="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)"
 terminals=()
-binary="$repo/target/release/t3-agents-term"
+binary="$repo/target/release/loupe-term"
 troot="$repo/checks/generated/terminals/root"
 out="$repo/checks/generated/window-parity"
 box=''
@@ -126,7 +126,7 @@ open_window() {
   fi
   case $terminal in
     foot) ob run -d --wait -- "${env[@]}" "$bin" "--app-id=$id" "--title=$id" "${inner[@]}" ;;
-    ghostty) ob run -d --wait -- "${env[@]}" "$bin" "--class=com.t3agents.$id" "--title=$id" --gtk-single-instance=false --confirm-close-surface=false -e "${inner[@]}" ;;
+    ghostty) ob run -d --wait -- "${env[@]}" "$bin" "--class=com.loupe.$id" "--title=$id" --gtk-single-instance=false --confirm-close-surface=false -e "${inner[@]}" ;;
     kitty) ob run -d --wait -- "${env[@]}" "$bin" --class "$id" --title "$id" -o confirm_os_window_close=0 -o update_check_interval=0 -o enable_audio_bell=no "${inner[@]}" ;;
     alacritty) ob run -d --wait -- "${env[@]}" "$bin" --class "$id" --title "$id" -e "${inner[@]}" ;;
     # WezTerm's own tab bar shows the running process's name and settles late; it is not the app's.

@@ -72,7 +72,7 @@ use std::{
 };
 
 /// `1` is the single-connection read. Anything that is not 1 to 16 means the default.
-pub(super) const THREADS: &str = "T3_AGENTS_FULL_READ_THREADS";
+pub(super) const THREADS: &str = "LOUPE_FULL_READ_THREADS";
 /// Connections, the calling thread's included, when the switch is unset.
 const DEFAULT_THREADS: usize = 3;
 const PIN_ATTEMPTS: usize = 3;

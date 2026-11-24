@@ -1,4 +1,4 @@
- T3 Agents  TOOLS  October 2026  31 of 31 days recorded                                               t3-agents --tools
+ Loupe  TOOLS  October 2026  31 of 31 days recorded                                                       loupe --tools
 
   CALLS                         CALL TIME                     FAILED                        LONGEST CALL
    ▄    ▄   ▄  ▄                ▄▄▄   ▄▄  ▄▄▄▄                ▄▄▄    ▄▄▄▄                   ▄▄▄    ▄  ▄  ▄▄

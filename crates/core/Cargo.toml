@@ -1,7 +1,7 @@
 # The product without a presenter: model, read-only T3 projection, synthetic demo,
 # cell-grid composition and the headless parity/benchmark modes. No drawing dependency.
 [package]
-name = "t3-agents-core"
+name = "loupe-core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

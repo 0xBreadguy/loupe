@@ -1082,7 +1082,7 @@ fn unread(c: &mut Canvas, r: Rect, s: &State, p: &Palette) -> i32 {
     let mut tries = Vec::new();
     if s.error.is_some() {
         if kind == "schema" {
-            tries.push("T3 Code may have changed its database: look for a newer T3 Agents.");
+            tries.push("T3 Code may have changed its database: look for a newer Loupe.");
         } else {
             tries.push(if kind == "unreadable" {
                 "Check it is T3 Code's statev2.sqlite and that your user can read it."
@@ -1093,7 +1093,7 @@ fn unread(c: &mut Canvas, r: Rect, s: &State, p: &Palette) -> i32 {
                 "T3 data somewhere else? Start with --db PATH, or set T3CODE_HOME to its folder.",
             );
         }
-        tries.push("Just looking? t3-agents --demo shows made-up agents.");
+        tries.push("Just looking? loupe --demo shows made-up agents.");
     }
     let mut y = r.y + 2;
     let w = (r.w - 4).max(1) as usize;
@@ -2487,7 +2487,7 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
     let ww = w as i32;
     let hh = h as i32;
     if w < 48 || h < 14 {
-        c.text_bold(1, 0, "T3 Agents", p.bright);
+        c.text_bold(1, 0, "Loupe", p.bright);
         let notice = match (s.themes, w) {
             (true, ..17) => "Enlarge terminal",
             (true, 17..42) => "Minimum: 48 × 14",

@@ -1064,7 +1064,7 @@ pub fn explicit_cursor_positioning(env: &TermEnv) -> bool {
     env.multiplexer().1
 }
 
-/// `t3-agents-core --layout-rows`: for checks/scripts/cluster-fuzz.ts. Each line of standard input
+/// `loupe-core --layout-rows`: for checks/scripts/cluster-fuzz.ts. Each line of standard input
 /// is a canvas as JSON (`m` "unicode", "unicode-wide" or "wcwidth", `w`, `h`, and per cell `ch` (0 for a
 /// continuation), `fg`, `bg`, `at`); each line of output is [`lay_out`]'s buffer, one
 /// `[kind, text, n, fg, bg, bold]` per cell: kind 0 plain, 1 a cluster `n` wide, 2 the cell `n`
@@ -1122,7 +1122,7 @@ pub fn layout_rows() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// `t3-agents-core --layout-strings`: the exhaustive mode of checks/scripts/cluster-fuzz.ts. Each
+/// `loupe-core --layout-strings`: the exhaustive mode of checks/scripts/cluster-fuzz.ts. Each
 /// input line is `<u|w|x> <columns> <code points in hex, comma separated>`: the code points as one
 /// run from column 0 of a row that wide, in one style. Each output line is the row as a compact
 /// signature: per cell `P<code point>` for a plain cell, `S<width>.<UTF-16 length>` for a

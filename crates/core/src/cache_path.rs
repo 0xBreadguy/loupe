@@ -4,10 +4,10 @@ use std::path::{Path, PathBuf};
 /// Return the cache database path, or `None` when caching is disabled or no home is known.
 pub fn insights_file() -> Option<PathBuf> {
     resolve(
-        std::env::var_os("T3_AGENTS_NO_CACHE").as_deref(),
+        std::env::var_os("LOUPE_NO_CACHE").as_deref(),
         std::env::var_os("XDG_CACHE_HOME").as_deref(),
         std::env::var_os("HOME").as_deref(),
-        std::env::var_os("T3_AGENTS_INSTALL_NAME").as_deref(),
+        std::env::var_os("LOUPE_INSTALL_NAME").as_deref(),
     )
 }
 
@@ -29,9 +29,9 @@ fn resolve(
                 .filter(|path| path.is_absolute())
                 .map(|path| path.join(".cache"))
         })?;
-    let mut dir = base.join("t3-agents");
+    let mut dir = base.join("loupe");
     if let Some(name) = name.and_then(|s| s.to_str()).filter(|s| valid_name(s)) {
-        if name != "t3-agents" {
+        if name != "loupe" {
             dir = base.join(name);
         }
     }
@@ -59,8 +59,8 @@ mod tests {
     #[test]
     fn cache_paths_follow_xdg_and_install_name() {
         assert_eq!(
-            path("", "/cache", "/home/u", "t3-agents"),
-            Some("/cache/t3-agents/insights.sqlite3".into())
+            path("", "/cache", "/home/u", "loupe"),
+            Some("/cache/loupe/insights.sqlite3".into())
         );
         assert_eq!(
             path("", "/cache", "/home/u", "other"),
@@ -68,7 +68,7 @@ mod tests {
         );
         assert_eq!(
             path("", "relative", "/home/u", "../bad"),
-            Some("/home/u/.cache/t3-agents/insights.sqlite3".into())
+            Some("/home/u/.cache/loupe/insights.sqlite3".into())
         );
         assert_eq!(path("1", "/cache", "/home/u", ""), None);
         assert_eq!(path("", "relative", "relative", ""), None);

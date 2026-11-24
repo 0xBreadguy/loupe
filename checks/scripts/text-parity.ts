@@ -18,7 +18,7 @@ import { level, spark, bigWidth } from '../../oracle/src/canvas.ts'
 import { spawnSync } from 'node:child_process'
 import { enabled as recording, recordGroup, recordKept, recordHidden } from './text-record.ts'
 
-const binary = process.env.T3_NATIVE_BINARY ?? 'target/release/t3-agents-core'
+const binary = process.env.T3_NATIVE_BINARY ?? 'target/release/loupe-core'
 const MAX_BUFFER = 512 * 1024 * 1024
 
 function probe(name: string, payload: string): string[] {
@@ -398,7 +398,7 @@ compare('thread_ref', refInputs.map((v) => [v]), ([value]) => {
 
 function makeAgent(random: () => number, index: number): any {
   const titles = ['Fix the build', 'Notes / ideas', 'Remote', 'Explore', 'Ünïcode 🍞', 'a  b', '', ' x ']
-  const projects = ['dotfiles', 'other', 't3-agents', 'proj 🍞', '', ' x ', 'a / b']
+  const projects = ['dotfiles', 'other', 'loupe', 'proj 🍞', '', ' x ', 'a / b']
   const updated = ['2026-11-12', '2026-11-13', '', 'z', '\uffff', '\ue000', '𐀀', '\u2028', '2026-11-12T11:00:00Z']
   const threadId = random() % 3 === 0 ? `sub-${index}` : `id-${index}`
   const id = `id-${index}`

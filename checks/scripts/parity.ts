@@ -8,7 +8,7 @@ import { actionName, replay } from "./oracle.ts"
 // Opt-in: with T3_RECORD set, export-semantic.ts turns this run into the recorded fixture.
 import { enabled as recording, recordAsset, recordCase } from "./record.ts"
 
-const binary = resolve(process.argv[2] ?? process.env.T3_NATIVE_BINARY ?? join(ROOT, "..", "target/release/t3-agents-core"))
+const binary = resolve(process.argv[2] ?? process.env.T3_NATIVE_BINARY ?? join(ROOT, "..", "target/release/loupe-core"))
 const output = resolve(process.argv[3] ?? join(ROOT, "generated/parity.json"))
 mkdirSync(join(ROOT, "generated"), { recursive: true })
 let operations = 0

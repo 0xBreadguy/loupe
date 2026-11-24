@@ -27,7 +27,7 @@ const MONTH_NAMES: [&str; 12] = ["January", "February", "March", "April", "May",
 const DAYS: [&str; 7] = recap::DAYS;
 const LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 /// The command a shared card names, so a screenshot says where it came from.
-const COMMAND: &str = "t3-agents --recap";
+const COMMAND: &str = "loupe --recap";
 
 /// How a card is written out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -161,7 +161,7 @@ pub(crate) fn coverage(r: &Recap, source: Source, roomy: bool) -> String {
 
 fn header(pen: &mut Pen, period: &str, state: &str, state_color: Rgb) {
     let p = pen.p;
-    let x = pen.runs(1, 0, &[("T3 Agents", p.fg, true), ("  ", p.dim, false), ("RECAP", p.text2, true), ("  ", p.dim, false), (period, p.fg, false), ("  ", p.dim, false)]);
+    let x = pen.runs(1, 0, &[("Loupe", p.fg, true), ("  ", p.dim, false), ("RECAP", p.text2, true), ("  ", p.dim, false), (period, p.fg, false), ("  ", p.dim, false)]);
     pen.c.text(x, 0, state, state_color);
     pen.c.right(pen.c.w as i32 - 1, 0, COMMAND, p.dim);
 }
@@ -1047,7 +1047,7 @@ fn ledger_wide(pen: &mut Pen, r: &Recap) {
 
 /// What a shared card needs said under it: how its numbers are counted. The last line is the
 /// same in every mode. "May be cached here" keeps it true with the cache on, with
-/// T3_AGENTS_NO_CACHE=1 and for --demo, which save nothing; nothing is sent in any of them.
+/// LOUPE_NO_CACHE=1 and for --demo, which save nothing; nothing is sent in any of them.
 const COUNTED: [&str; 2] = [
     "Agent hours: each run from start to end, plus waits on you after a run ended. Five agents for an hour count as 5h.",
     "Lines include generated files. Times are local. Read from T3's records. Numbers may be cached here; nothing is sent.",
@@ -1170,7 +1170,7 @@ fn paint_runs(pen: &mut Pen, x: i32, y: i32, runs: &[(String, Rgb, bool)]) {
 
 /// The header's period: the year when it fits, and a month's short name when the long one does not.
 fn list_period(r: &Recap) -> String {
-    let room = LIST_TEXT.saturating_sub(terminal::width("T3 Agents") + terminal::width("RECAP") + 4);
+    let room = LIST_TEXT.saturating_sub(terminal::width("Loupe") + terminal::width("RECAP") + 4);
     let with_year = period_with_year(r.period, &r.from, &r.to);
     if terminal::width(&with_year) <= room {
         return with_year;
@@ -1187,7 +1187,7 @@ fn list_period(r: &Recap) -> String {
 /// Row 0: the name, RECAP, and the period.
 fn list_header(p: &Palette, r: &Recap) -> ListRow {
     text_row(None, vec![
-        painted("T3 Agents", p.fg, true),
+        painted("Loupe", p.fg, true),
         painted("  ", p.dim, false),
         painted("RECAP", p.text2, true),
         painted("  ", p.dim, false),
@@ -1718,7 +1718,7 @@ mod tests {
         assert_eq!((c.w, c.h), (80, 23));
         let text = c.to_text();
         let rows: Vec<&str> = text.split('\n').collect();
-        assert!(rows[0].starts_with(" T3 Agents  RECAP  Nov 9 – 15  demo data · made up"), "{}", rows[0]);
+        assert!(rows[0].starts_with(" Loupe  RECAP  Nov 9 – 15  demo data · made up"), "{}", rows[0]);
         assert!(rows[0].ends_with(COMMAND));
         assert!(rows[2].contains("AGENT HOURS") && rows[2].contains("busiest ") && rows[2].contains("TASKS"));
         assert!(rows[6].contains("at once") && rows[6].contains("M  T  W  T  F  S  S") && rows[6].contains("finished"));
@@ -1804,7 +1804,7 @@ mod tests {
         assert_eq!((c.w, c.h), (WIDE_COLUMNS, WIDE_ROWS - 1));
         let text = c.to_text();
         let rows: Vec<&str> = text.split('\n').collect();
-        assert!(rows[0].starts_with(" T3 Agents  RECAP  Nov 9 – 15, 2026  demo data · made up") && rows[0].ends_with(COMMAND));
+        assert!(rows[0].starts_with(" Loupe  RECAP  Nov 9 – 15, 2026  demo data · made up") && rows[0].ends_with(COMMAND));
         assert!(rows[2].contains("AGENT HOURS") && rows[2].contains("TASKS") && rows[2].contains("MOST AT ONCE") && rows[2].contains("PRS MERGED"));
         assert!(rows[6].contains(" runs · ") && rows[6].contains(" did not") && rows[6].contains(r.most_at_once_when.as_deref().unwrap()));
         assert!(rows[8].starts_with(" AGENTS AT WORK, BY HOUR ─") && rows[8].contains("hours a day    WHERE THE HOURS WENT ─"));
@@ -1952,7 +1952,7 @@ mod tests {
         assert_eq!((c.w, c.h), (80, 23));
         let text = c.to_text();
         let rows: Vec<&str> = text.split('\n').collect();
-        assert!(rows[0].starts_with(" T3 Agents  RECAP  October 2026  31 of 31 days recorded") && rows[0].ends_with(COMMAND), "{}", rows[0]);
+        assert!(rows[0].starts_with(" Loupe  RECAP  October 2026  31 of 31 days recorded") && rows[0].ends_with(COMMAND), "{}", rows[0]);
         // Five weeks, each under the date it begins on. The last is the busiest: 85h.
         assert!(rows[2].contains("AGENT HOURS         busiest week · 85h    TASKS"), "{}", rows[2]);
         assert!(rows[6].starts_with("  up to 2 at once    1  5 12 19 26"), "{}", rows[6]);
@@ -1978,7 +1978,7 @@ mod tests {
         let c = card(&part, &p, Source::Records, false);
         let text = c.to_text();
         let rows: Vec<&str> = text.split('\n').collect();
-        assert!(rows[0].starts_with(" T3 Agents  RECAP  October 2026  so far · 5 days recorded") && rows[2].contains("busiest week · 36h"), "{}", rows[0]);
+        assert!(rows[0].starts_with(" Loupe  RECAP  October 2026  so far · 5 days recorded") && rows[2].contains("busiest week · 36h"), "{}", rows[0]);
         assert_eq!((columns(&part, true, 3), columns(&part, true, 5), columns(&part, true, 6)), ("      ▄▄".into(), "·  ·  ██".into(), " 1  5 12 19 26".into()));
         let ink = |x: i32, y: i32| c.get(x, y).map(|cell| (cell.ch, cell.fg)).unwrap();
         assert_eq!((ink(20, 5), ink(21, 6), ink(30, 6), ink(29, 5).0), (('·', p.faint), ('1', p.faint), ('9', p.faint), ' '));
@@ -2000,7 +2000,7 @@ mod tests {
         let text = c.to_text();
         let rows: Vec<&str> = text.split('\n').collect();
         let left = |y: usize| rows[y].chars().take(58).collect::<String>();
-        assert!(rows[0].starts_with(" T3 Agents  RECAP  October 2026  31 of 31 days recorded"), "{}", rows[0]);
+        assert!(rows[0].starts_with(" Loupe  RECAP  October 2026  31 of 31 days recorded"), "{}", rows[0]);
         assert!(rows[6].contains("Fri 30, 15:21"));
         // What did not finish is still said when the counts are too long for the first form.
         let mut many = october();
@@ -2030,7 +2030,7 @@ mod tests {
         let plain = wide(&part, &Palette::default(), Source::Records, true).to_text();
         let rows: Vec<&str> = plain.split('\n').collect();
         let left = |y: usize| rows[y].chars().take(58).collect::<String>();
-        assert!(rows[0].starts_with(" T3 Agents  RECAP  October 2026  so far, to Oct 18 · 5 days recorded"), "{}", rows[0]);
+        assert!(rows[0].starts_with(" Loupe  RECAP  October 2026  so far, to Oct 18 · 5 days recorded"), "{}", rows[0]);
         assert_eq!(left(10), "                       1      2      3      4            —");
         assert_eq!(left(11), "  5      6      7      8      9     10     11            —");
         assert_eq!(left(12), " 12     13     14 ░░░ 15 ███ 16 ░░░ 17 ··· 18 ···      36h");
@@ -2155,7 +2155,7 @@ mod tests {
     #[test]
     fn the_thin_week_and_the_heavy_month_match_the_list() {
         let thin = [
-            " T3 Agents  RECAP  Nov 9 – 15, 2026",
+            " Loupe  RECAP  Nov 9 – 15, 2026",
             " 7 of 7 days recorded",
             "",
             " 40m agent hours · one at a time",
@@ -2176,7 +2176,7 @@ mod tests {
             " No findings this week · no failures",
         ];
         let heavy = [
-            " T3 Agents  RECAP  October 2026",
+            " Loupe  RECAP  October 2026",
             " 31 of 31 days recorded",
             "",
             " 12345h agent hours",
@@ -2200,7 +2200,7 @@ mod tests {
             " 666 other tasks failed, of 99,999",
         ];
         let heavy_mono = [
-            " T3 Agents  RECAP  October 2026",
+            " Loupe  RECAP  October 2026",
             " 31 of 31 days recorded",
             "",
             " 12345h agent hours",

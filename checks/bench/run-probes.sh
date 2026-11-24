@@ -3,7 +3,7 @@
 # Results land in checks/generated/scale/results/probes-$TAG/.
 set -u
 cd "$(dirname "$0")/../.."
-BIN=target/release/t3-agents-core
+BIN=target/release/loupe-core
 DIR="${SCALE_DIR:-checks/generated/scale/t3}"
 TAG=$(echo "$DIR" | tr / -)
 OUT=checks/generated/scale/results/probes-$TAG

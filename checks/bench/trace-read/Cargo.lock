@@ -102,6 +102,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "loupe-core"
+version = "1.5.0"
+dependencies = [
+ "indexmap",
+ "libc",
+ "memchr",
+ "rusqlite",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -232,18 +244,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "t3-agents-core"
-version = "1.4.0"
-dependencies = [
- "indexmap",
- "libc",
- "memchr",
- "rusqlite",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "thiserror"
 version = "2.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -267,8 +267,8 @@ dependencies = [
 name = "trace-read-bench"
 version = "0.0.0"
 dependencies = [
+ "loupe-core",
  "rusqlite",
- "t3-agents-core",
 ]
 
 [[package]]

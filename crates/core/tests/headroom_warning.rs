@@ -5,11 +5,11 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use t3_agents_core::headroom::{DedicatedTemp, Volume, WarningVolume, warning_volumes};
-use t3_agents_core::host::{Clock, Host, poll_host};
-use t3_agents_core::model::{Snapshot, State};
-use t3_agents_core::terminal::Canvas;
-use t3_agents_core::ui::{self, Surface};
+use loupe_core::headroom::{DedicatedTemp, Volume, WarningVolume, warning_volumes};
+use loupe_core::host::{Clock, Host, poll_host};
+use loupe_core::model::{Snapshot, State};
+use loupe_core::terminal::Canvas;
+use loupe_core::ui::{self, Surface};
 
 const GIB: u64 = 1024 * 1024 * 1024;
 

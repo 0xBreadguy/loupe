@@ -585,7 +585,7 @@ export class Demo {
   /** Build the database now and, with refreshMs > 0, rebuild it on that period until stop(). */
   constructor(options: { now?: number; refreshMs?: number } = {}) {
     this.epoch = options.now ?? Date.now()
-    this.dir = mkdtempSync(join(tmpdir(), "t3-agents-demo-"))
+    this.dir = mkdtempSync(join(tmpdir(), "loupe-demo-"))
     this.path = join(this.dir, "statev2.sqlite")
     process.on("exit", this.stop)
     try {

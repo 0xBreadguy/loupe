@@ -142,7 +142,7 @@ test("a failing source with a snapshot kept: agents stay listed, tiles and foote
 test("unreadable and unknown databases get their own advice", () => {
   const cases = [
     [{ kind: "unreadable", path: "/x/statev2.sqlite", detail: "permission denied" }, /Can't read the T3 database at \/x\/statev2\.sqlite: permission denied\.[\s\S]*your user can read it/],
-    [{ kind: "schema", path: "/x/statev2.sqlite", detail: "missing orchestration_v2_projection_runs" }, /doesn't know[\s\S]*newer T3 Agents/],
+    [{ kind: "schema", path: "/x/statev2.sqlite", detail: "missing orchestration_v2_projection_runs" }, /doesn't know[\s\S]*newer Loupe/],
   ] as const
   for (const [cause, expected] of cases) {
     const { text } = render({ agents: [], at: 0, path: "" }, 150, 50, (st) => {

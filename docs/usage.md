@@ -1,11 +1,11 @@
-# Using T3 Agents
+# Using Loupe
 
-Run `t3-agents` in any terminal. `t3-agents --demo` runs it on made-up agents,
+Run `loupe` in any terminal. `loupe --demo` runs it on made-up agents,
 so you can try every key without touching your own data.
 
 ## A window of its own
 
-`t3-agents --window` opens the dashboard in a dedicated window (Linux only): [foot](https://codeberg.org/dnkl/foot) when it's installed,
+`loupe --window` opens the dashboard in a dedicated window (Linux only): [foot](https://codeberg.org/dnkl/foot) when it's installed,
 otherwise your default terminal through `xdg-terminal-exec`, otherwise
 `$TERMINAL -e`. Under Hyprland, `--window` focuses the dashboard instead when
 it's already open with its app id, which foot always sets and
@@ -37,8 +37,9 @@ it's already open with its app id, which foot always sets and
 
 In Insights, press `Tab` to switch between Recap and Tools. The left and right
 arrows step through this week, last week, this month and last month. Use the
-wheel or up and down arrows to scroll. Press `r` to read the report again,
-`?` for help, and `i` or Esc to return to Live. Esc closes help first.
+wheel, `↑` `↓` / `j` `k`, `PgUp` `PgDn` or `Home` `End` to scroll. Press `r` to
+read the report again, `?` for help, and `i` or Esc to return to Live. Esc
+closes help first.
 
 In Storage, use the arrows or wheel to select a row, Space to fold a project,
 Enter to open an eligible thread in T3 Code, and `r` to measure again. Press `s`
@@ -86,9 +87,9 @@ Options:
 | `--trace [ID]` | [one task on a time axis](features.md#trace): the latest, a thread's latest (its id, or the end of it), or the task that holds a run; with `--json`, the spans |
 | `--help` | list the options |
 
-Recap and Tools read directly by default. Set `T3_AGENTS_CACHE=1` to reuse
+Recap and Tools read directly by default. Set `LOUPE_CACHE=1` to reuse
 facts for finished runs on supported Linux filesystems.
-`T3_AGENTS_NO_CACHE=1` takes precedence.
+`LOUPE_NO_CACHE=1` takes precedence.
 
 By default it reads `~/.t3/userdata/statev2.sqlite`. If your T3 data lives
 somewhere else, set `T3CODE_HOME` to that folder (it reads

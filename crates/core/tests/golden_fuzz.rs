@@ -6,7 +6,7 @@
 mod support;
 use serde_json::Value;
 
-const BINARY: &str = env!("CARGO_BIN_EXE_t3-agents-core");
+const BINARY: &str = env!("CARGO_BIN_EXE_loupe-core");
 
 #[test]
 fn action_sequences_match_frozen_oracle() {

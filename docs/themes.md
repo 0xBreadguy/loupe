@@ -1,18 +1,18 @@
 # Themes
 
-T3 Agents ships 27 themes and reads any Omarchy theme. On Omarchy it follows
+Loupe ships 27 themes and reads any Omarchy theme. On Omarchy it follows
 your live theme, as it always has. Everywhere else it uses Frontier in the
 dark and Paper in the light, and switches between them with your terminal.
 
 ## Pick one
 
 - **`c` and `C`** in the dashboard step to the next and previous theme. The
-  choice is saved in `~/.config/t3-agents/config.toml` (or
-  `$XDG_CONFIG_HOME/t3-agents/`). With a dark and light pair, `c` changes the
+  choice is saved in `~/.config/loupe/config.toml` (or
+  `$XDG_CONFIG_HOME/loupe/`). With a dark and light pair, `c` changes the
   theme for the mode you're in.
-- **`--theme NAME`** for one run, **`T3_AGENTS_THEME=NAME`** for a shell or a
+- **`--theme NAME`** for one run, **`LOUPE_THEME=NAME`** for a shell or a
   launcher, or **`theme = "NAME"`** in the config file.
-- **`t3-agents --themes`** lists every theme and marks the one in use.
+- **`loupe --themes`** lists every theme and marks the one in use.
 
 What `NAME` can be:
 
@@ -23,7 +23,7 @@ What `NAME` can be:
 | `omarchy` | the live Omarchy theme (the plain gray one where there's no Omarchy) |
 | `dark:frontier,light:paper` | one theme for dark mode and one for light |
 
-The first of these that's set wins: `--theme`, `T3_AGENTS_THEME`, the config
+The first of these that's set wins: `--theme`, `LOUPE_THEME`, the config
 file, the live Omarchy theme, then `dark:frontier,light:paper`. A name that
 doesn't exist stops `--theme` with an error. In the variable or the config
 file it's skipped, and the dashboard says so when it starts.
@@ -43,9 +43,9 @@ With a pair, the dashboard picks the theme for the mode you're in:
 
 | Theme | Mode | From |
 | --- | --- | --- |
-| `frontier` | dark | T3 Agents: near-black and graphite, color only where it means something |
-| `paper` | light | T3 Agents: a printed report on warm paper |
-| `phosphor` | dark | T3 Agents: an amber CRT, made for `x` |
+| `frontier` | dark | Loupe: near-black and graphite, color only where it means something |
+| `paper` | light | Loupe: a printed report on warm paper |
+| `phosphor` | dark | Loupe: an amber CRT, made for `x` |
 | `dracula` | dark | the Dracula spec |
 | `catppuccin`, `ethereal`, `everforest`, `gruvbox`, `hackerman`, `jade-horse`, `kanagawa`, `last-horizon`, `lumon`, `matte-black`, `miasma`, `nord`, `retro-82`, `ristretto`, `solitude`, `starship`, `tokyo-night`, `vantablack` | dark | Omarchy |
 | `catppuccin-latte`, `flexoki-light`, `lupine`, `rose-pine`, `white` | light | Omarchy |
@@ -77,7 +77,7 @@ use, and `--theme-check` notes the shared hue.
 
 ## Make your own
 
-1. Make `~/.config/t3-agents/themes/mine.toml`. Start from a file in
+1. Make `~/.config/loupe/themes/mine.toml`. Start from a file in
    [`themes/`](../themes/), or from three lines:
 
    ```toml
@@ -86,9 +86,9 @@ use, and `--theme-check` notes the shared hue.
    name = "Tokyo, my way"
    ```
 
-2. Run `t3-agents --demo --theme mine`. Save the file and the dashboard
+2. Run `loupe --demo --theme mine`. Save the file and the dashboard
    redraws within a second.
-3. Run `t3-agents --theme-check mine` to see contrast, colorblind separation,
+3. Run `loupe --theme-check mine` to see contrast, colorblind separation,
    unknown keys, and any color the dashboard changed and why.
 
 A theme is an Omarchy `colors.toml`, so any Omarchy theme's file works as is.
@@ -120,13 +120,13 @@ closest.
 
 ### In an Omarchy theme
 
-Put the dashboard's keys in a `t3-agents.toml` beside the theme's
+Put the dashboard's keys in a `loupe.toml` beside the theme's
 `colors.toml`. Omarchy copies it into the live theme like any other file the
 theme ships, and the dashboard reads it from there. It wins over the colors
 added for Omarchy's own themes.
 
 To give every Omarchy theme the same rule, make an Omarchy template,
-`~/.config/omarchy/themed/t3-agents.toml.tpl`, and Omarchy writes it into each
+`~/.config/omarchy/themed/loupe.toml.tpl`, and Omarchy writes it into each
 theme you switch to:
 
 ```toml
@@ -139,7 +139,7 @@ gemini = "{{ blue }}"
 ## Checking a theme
 
 ```text
-$ t3-agents --theme-check frontier
+$ loupe --theme-check frontier
 Frontier (built in) · dark
 …
 Separation of Claude, OpenAI, Grok, Gemini, needs you and warning (OKLab ΔE × 100)
@@ -158,6 +158,6 @@ apart.
 
 ## The original's colors
 
-`T3_AGENTS_NO_THEMES=1` puts back the Node.js version's behavior: the live
+`LOUPE_NO_THEMES=1` puts back the Node.js version's behavior: the live
 Omarchy theme or plain gray, no `c`, and no theme options. The checks that
 compare the two programs run with it.

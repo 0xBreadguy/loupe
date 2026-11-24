@@ -1,7 +1,7 @@
 # Terminal front door for the core cell grid. No TUI framework: the canvas is
 # already the composed screen, and this crate only diffs it and writes escapes.
 [package]
-name = "t3-agents-term"
+name = "loupe-term"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,10 +9,10 @@ publish.workspace = true
 
 [features]
 # `--frame-stream`: hash every frame the dashboard would write, on a scripted clock, with no terminal.
-frame-stream = ["t3-agents-core/frame-stream"]
+frame-stream = ["loupe-core/frame-stream"]
 
 [dependencies]
-t3-agents-core = { path = "../core" }
+loupe-core = { path = "../core" }
 
 # Every operating-system call is in `src/platform`. Unix uses libc; the Windows stubs use std only.
 [target.'cfg(unix)'.dependencies]
@@ -22,6 +22,6 @@ libc.workspace = true
 # flate2 reads the recorded fixtures (tests/golden_terminal.rs), as it does for the core's golden tests.
 flate2 = "1"
 serde_json.workspace = true
-t3-agents-core = { path = "../core" }
+loupe-core = { path = "../core" }
 # tests/insights_data_gate.rs builds its own synthetic T3 databases.
 rusqlite.workspace = true

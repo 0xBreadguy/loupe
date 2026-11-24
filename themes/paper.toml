@@ -1,4 +1,4 @@
-# Paper, a T3 Agents theme: a printed report on warm stock. Graphite ink, a
+# Paper, a Loupe theme: a printed report on warm stock. Graphite ink, a
 # proofreader's red for "needs you", amber for warnings.
 name = "Paper"
 mode = "light"
@@ -33,7 +33,7 @@ bright_cyan = "#0aa192"
 bright_blue = "#2f50c4"
 bright_magenta = "#7a4787"
 
-# T3 Agents roles. Claude is plum here: on a light page, orange already reads as a warning.
+# Loupe roles. Claude is plum here: on a light page, orange already reads as a warning.
 # Grok takes the ink blue, so Gemini is a lighter azure.
 hot    = "#97182b"
 warn   = "#9a5505"

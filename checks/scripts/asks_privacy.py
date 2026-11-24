@@ -88,7 +88,7 @@ class Privacy(lib.Base):
     def recap(self, fx):
         code, out, err = lib.run(
             ['--recap', '--this-week', '--json', '--db', str(fx.path),
-             '--now-ms', str(lib.NOW_MS)], T3_AGENTS_NO_THEMES='', TZ='UTC')
+             '--now-ms', str(lib.NOW_MS)], LOUPE_NO_THEMES='', TZ='UTC')
         self.assertEqual((code, err), (0, ''), out)
         self.assertFalse(lib.leaks(out), 'private marker in Recap')
         return json.loads(out)
@@ -96,7 +96,7 @@ class Privacy(lib.Base):
     def trace(self, fx, run):
         code, out, err = lib.run(
             ['--trace', run, '--json', '--db', str(fx.path), '--now-ms', str(lib.NOW_MS)],
-            T3_AGENTS_NO_THEMES='', TZ='UTC')
+            LOUPE_NO_THEMES='', TZ='UTC')
         self.assertEqual((code, err), (0, ''), out)
         self.assertFalse(lib.leaks(out), 'private marker in Trace')
         return json.loads(out)
@@ -158,7 +158,7 @@ class Privacy(lib.Base):
         self.assertEqual(self.recap(fx)['asks']['count'], 0)
 
     def test_watch_keeps_ask_counts_across_commits(self):
-        """One real `t3-agents-term --status --watch` process, across committed updates.
+        """One real `loupe-term --status --watch` process, across committed updates.
 
         Starts on an active thread with a message-mode formal ask and one completed
         reader-directed question. A non-human delivery is committed in the same

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-# Install or update T3 Agents for the current user. Safe to rerun.
+# Install or update Loupe for the current user. Safe to rerun.
 set -euo pipefail
 source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
 bin_dir="$HOME/.local/bin"
-app_dir="$data_dir/t3-agents"
-desktop_file="$data_dir/applications/t3-agents.desktop"
-marker='Managed by t3-agents (github.com/0xBreadguy/t3-agents)'
-old_marker='Managed by omarchy-config/tools/t3-agents' # earlier installs; replaced on upgrade
+app_dir="$data_dir/loupe"
+desktop_file="$data_dir/applications/loupe.desktop"
+marker='Managed by loupe (github.com/0xBreadguy/loupe)'
+old_marker='Managed by omarchy-config/tools/loupe' # earlier installs; replaced on upgrade
 # The dashboard window's app id. TUI.* is the convention Omarchy's window rules
 # treat as a terminal app (Super+C copies, terminal opacity) without making it
 # float (only TUI.float floats), and it is neither Omarchy's nor T3's name.
-app_id=TUI.t3-agents
+app_id=TUI.loupe
 
 # OpenTUI's native core runs under Node.js through its FFI support (26.4+).
 node_bin=$(type -P node || true)
@@ -29,7 +29,7 @@ if ! command -v npm >/dev/null 2>&1; then
   exit 1
 fi
 
-for path in "$bin_dir/t3-agents" "$desktop_file"; do
+for path in "$bin_dir/loupe" "$desktop_file"; do
   if [[ -e "$path" ]] && ! grep -qF -e "$marker" -e "$old_marker" "$path"; then
     printf 'Refusing to overwrite existing file: %s\n' "$path" >&2
     exit 1
@@ -50,7 +50,7 @@ fi
 
 # Written beside the old launcher and moved into place, so the bar widget never
 # runs a half-written file.
-launcher=$(mktemp "$bin_dir/.t3-agents.XXXXXX")
+launcher=$(mktemp "$bin_dir/.loupe.XXXXXX")
 trap 'rm -f "$launcher"' EXIT
 {
   printf '#!/usr/bin/env bash\n# %s\nset -euo pipefail\n' "$marker"
@@ -58,15 +58,15 @@ trap 'rm -f "$launcher"' EXIT
   # shell builds (mise, nvm), so keep the Node.js this installer checked.
   printf 'installed_node=%q # the Node.js the installer checked\napp_id=%q # app id of the dashboard window\n' "$node_bin" "$app_id"
   cat <<'SH'
-app="${XDG_DATA_HOME:-$HOME/.local/share}/t3-agents"
+app="${XDG_DATA_HOME:-$HOME/.local/share}/loupe"
 # The checked Node.js first: a project's version manager can put an older one on PATH.
 if [[ -x $installed_node ]]; then
   node=$installed_node
 elif ! node=$(type -P node); then
-  printf 't3-agents: Node.js not found (it was at %s at install time). Rerun the T3 Agents installer.\n' "$installed_node" >&2
+  printf 'loupe: Node.js not found (it was at %s at install time). Rerun the Loupe installer.\n' "$installed_node" >&2
   # The bar widget reads stdout: give it a reason it can show.
   if [[ " $* " == *' --status '* ]]; then
-    printf '{"v":1,"running":0,"waiting":0,"failed":0,"agents":[],"error":"Node.js not found. Rerun the T3 Agents installer."}\n'
+    printf '{"v":1,"running":0,"waiting":0,"failed":0,"agents":[],"error":"Node.js not found. Rerun the Loupe installer."}\n'
   fi
   exit 127
 fi
@@ -85,39 +85,39 @@ if [[ "${1:-}" == '--window' ]]; then
     fi
   fi
   if command -v foot >/dev/null; then
-    exec foot --app-id="$app_id" --title='T3 Agents' "${run[@]}" "$@"
+    exec foot --app-id="$app_id" --title='Loupe' "${run[@]}" "$@"
   elif command -v xdg-terminal-exec >/dev/null; then
-    exec xdg-terminal-exec --app-id="$app_id" --title='T3 Agents' -- "${run[@]}" "$@"
+    exec xdg-terminal-exec --app-id="$app_id" --title='Loupe' -- "${run[@]}" "$@"
   elif [[ -n ${TERMINAL:-} ]]; then
     read -ra terminal <<<"$TERMINAL"
     exec "${terminal[@]}" -e "${run[@]}" "$@"
   fi
-  message='t3-agents --window needs foot, xdg-terminal-exec or a TERMINAL variable. Or run t3-agents inside any terminal.'
+  message='loupe --window needs foot, xdg-terminal-exec or a TERMINAL variable. Or run loupe inside any terminal.'
   printf '%s\n' "$message" >&2
   # Started from the app launcher, stderr goes nowhere anyone reads.
-  if [[ ! -t 2 ]] && command -v notify-send >/dev/null; then notify-send 'T3 Agents' "$message" || true; fi
+  if [[ ! -t 2 ]] && command -v notify-send >/dev/null; then notify-send 'Loupe' "$message" || true; fi
   exit 1
 fi
 exec "${run[@]}" "$@"
 SH
 } >"$launcher"
 chmod 755 "$launcher"
-mv -f "$launcher" "$bin_dir/t3-agents"
+mv -f "$launcher" "$bin_dir/loupe"
 trap - EXIT
 
 # Desktop Entry Exec has its own quoting rules, distinct from shell quoting.
-"$node_bin" - "$desktop_file" "$bin_dir/t3-agents" "$marker" "$app_id" <<'JS'
+"$node_bin" - "$desktop_file" "$bin_dir/loupe" "$marker" "$app_id" <<'JS'
 const { writeFileSync } = require("node:fs")
 const [file, command, marker, appId] = process.argv.slice(2)
 const quoted = command.replace(/[\\"`$]/g, (c) => "\\" + c).replace(/%/g, "%%")
-writeFileSync(file, `# ${marker}\n[Desktop Entry]\nType=Application\nName=T3 Agents\n` +
+writeFileSync(file, `# ${marker}\n[Desktop Entry]\nType=Application\nName=Loupe\n` +
   "Comment=Unofficial live dashboard for T3 Code agents, context and limits\n" +
   `Exec="${quoted}" --window\nIcon=utilities-system-monitor\nTerminal=false\nCategories=Development;\n` +
   `StartupWMClass=${appId}\n`)
 JS
 
-printf 'Installed T3 Agents. Run t3-agents or t3-agents --window.\n'
+printf 'Installed Loupe. Run loupe or loupe --window.\n'
 case ":$PATH:" in
   *":$bin_dir:"* | *":$bin_dir/:"*) ;;
-  *) printf 'Note: %s is not on your PATH, so run %s or add that folder to PATH.\n' "$bin_dir" "$bin_dir/t3-agents" ;;
+  *) printf 'Note: %s is not on your PATH, so run %s or add that folder to PATH.\n' "$bin_dir" "$bin_dir/loupe" ;;
 esac

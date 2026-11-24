@@ -15,7 +15,7 @@
 // canvas cleans (joiners, tags, variation selectors) still reaches drawText this way.
 //
 //   node --experimental-ffi checks/scripts/cluster-fuzz.ts [--strings N] [--seed S] [--show N]
-//   T3_NATIVE_BINARY=<t3-agents-core> to test another build.
+//   T3_NATIVE_BINARY=<loupe-core> to test another build.
 //
 //   ... --exhaustive   every code point (surrogates aside) in twenty contexts that tell its grapheme
 //                      class and width apart (alone, after a letter, before a combining mark, after
@@ -31,7 +31,7 @@ import { flush } from "../../oracle/src/app.ts"
 import { CONTINUATION, Canvas, fit } from "../../oracle/src/canvas.ts"
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../..")
-const coreBin = resolve(process.env.T3_NATIVE_BINARY ?? join(REPO, "target/release/t3-agents-core"))
+const coreBin = resolve(process.env.T3_NATIVE_BINARY ?? join(REPO, "target/release/loupe-core"))
 const args = process.argv.slice(2)
 const opt = (name: string, d: number) => (args.includes(name) ? Number(args[args.indexOf(name) + 1]) : d)
 const STRINGS = opt("--strings", 20000)

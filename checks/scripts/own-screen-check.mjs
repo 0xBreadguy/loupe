@@ -24,7 +24,7 @@ if (!opt('--db')) {
   process.exit(2)
 }
 const db = resolve(opt('--db').replace(/^~(?=\/)/, homedir()))
-const core = resolve(opt('--core', join(root, 'target/release/t3-agents-core')))
+const core = resolve(opt('--core', join(root, 'target/release/loupe-core')))
 const shapes = Number(opt('--shapes', '0'))
 // The last stage before the terminal. The original hands its renderer (OpenTUI) the canvas as
 // runs of text, and the renderer regroups each run into grapheme clusters; the Rust build does

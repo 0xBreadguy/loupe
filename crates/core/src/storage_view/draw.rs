@@ -341,7 +341,7 @@ pub(super) fn render(
     let mut c = Canvas::new(layout.w, layout.h);
     c.clear(p.bg, p.fg);
     if !layout.fits() {
-        c.text_bold(1, 0, "T3 Agents · Storage", p.bright);
+        c.text_bold(1, 0, "Loupe · Storage", p.bright);
         c.text(1, 2, if layout.w < 17 { "Enlarge terminal" } else if layout.w < 42 { "Minimum: 48 × 14" } else { "Enlarge the terminal to at least 48 × 14." }, p.dim);
         c.text(1, 3, "s back   q quit", p.accent);
         return c;

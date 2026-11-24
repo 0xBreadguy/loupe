@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant},
 };
 use support::Db;
-use t3_agents_core::{
+use loupe_core::{
     host::{self, Clock, Host},
     model::{Snapshot, State},
 };

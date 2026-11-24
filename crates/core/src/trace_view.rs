@@ -357,7 +357,7 @@ pub fn draw(t: &Trace, p: &Palette, cols: usize, rows: usize, view: &View, local
     };
     let right = format!("{mark} {word} {}", duration(elapsed));
     let rx = cols.saturating_sub(1 + terminal::width(&right));
-    let x = pen.text(1, 0, "T3 Agents  ", p.fg, true);
+    let x = pen.text(1, 0, "Loupe  ", p.fg, true);
     let x = pen.text(x, 0, "TRACE  ", p.text2, true);
     let demo = if view.demo { " · made up" } else { "" };
     let room = rx.saturating_sub(x as usize + 1);
@@ -674,7 +674,7 @@ fn finish(mut canvas: Canvas, rows: Vec<(String, i32)>, selected: Option<String>
 pub fn notice(p: &Palette, cols: usize, rows: usize, title: &str, message: &str, tips: &[String]) -> Canvas {
     let mut pen = Pen { c: Canvas::new(cols, rows), p };
     pen.c.clear(p.bg, p.fg);
-    pen.text(1, 0, "T3 Agents  TRACE", p.fg, true);
+    pen.text(1, 0, "Loupe  TRACE", p.fg, true);
     pen.text(1, 2, &terminal::fit(title, cols.saturating_sub(2)), p.text2, true);
     let mut y = 4;
     for text in std::iter::once(message).chain(tips.iter().map(String::as_str)) {
@@ -753,7 +753,7 @@ mod tests {
                 let d = draw(&t, &Palette::default(), w, h, &view(&t), &utc);
                 assert_eq!(d.canvas.cells.len(), w * h);
                 assert!(d.canvas.to_text().lines().all(|s| terminal::width(s) <= w));
-                assert!(row(&d.canvas, 0).contains("T3 Agents  TRACE"));
+                assert!(row(&d.canvas, 0).contains("Loupe  TRACE"));
                 assert!(row(&d.canvas, h - 1).contains("↑↓ step  ←→ task  ⏎ open  w back  ? help"));
                 assert!(d.rows.iter().all(|(_, y)| *y >= 8 && *y < h as i32 - 2));
                 assert!(d.rows.iter().any(|(k, _)| Some(k) == d.selected.as_ref()));
@@ -1049,7 +1049,7 @@ mod tests {
 pub fn small(p: &Palette, cols: usize, rows: usize) -> Canvas {
     let mut c = Canvas::new(cols, rows);
     c.clear(p.bg, p.fg);
-    c.text_bold(1, 0, "T3 Agents", p.bright);
+    c.text_bold(1, 0, "Loupe", p.bright);
     c.text(1, 2, if cols < 17 { "Enlarge terminal" } else if cols < 42 { "Minimum: 60 × 16" } else { "Enlarge the terminal to at least 60 × 16." }, p.dim);
     c.text(1, 3, "w back   q quit", p.accent);
     c

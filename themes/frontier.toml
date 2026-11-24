@@ -1,4 +1,4 @@
-# Frontier, a T3 Agents theme: near-black and graphite, with color only where it means
+# Frontier, a Loupe theme: near-black and graphite, with color only where it means
 # something. The context ramp is gray, so a color on screen is a provider or an alert.
 name = "Frontier"
 mode = "dark"
@@ -33,7 +33,7 @@ bright_cyan = "#b4ece3"
 bright_blue = "#bdc1ff"
 bright_magenta = "#e07fcc"
 
-# T3 Agents roles. Claude wears Anthropic's clay, so "needs you" moves to fuchsia, and
+# Loupe roles. Claude wears Anthropic's clay, so "needs you" moves to fuchsia, and
 # Gemini wears Google's blue.
 hot    = "#bf3ca4"
 warn   = "#f2bb25"

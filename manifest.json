@@ -1,10 +1,10 @@
 {
   "schemaVersion": 1,
-  "id": "0xbreadguy.t3-agents",
-  "name": "T3 Agents",
-  "version": "1.4.0",
+  "id": "0xbreadguy.loupe",
+  "name": "Loupe",
+  "version": "1.5.0",
   "author": "0xBreadguy",
-  "description": "Unofficial: running and waiting T3 Code agents in the bar. Click for a card listing them; right-click opens the T3 Agents dashboard. Not affiliated with Omarchy or T3 Code.",
+  "description": "Unofficial: running and waiting T3 Code agents in the bar. Click for a card listing them; right-click opens the Loupe dashboard. Not affiliated with Omarchy or T3 Code.",
   "kinds": [
     "service",
     "bar-widget"
@@ -14,7 +14,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "T3 Agents",
+    "displayName": "Loupe",
     "description": "Unofficial. A dot cell that spins, with a count, while T3 Code agents run, the bar's alert color with a diamond when one needs you, and an alert icon when it can't read T3. Click opens a card listing the agents, right-click opens the dashboard, middle-click restarts the watcher.",
     "category": "AI",
     "allowMultiple": false,
