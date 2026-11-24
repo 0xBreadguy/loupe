@@ -8,10 +8,10 @@ This file covers two jobs: installing it for someone, and working on the code. [
 
 It runs on Linux. T3 Code's desktop app must be on the same machine, because the dashboard reads its database. For macOS there is a preview build with no installer: follow [docs/install.md](docs/install.md#macos-preview) (download, unpack, run `./t3-agents-term --demo`, and copy the program onto `PATH` only if the person wants to keep it), and say that it is a preview. Windows is not supported yet.
 
-**With a release archive.** No toolchain is needed. The [releases page](https://github.com/0xBreadguy/t3-agents/releases/latest) has one archive for x86-64 and one for ARM, and a `SHA256SUMS` file listing both. Check the page for the newest version and use its number for `v`.
+**With a release archive.** No toolchain is needed. The [releases page](https://github.com/0xBreadguy/t3-agents/releases/latest) has one archive for x86-64 and one for ARM, and a `SHA256SUMS` file listing all release archives. Check the page for the newest version and use its number for `v`.
 
 ```sh
-v=1.4.0 t=$(uname -m)-unknown-linux-gnu
+v=1.5.0 t=$(uname -m)-unknown-linux-gnu
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/t3-agents-$v-$t.tar.gz"
 curl -fLO "https://github.com/0xBreadguy/t3-agents/releases/download/v$v/SHA256SUMS"
 sha256sum -c --ignore-missing SHA256SUMS

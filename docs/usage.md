@@ -37,8 +37,9 @@ it's already open with its app id, which foot always sets and
 
 In Insights, press `Tab` to switch between Recap and Tools. The left and right
 arrows step through this week, last week, this month and last month. Use the
-wheel or up and down arrows to scroll. Press `r` to read the report again,
-`?` for help, and `i` or Esc to return to Live. Esc closes help first.
+wheel, `↑` `↓` / `j` `k`, `PgUp` `PgDn` or `Home` `End` to scroll. Press `r` to
+read the report again, `?` for help, and `i` or Esc to return to Live. Esc
+closes help first.
 
 In Storage, use the arrows or wheel to select a row, Space to fold a project,
 Enter to open an eligible thread in T3 Code, and `r` to measure again. Press `s`
