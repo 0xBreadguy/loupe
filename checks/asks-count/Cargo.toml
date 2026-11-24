@@ -10,4 +10,4 @@ publish = false
 
 [dependencies]
 serde_json = "1"
-t3-agents-core = { path = "../../crates/core" }
+loupe-core = { path = "../../crates/core" }

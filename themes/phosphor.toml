@@ -1,4 +1,4 @@
-# Phosphor, a T3 Agents theme: an amber CRT, made for the x key's scanlines. Providers
+# Phosphor, a Loupe theme: an amber CRT, made for the x key's scanlines. Providers
 # glow at different brightness; only "needs you" breaks the amber.
 name = "Phosphor"
 mode = "dark"
@@ -33,7 +33,7 @@ bright_cyan = "#f8ead0"
 bright_blue = "#e09a1e"
 bright_magenta = "#ffb3d2"
 
-# T3 Agents roles. Providers separate by brightness: Claude bright, OpenAI mid, Grok dim.
+# Loupe roles. Providers separate by brightness: Claude bright, OpenAI mid, Grok dim.
 # Gemini is the one blue on the screen, the way it is in every theme.
 hot    = "#fb6ca0"
 warn   = "#eef392"

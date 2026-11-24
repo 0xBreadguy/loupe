@@ -134,10 +134,10 @@ impl Host {
 /// From now on, read T3's database on a background thread. The interface thread only
 /// takes finished snapshots, so a slow read never delays a frame, and a poll in which
 /// nothing changed costs it nothing. `wake` is called from that thread when a snapshot
-/// is ready; it must only notify. `T3_AGENTS_SYNC_READ` keeps the reads on the interface
+/// is ready; it must only notify. `LOUPE_SYNC_READ` keeps the reads on the interface
 /// thread, for comparison.
 pub fn start_live(h: &mut Host, interval: f64, wake: impl Fn() + Send + 'static) {
-    if std::env::var_os("T3_AGENTS_SYNC_READ").is_some() {
+    if std::env::var_os("LOUPE_SYNC_READ").is_some() {
         h.initial_reader = None;
         return;
     }

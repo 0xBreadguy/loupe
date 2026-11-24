@@ -22,7 +22,7 @@
 //! History (160 turns/provider), plans and spans decorate fields status never
 //! consumes. They are candidates for omission, not an implemented optimization.
 //! The database watcher below runs the incremental reader in its status-only form, which
-//! reduces every agent to the fields listed here; `T3_AGENTS_SYNC_READ` keeps the full reader.
+//! reduces every agent to the fields listed here; `LOUPE_SYNC_READ` keeps the full reader.
 //!
 use crate::{
     clock, demo, live,
@@ -363,7 +363,7 @@ struct Watcher<'a> {
     checked: f64,
     last: String,
     /// The incremental reader, kept open between ticks. `None` until the first read, after
-    /// a read error, and always when `T3_AGENTS_SYNC_READ` asks for the original's full read.
+    /// a read error, and always when `LOUPE_SYNC_READ` asks for the original's full read.
     reader: Option<live::Reader>,
     incremental: bool,
 }
@@ -376,7 +376,7 @@ impl<'a> Watcher<'a> {
             checked: 0.0,
             last: String::new(),
             reader: None,
-            incremental: std::env::var_os("T3_AGENTS_SYNC_READ").is_none(),
+            incremental: std::env::var_os("LOUPE_SYNC_READ").is_none(),
         }
     }
 
@@ -538,7 +538,7 @@ fn parent_pid() -> i32 {
 // ── CLI ─────────────────────────────────────────────────────────────────────
 
 const USAGE: &str =
-    "Usage: t3-agents --status [--watch] [--db PATH | --snapshot FILE] [--now-ms MS]
+    "Usage: loupe --status [--watch] [--db PATH | --snapshot FILE] [--now-ms MS]
 
   --status          print a one-line JSON status (used by the Omarchy bar widget)
   --watch           with --status, print a new line whenever the status changes

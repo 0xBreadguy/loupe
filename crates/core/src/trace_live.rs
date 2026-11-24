@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn the_watch_reads_the_task_and_stops_when_dropped() {
-        let dir = std::env::temp_dir().join(format!("t3-agents-trace-watch-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loupe-trace-watch-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("synthetic.sqlite");
         let _ = std::fs::remove_file(&path);

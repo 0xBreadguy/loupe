@@ -4,7 +4,7 @@
 Two arms, each started inside an omabox desktop, never on the real one:
 
   typescript   foot running `node oracle/src/main.ts`
-  rust_term    foot running `t3-agents-term`
+  rust_term    foot running `loupe-term`
 
 Two scenarios:
 
@@ -38,7 +38,7 @@ def command(arm, scenario, db_in_box):
     source = ["--demo"] if scenario == "demo" else ["--db", db_in_box]
     if arm == "typescript":
         return NODE + [str(ROOT / "oracle/src/main.ts")] + source + ["--calm"]
-    return [str(BINARIES.get(arm, RELEASE / "t3-agents-term"))] + source + ["--calm"]
+    return [str(BINARIES.get(arm, RELEASE / "loupe-term"))] + source + ["--calm"]
 
 
 def processes():

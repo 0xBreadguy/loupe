@@ -14,7 +14,7 @@ use std::{
     thread,
 };
 
-use t3_agents_core::{
+use loupe_core::{
     clock, platform,
     product::{self, Database},
     recap::{Recap, Which},

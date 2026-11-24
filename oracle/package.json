@@ -1,12 +1,12 @@
 {
-  "name": "t3-agents",
+  "name": "loupe",
   "version": "1.0.0",
   "private": true,
   "description": "Live visual terminal dashboard for local T3 Code agents and subagents",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/0xBreadguy/t3-agents.git",
+    "url": "git+https://github.com/0xBreadguy/loupe.git",
     "directory": "dashboard"
   },
   "type": "module",

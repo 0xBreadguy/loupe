@@ -2,7 +2,7 @@
 
 use std::{io, path::Path, sync::Arc};
 
-use t3_agents_core::{
+use loupe_core::{
     clock,
     insights_view::{self as view, Body, InsightsView, Motion, Tab},
     model::State,
@@ -11,7 +11,7 @@ use t3_agents_core::{
     recap_view::Source,
     terminal::Canvas,
 };
-use t3_agents_term::{
+use loupe_term::{
     Encoder,
     insights_data::{InsightsData, ReadError, Report, Selection, Snapshot, Value},
     platform::{self, Wake},
@@ -335,7 +335,7 @@ fn notice(error: &ReadError, source: InsightsSource) -> (String, Vec<String>) {
     let first = lines
         .next()
         .unwrap_or_default()
-        .trim_start_matches("t3-agents: ");
+        .trim_start_matches("loupe: ");
     let mut message: String = first
         .chars()
         .take(1)
@@ -345,7 +345,7 @@ fn notice(error: &ReadError, source: InsightsSource) -> (String, Vec<String>) {
     if !message.ends_with('.') {
         message.push('.');
     }
-    let home = t3_agents_core::platform::home_dir();
+    let home = loupe_core::platform::home_dir();
     let home = home
         .as_ref()
         .and_then(|path| path.to_str())

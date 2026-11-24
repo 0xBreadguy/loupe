@@ -110,7 +110,7 @@ pub fn source(
         if last.is_none() {
             println!(
                 "{}",
-                json!({"implementation":"rust-t3-agents-core","path":db,"operations":n,"errors":errors,"first_error":error})
+                json!({"implementation":"rust-loupe-core","path":db,"operations":n,"errors":errors,"first_error":error})
             );
             return Err("every snapshot failed".into());
         }
@@ -122,7 +122,7 @@ pub fn source(
     println!(
         "{}",
         json!({
-            "implementation": "rust-t3-agents-core",
+            "implementation": "rust-loupe-core",
             "sqlite_version": sqlite_version,
             "path": db,
             "now": now,
@@ -556,7 +556,7 @@ pub fn probe_incremental(
     println!(
         "{}",
         serde_json::to_string_pretty(&json!({
-            "implementation": "rust-t3-agents-core",
+            "implementation": "rust-loupe-core",
             "db": db_path,
             "now": now,
             "threads": all_ids.len(),
@@ -587,11 +587,11 @@ pub fn reader_poll(
     let now: Option<f64> = now.map(|v| v.parse()).transpose()?;
     let mut reader = crate::live::Reader::open(&path)?.with_self_check(self_check);
     // The status watcher's reader: agents as `status_view`, no item text read.
-    if std::env::var_os("T3_AGENTS_STATUS_ONLY").is_some() {
+    if std::env::var_os("LOUPE_STATUS_ONLY").is_some() {
         reader = reader.status_only();
     }
     // Explicit opt-in, scoped to this headless benchmark process.
-    let profile = std::env::var_os("T3_AGENTS_READER_POLL_PROFILE").is_some();
+    let profile = std::env::var_os("LOUPE_READER_POLL_PROFILE").is_some();
     crate::source::timing::enable(profile);
     let stdin = std::io::stdin();
     let mut out = std::io::stdout().lock();
@@ -619,7 +619,7 @@ pub fn reader_poll(
         // Diagnosis on synthetic databases: keep the snapshot that disagreed with the full
         // reader, so the two can be compared field by field.
         if update.mismatch {
-            if let Some(dir) = std::env::var_os("T3_AGENTS_DUMP_MISMATCH") {
+            if let Some(dir) = std::env::var_os("LOUPE_DUMP_MISMATCH") {
                 let file = std::path::Path::new(&dir).join(format!("mismatch-{}.json", reader.mismatches()));
                 std::fs::write(file, serde_json::to_vec(&update.snapshot)?)?;
             }
@@ -630,11 +630,11 @@ pub fn reader_poll(
         };
         let c = &update.counters;
         let ms = |d: std::time::Duration| d.as_secs_f64() * 1000.;
-        let account = std::env::var_os("T3_AGENTS_CACHE_ACCOUNT")
+        let account = std::env::var_os("LOUPE_CACHE_ACCOUNT")
             .is_some()
             .then(|| reader.cache_account())
             .flatten();
-        let heap = std::env::var_os("T3_AGENTS_HEAP_ACCOUNT")
+        let heap = std::env::var_os("LOUPE_HEAP_ACCOUNT")
             .is_some()
             .then(crate::live::heap_stats)
             .flatten();
@@ -663,7 +663,7 @@ pub fn reader_poll(
         out.flush()?;
     }
     // At end of input, optionally take the reader apart and say what each structure held.
-    if std::env::var_os("T3_AGENTS_HEAP_ACCOUNT").is_some() {
+    if std::env::var_os("LOUPE_HEAP_ACCOUNT").is_some() {
         let ledger = reader.heap_teardown();
         writeln!(out, "{}", json!({ "heap_teardown": ledger }))?;
         out.flush()?;

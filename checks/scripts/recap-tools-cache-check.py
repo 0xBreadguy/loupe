@@ -5,9 +5,9 @@ The report-specific checks exercise each reader separately. This check covers
 what happens when both reports use the same cache:
 
   * one cache file holds both readers' facts and both get real hits from it;
-  * each reader opts in on its own (`T3_AGENTS_CACHE=1`), and one reader without
+  * each reader opts in on its own (`LOUPE_CACHE=1`), and one reader without
     the opt-in leaves the other's cache exactly as it found it;
-  * `T3_AGENTS_NO_CACHE=1` overrides an opt-in for both readers and creates
+  * `LOUPE_NO_CACHE=1` overrides an opt-in for both readers and creates
     nothing;
   * a changed run and a deleted run never come back from the cache;
   * cached output is byte-for-byte the direct output for every period and form.
@@ -21,7 +21,7 @@ The Linux CI suite runs this check. To run it separately:
     cargo build --release --locked
     python3 checks/scripts/recap-tools-cache-check.py
 
-Pass `--program PATH` (or set `T3_AGENTS_BINARY`) for a build elsewhere, and
+Pass `--program PATH` (or set `LOUPE_BINARY`) for a build elsewhere, and
 `--only NAME` to run one section while investigating a failure. The scratch
 folder is made under `checks/generated/` and removed when the run ends unless
 `--keep` is given. Linux only: the cache fails closed where the filesystem
@@ -63,8 +63,8 @@ FORMS = (("--json",), (), ("--wide",), ("--compact",))
 RECAP_FORMS = FORMS + (("--narrow",),)
 TOOLS_FORMS = FORMS
 
-STATS = re.compile(rb"^t3-agents: cache: (\d+) of (\d+) finished runs from the cache, (\d+) written$", re.M)
-CACHE_LINE = re.compile(rb"^t3-agents: cache:.*\n", re.M)
+STATS = re.compile(rb"^loupe: cache: (\d+) of (\d+) finished runs from the cache, (\d+) written$", re.M)
+CACHE_LINE = re.compile(rb"^loupe: cache:.*\n", re.M)
 CANARY = "recap-tools-cache-canary-4f1c2a"
 
 
@@ -242,7 +242,7 @@ class Scenario:
         home.mkdir(parents=True)
         t3.mkdir()
         self.cache_home = scratch / "cache"
-        self.cache = self.cache_home / "t3-agents" / "insights.sqlite3"
+        self.cache = self.cache_home / "loupe" / "insights.sqlite3"
         self.env = {
             "HOME": str(home),
             "XDG_CONFIG_HOME": str(home / "config"),
@@ -262,18 +262,18 @@ class Scenario:
         if t3_home is not None:
             env["T3CODE_HOME"] = str(t3_home)
         if cache == "on":
-            env["T3_AGENTS_CACHE"] = "1"
+            env["LOUPE_CACHE"] = "1"
         elif cache == "direct":
-            env["T3_AGENTS_NO_CACHE"] = "1"
+            env["LOUPE_NO_CACHE"] = "1"
         elif cache == "override":
-            env["T3_AGENTS_CACHE"] = "1"
-            env["T3_AGENTS_NO_CACHE"] = "1"
+            env["LOUPE_CACHE"] = "1"
+            env["LOUPE_NO_CACHE"] = "1"
         elif cache == "zero":
-            env["T3_AGENTS_CACHE"] = "0"
+            env["LOUPE_CACHE"] = "0"
         elif cache != "off":
             raise AssertionError(f"unknown cache mode {cache}")
         if stats:
-            env["T3_AGENTS_CACHE_STATS"] = "1"
+            env["LOUPE_CACHE_STATS"] = "1"
         command = [
             str(self.program), flag, "--db", str(db or self.source),
             "--now-ms", NOW, *args,
@@ -314,7 +314,7 @@ class Scenario:
               f"{label}: cache line says {actual}, wanted {(hits, finished, written)}")
 
     def assert_not_used(self, result, label):
-        check(b"t3-agents: cache: not used\n" in result.stderr,
+        check(b"loupe: cache: not used\n" in result.stderr,
               f"{label}: cache was used\n  {result.stderr!r}")
         check(not STATS.search(result.stderr),
               f"{label}: a disabled cache reported hits or writes\n  {result.stderr!r}")
@@ -345,7 +345,7 @@ class Scenario:
         }
         names = {path.name for path in files}
         check(names and names <= allowed, f"unexpected files in the cache folder: {sorted(names)}")
-        check((self.cache_home / "t3-agents" / "insights.sqlite3").is_file(),
+        check((self.cache_home / "loupe" / "insights.sqlite3").is_file(),
               "both readers did not share the one cache database")
 
     def assert_t3_untouched(self):
@@ -436,14 +436,14 @@ def section_independent_opt_ins(program, scratch):
     explicit_zero = Scenario(program, scratch / "explicit-zero", source)
     settle(source)
     for flag in ("--recap", "--tools"):
-        result, _ = explicit_zero.same_bytes(flag, ("--json",), f"{flag} with T3_AGENTS_CACHE=0",
+        result, _ = explicit_zero.same_bytes(flag, ("--json",), f"{flag} with LOUPE_CACHE=0",
                                              cache="zero")
         expected = explicit_zero.run(flag, ("--json",), cache="zero", stats=True)
-        explicit_zero.assert_not_used(expected, f"{flag} with T3_AGENTS_CACHE=0")
+        explicit_zero.assert_not_used(expected, f"{flag} with LOUPE_CACHE=0")
         check(result.returncode == expected.returncode and result.stdout == expected.stdout,
-              f"{flag} with T3_AGENTS_CACHE=0 changed its output")
+              f"{flag} with LOUPE_CACHE=0 changed its output")
     check(not explicit_zero.cache_home.exists(),
-          "T3_AGENTS_CACHE=0 still created cache state")
+          "LOUPE_CACHE=0 still created cache state")
 
 
 def section_changed_run(program, scratch):
@@ -532,7 +532,7 @@ def section_off_override(program, scratch):
                                      stats=True, cache="override")
         fresh.assert_not_used(result, f"{flag} with the override from the start")
     check(not fresh.cache_home.exists(),
-          "T3_AGENTS_NO_CACHE=1 did not stop the cache from being created")
+          "LOUPE_NO_CACHE=1 did not stop the cache from being created")
 
     # The override wins beside a full cache: its bytes are not touched.
     warm = Scenario(program, scratch / "override-warm", source)
@@ -546,7 +546,7 @@ def section_off_override(program, scratch):
                                     stats=True, cache="override")
         warm.assert_not_used(result, f"{flag} with the override")
     check(warm.fingerprint() == before,
-          "T3_AGENTS_NO_CACHE=1 changed an existing cache")
+          "LOUPE_NO_CACHE=1 changed an existing cache")
 
 
 def section_identical_bytes(program, scratch):
@@ -772,7 +772,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument(
         "program", nargs="?", type=Path,
-        default=Path(os.environ.get("T3_AGENTS_BINARY") or ROOT / "target/release/t3-agents-term"),
+        default=Path(os.environ.get("LOUPE_BINARY") or ROOT / "target/release/loupe-term"),
     )
     parser.add_argument("--program", dest="program_flag", type=Path, help="the built program to check")
     parser.add_argument("--only", action="append", default=[], metavar="NAME",

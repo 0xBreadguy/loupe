@@ -285,10 +285,10 @@ pub fn snapshot(path: &Path, now: f64) -> Result<Snapshot, SourceError> {
     result
 }
 
-/// `T3_AGENTS_FULL_READ_DEBUG`: one line of timings and counts on stderr per full read.
+/// `LOUPE_FULL_READ_DEBUG`: one line of timings and counts on stderr per full read.
 /// Query labels and schema names only; never row text.
 fn debug_timing() -> bool {
-    std::env::var_os("T3_AGENTS_FULL_READ_DEBUG").is_some()
+    std::env::var_os("LOUPE_FULL_READ_DEBUG").is_some()
 }
 
 fn debug_report(started: Instant, how: &str) {

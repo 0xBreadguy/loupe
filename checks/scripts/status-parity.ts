@@ -16,7 +16,7 @@ import { recordCase } from "./record.ts"
 
 // Strip only additive numeric fields, preserving legacy JSON bytes and surrogate escapes.
 const legacy = (s: string) => s.replace(/,"openAsks":\d+,"estimatedAsks":\d+/g, "")
-const binary = resolve(process.argv[2] ?? process.env.T3_NATIVE_BINARY ?? join(ROOT, "..", "target/release/t3-agents-core"))
+const binary = resolve(process.argv[2] ?? process.env.T3_NATIVE_BINARY ?? join(ROOT, "..", "target/release/loupe-core"))
 const dir = mkdtempSync(join(tmpdir(), "t3-status-parity-"))
 const home = join(dir, "empty-t3-home")
 mkdirSync(home)

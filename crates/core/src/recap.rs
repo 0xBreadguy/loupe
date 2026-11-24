@@ -847,9 +847,9 @@ pub fn request_cache_stats() {
 pub fn take_cache_stats() -> Option<String> {
     let stats = CACHE_STATS.take()?;
     Some(if stats.opened {
-        format!("t3-agents: cache: {} of {} finished runs from the cache, {} written", stats.hits, stats.finished, stats.written)
+        format!("loupe: cache: {} of {} finished runs from the cache, {} written", stats.hits, stats.finished, stats.written)
     } else {
-        "t3-agents: cache: not used".into()
+        "loupe: cache: not used".into()
     })
 }
 
@@ -876,8 +876,8 @@ fn finished(run: &Run) -> bool {
     run.completed.is_some() && !matches!(run.status.as_str(), "running" | "waiting" | "starting")
 }
 
-/// Whether Recap may use the store: only when `T3_AGENTS_CACHE=1` asks for it, and never when
-/// `T3_AGENTS_NO_CACHE=1` turns the store off. It is asked for, not the default, because of
+/// Whether Recap may use the store: only when `LOUPE_CACHE=1` asks for it, and never when
+/// `LOUPE_NO_CACHE=1` turns the store off. It is asked for, not the default, because of
 /// what it costs where it does not hit. Measured on made-up weeks of about 580 runs: a read
 /// that fills the store takes 1.6 to 2 times an uncached one; a read from it takes a fifth to
 /// a half; with a commit to T3's database between two reads, a third to nine tenths. The
@@ -888,8 +888,8 @@ fn finished(run: &Run) -> bool {
 /// one place to change when the store becomes the default.
 #[cfg(unix)]
 fn cache_enabled() -> bool {
-    std::env::var_os("T3_AGENTS_CACHE").is_some_and(|value| value == "1")
-        && !std::env::var_os("T3_AGENTS_NO_CACHE").is_some_and(|value| value == "1")
+    std::env::var_os("LOUPE_CACHE").is_some_and(|value| value == "1")
+        && !std::env::var_os("LOUPE_NO_CACHE").is_some_and(|value| value == "1")
 }
 
 /// The SQL and row representation for the two timestamps of an item.
@@ -3014,7 +3014,7 @@ mod tests {
 
     #[test]
     fn the_reader_refuses_to_write_and_selects_no_text() {
-        let dir = std::env::temp_dir().join(format!("t3-agents-recap-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("loupe-recap-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("statev2.sqlite");
         let _ = std::fs::remove_file(&path);
@@ -3032,7 +3032,7 @@ mod tests {
 
     #[test]
     fn a_missing_database_says_so() {
-        assert_eq!(open(Path::new("/nonexistent/t3-agents/statev2.sqlite")).unwrap_err().kind, "missing");
+        assert_eq!(open(Path::new("/nonexistent/loupe/statev2.sqlite")).unwrap_err().kind, "missing");
     }
 
     #[test]

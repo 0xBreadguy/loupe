@@ -377,7 +377,7 @@ test("the header names the product in plain text and says when calm mode is on",
   const c = new Canvas(120, 40)
   draw(c, st, { agents: fixture(now), at: now, path: "" }, [], palette, now)
   const top = () => c.toText().split("\n")[0]
-  assert.match(top(), /^ T3 Agents {2}● LIVE 2s/)
+  assert.match(top(), /^ Loupe {2}● LIVE 2s/)
   for (let x = 0; x < 11; x++) assert.equal(c.bg[x], palette.panel, "no badge behind the name")
   assert.doesNotMatch(top(), /calm/)
   st.calm = true
@@ -385,7 +385,7 @@ test("the header names the product in plain text and says when calm mode is on",
   assert.match(top(), /LIVE 2s {2}calm/)
   st.help = true
   draw(c, st, { agents: fixture(now), at: now, path: "" }, [], palette, now)
-  assert.match(c.toText(), /T3 Agents · help/)
+  assert.match(c.toText(), /Loupe · help/)
   assert.match(c.toText(), /Unofficial; not affiliated with T3 Code or Omarchy\./)
 })
 

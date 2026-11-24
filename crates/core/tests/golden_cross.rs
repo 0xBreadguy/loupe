@@ -8,7 +8,7 @@
 mod support;
 use serde_json::Value;
 
-const BINARY: &str = env!("CARGO_BIN_EXE_t3-agents-core");
+const BINARY: &str = env!("CARGO_BIN_EXE_loupe-core");
 
 fn digest_json(value: &Value) -> String {
     let numbers: Vec<u64> = value.as_array().unwrap().iter().map(|n| n.as_u64().unwrap_or(0)).collect();

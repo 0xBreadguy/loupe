@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prove that a change to how the dashboard makes frames leaves every written byte as it was.
 #
-# `t3-agents-term --frame-stream` (built only with `--features frame-stream`) runs the
+# `loupe-term --frame-stream` (built only with `--features frame-stream`) runs the
 # dashboard's frame loop with no terminal, on a scripted clock, and prints counts and SHA-256
 # digests of the encoder output, the composed canvases and the wake the host asked for. This
 # script builds a baseline and a candidate, each into its own target folder, runs the same
@@ -96,7 +96,7 @@ cleanup() { [ "$keep" = 1 ] || rm -rf -- "$run"; }
 trap cleanup EXIT
 mkdir -p -- "$run/empty-t3" "$run/tmp"
 
-[ -d "$cand/crates/term" ] || die "--cand is not a T3 Agents source folder: $cand"
+[ -d "$cand/crates/term" ] || die "--cand is not a Loupe source folder: $cand"
 cand=$(realpath -- "$cand")
 
 # What wraps a build (cores, low priority) and what wraps a run (the same, and the lock if given).
@@ -136,7 +136,7 @@ build() { # SOURCE TARGET-DIR NAME  -> prints the binary's path
   local src=$1 target=$2 name=$3
   local log=$run/build-$name.log
   if ! (cd "$src" && env TMPDIR="$run/tmp" T3CODE_HOME="$run/empty-t3" "${build_wrap[@]}" \
-      cargo build --release --locked --features frame-stream -p t3-agents-term --target-dir "$target" >"$log" 2>&1); then
+      cargo build --release --locked --features frame-stream -p loupe-term --target-dir "$target" >"$log" 2>&1); then
     tail -n 30 "$log" >&2
     die "build failed in $src"
   fi
@@ -144,8 +144,8 @@ build() { # SOURCE TARGET-DIR NAME  -> prints the binary's path
     grep -A6 '^warning' "$log" | head -n 40 >&2
     die "build warned in $src"
   fi
-  [ -x "$target/release/t3-agents-term" ] || die "no binary at $target/release/t3-agents-term"
-  printf '%s' "$target/release/t3-agents-term"
+  [ -x "$target/release/loupe-term" ] || die "no binary at $target/release/loupe-term"
+  printf '%s' "$target/release/loupe-term"
 }
 
 base_src=$(export_base)

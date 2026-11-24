@@ -18,7 +18,7 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use t3_agents_core::{program, terminal, trace, trace_live, trace_view};
+use loupe_core::{program, terminal, trace, trace_live, trace_view};
 
 fn target(raw: &str) -> trace::Target {
     match raw.split_once(':') {
@@ -47,7 +47,7 @@ fn main() {
             let mut times = vec![];
             for _ in 0..n {
                 let start = Instant::now();
-                let t = trace::read_from(&db, path, &target, t3_agents_core::clock::wall_now()).unwrap().expect("target exists");
+                let t = trace::read_from(&db, path, &target, loupe_core::clock::wall_now()).unwrap().expect("target exists");
                 times.push(start.elapsed().as_secs_f64() * 1000.);
                 std::hint::black_box(t);
             }
@@ -123,7 +123,7 @@ fn main() {
         }
         "draw" => {
             let db = trace::open(path).unwrap();
-            let now = t3_agents_core::clock::wall_now();
+            let now = loupe_core::clock::wall_now();
             let t = trace::read_from(&db, path, &target(&args[3]), now).unwrap().expect("target exists");
             let (n, cols, rows): (usize, usize, usize) = (args[4].parse().unwrap(), args[5].parse().unwrap(), args[6].parse().unwrap());
             let palette = terminal::Palette::default();
@@ -132,7 +132,7 @@ fn main() {
                 let at = now + frame as f64 * 100.;
                 let view = trace_view::View { selected: None, scroll: 0, calm: false, mono: false, spin: (at / 100.) as usize, demo: false, now: at };
                 let start = Instant::now();
-                std::hint::black_box(trace_view::draw(&t, &palette, cols, rows, &view, &t3_agents_core::platform::local_time));
+                std::hint::black_box(trace_view::draw(&t, &palette, cols, rows, &view, &loupe_core::platform::local_time));
                 times.push(start.elapsed().as_secs_f64() * 1000.);
             }
             println!("{}", times.iter().map(|t| format!("{t:.4}")).collect::<Vec<_>>().join(" "));

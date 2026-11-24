@@ -2,7 +2,7 @@
 """Old against new: the status watcher's resident memory and CPU time.
 
 Runs `oracle/src/main.ts --status --watch` (Node) and
-`t3-agents-core --status --watch` against the same synthetic demo database for
+`loupe-core --status --watch` against the same synthetic demo database for
 60 s per trial, five alternating trials per case, and reports the median and
 range of Pss, CPU time, and time to the first line. Nothing here is a gate: the
 numbers are exploratory, the machine is shared, and only the watcher processes
@@ -32,7 +32,7 @@ from sample import read_process
 
 ROOT = Path(__file__).resolve().parents[2]
 DEMO = ROOT / "oracle" / "src" / "demo.ts"
-BINARY = ROOT / "target" / "release" / "t3-agents-core"
+BINARY = ROOT / "target" / "release" / "loupe-core"
 NODE = ["node", "--experimental-ffi", "--disable-warning=ExperimentalWarning"]
 
 DEMO_CODE = """
@@ -223,7 +223,7 @@ def main():
     args = parser.parse_args()
     BINARY = args.binary.resolve()
     if not BINARY.exists():
-        parser.error(f"missing binary {BINARY}; cargo build --release -p t3-agents-core first")
+        parser.error(f"missing binary {BINARY}; cargo build --release -p loupe-core first")
     if args.trials < 5:
         parser.error("at least five alternating trials are required")
     if args.seconds <= 0:

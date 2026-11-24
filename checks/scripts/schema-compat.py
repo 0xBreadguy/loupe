@@ -18,7 +18,7 @@ home = work/'empty-t3-home'; home.mkdir()
 env = {k: os.environ[k] for k in ('TMPDIR', 'SQLITE_TMPDIR') if k in os.environ}
 env.update(PATH=os.environ['PATH'], T3CODE_HOME=str(home), TZ='UTC', NO_COLOR='1')
 node = ['node','--experimental-ffi','--disable-warning=ExperimentalWarning']
-binary = Path(os.environ.get('T3_NATIVE_BINARY', ROOT/'target/release/t3-agents-core')).resolve()
+binary = Path(os.environ.get('T3_NATIVE_BINARY', ROOT/'target/release/loupe-core')).resolve()
 now = '1794484800000'
 def run(args):
     r = subprocess.run([str(x) for x in args], cwd=ROOT, env=env, text=True, capture_output=True, timeout=90)

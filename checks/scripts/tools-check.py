@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""An independent check of `t3-agents --tools`: the numbers, counted a second time.
+"""An independent check of `loupe --tools`: the numbers, counted a second time.
 
 python3 checks/scripts/tools-check.py [--seed N] [--cases N] [--only NAME] [--keep]
 
@@ -21,8 +21,8 @@ with its programs and labels, and this script only looks lines up in it.
 
 Needs `cargo build --release --locked` first. Standard library only. Every database it
 reads is one it built under checks/generated/tools-check/, removed when it ends.
-The program inherits T3_AGENTS_READ_THREADS, T3_AGENTS_SKIM, T3_AGENTS_CACHE,
-T3_AGENTS_NO_CACHE, and T3_AGENTS_CACHE_STATS so the reader paths can be checked.
+The program inherits LOUPE_READ_THREADS, LOUPE_SKIM, LOUPE_CACHE,
+LOUPE_NO_CACHE, and LOUPE_CACHE_STATS so the reader paths can be checked.
 Cache checks use a scratch XDG_CACHE_HOME and compare raw output before and after a write.
 """
 import argparse, collections, hashlib, json, math, os, random, re, shutil, sqlite3, subprocess, sys, time
@@ -31,7 +31,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 ROOT = Path(__file__).resolve().parents[2]
-BINARY = Path(os.environ.get('T3_AGENTS_BINARY') or ROOT / 'target/release/t3-agents-term')
+BINARY = Path(os.environ.get('LOUPE_BINARY') or ROOT / 'target/release/loupe-term')
 P = 'orchestration_v2_projection_'
 HOUR, DAY = 3_600_000, 86_400_000
 SENTINEL = 'never read'
@@ -1150,8 +1150,8 @@ class Ctx:
         env = {'PATH': os.environ['PATH'], 'T3CODE_HOME': str(self.work / 'empty-t3-home'),
                'HOME': str(self.work / 'home'), 'XDG_CACHE_HOME': str(self.work / 'xdg-cache'),
                'TZ': tz, 'NO_COLOR': '1'}
-        for name in ('T3_AGENTS_READ_THREADS', 'T3_AGENTS_SKIM', 'T3_AGENTS_NO_CACHE',
-                     'T3_AGENTS_CACHE', 'T3_AGENTS_CACHE_STATS'):
+        for name in ('LOUPE_READ_THREADS', 'LOUPE_SKIM', 'LOUPE_NO_CACHE',
+                     'LOUPE_CACHE', 'LOUPE_CACHE_STATS'):
             if name in os.environ:
                 env[name] = os.environ[name]
         env.update(extra or {})
@@ -1213,12 +1213,12 @@ def check_case(ctx, name, seed, w, db, together_rule):
     return reference
 
 
-CACHE_OFF = {'T3_AGENTS_CACHE': '0', 'T3_AGENTS_CACHE_STATS': '0'}
+CACHE_OFF = {'LOUPE_CACHE': '0', 'LOUPE_CACHE_STATS': '0'}
 
 
 def check_cache(ctx, seed, w, db, reference):
     args = ['--tools', '--json', '--db', db, '--now-ms', int(w.now)]
-    on = {'T3_AGENTS_CACHE': '1', 'T3_AGENTS_NO_CACHE': '0', 'T3_AGENTS_CACHE_STATS': '1'}
+    on = {'LOUPE_CACHE': '1', 'LOUPE_NO_CACHE': '0', 'LOUPE_CACHE_STATS': '1'}
 
     def read(settings):
         return ctx.run(args, tz=w.zone.name, extra=settings, raw=True)
@@ -1233,7 +1233,7 @@ def check_cache(ctx, seed, w, db, reference):
     agree('first fill', reference, read(on))
     warm = read(on)
     agree('warm', reference, warm)
-    hits = re.search(rb'^t3-agents: cache: (\d+) of \d+ finished runs from the cache, \d+ written$', warm.stderr, re.M)
+    hits = re.search(rb'^loupe: cache: (\d+) of \d+ finished runs from the cache, \d+ written$', warm.stderr, re.M)
     if hits:
         ctx.cache_hits += int(hits[1])
 
@@ -1275,12 +1275,12 @@ def hostile(ctx):
             if not r.stderr.strip(): ctx.fail(what + tag, 'printed no advice on stderr')
         if before is not None and digest(path) != before: ctx.fail(what, 'the file changed')
         print('ok   %-32s rejected, nothing on stdout, no "never", file untouched' % what)
-    r = ctx.run(['--tools', '--json', '--demo'], extra={'T3_AGENTS_NO_THEMES': '1'})
+    r = ctx.run(['--tools', '--json', '--demo'], extra={'LOUPE_NO_THEMES': '1'})
     if r.returncode != 2 or "Unknown option '--tools'" not in r.stderr:
-        ctx.fail('T3_AGENTS_NO_THEMES=1 --tools',
+        ctx.fail('LOUPE_NO_THEMES=1 --tools',
                  'exit %d, stderr %r (wanted exit 2 and "Unknown option" for --tools)' % (r.returncode, r.stderr[:300]))
     else:
-        print('ok   T3_AGENTS_NO_THEMES=1 --tools  rejected as an unknown option, exit 2, nothing on stdout')
+        print('ok   LOUPE_NO_THEMES=1 --tools  rejected as an unknown option, exit 2, nothing on stdout')
 
 
 def local_instant(tz, text):

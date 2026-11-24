@@ -23,7 +23,7 @@ pub const PIN_SNAPSHOT: &str = "SELECT EXISTS(SELECT 1 FROM sqlite_schema)";
 
 pub fn configured_workers() -> usize {
     let available = thread::available_parallelism().map_or(1, |n| n.get());
-    worker_count(std::env::var("T3_AGENTS_READ_THREADS").ok().as_deref(), available)
+    worker_count(std::env::var("LOUPE_READ_THREADS").ok().as_deref(), available)
 }
 
 fn worker_count(value: Option<&str>, available: usize) -> usize {
@@ -137,7 +137,7 @@ mod tests {
     impl Fixture {
         fn new() -> Self {
             static NEXT: AtomicUsize = AtomicUsize::new(0);
-            let dir = std::env::temp_dir().join(format!("t3-agents-fanout-{}-{}",
+            let dir = std::env::temp_dir().join(format!("loupe-fanout-{}-{}",
                 std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
             fs::create_dir(&dir).unwrap();
             let path = dir.join("rows.sqlite");

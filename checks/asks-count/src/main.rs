@@ -28,14 +28,14 @@ use serde_json::Value;
 /// why in the check's notes. The corpus keeps `questions`, `statements` and `total`,
 /// so an adapter for a pair is a one-line change here, not a corpus change.
 fn product_count(text: &str) -> u32 {
-    t3_agents_core::asks::count_asks(text)
+    loupe_core::asks::count_asks(text)
 }
 
 fn usage() {
     println!(
         "usage: asks-count [--json] [FIXTURE]\n\
          \n\
-         Compare t3_agents_core::asks::count_asks with checks/fixtures/asks-counts.json.\n\
+         Compare loupe_core::asks::count_asks with checks/fixtures/asks-counts.json.\n\
          \n\
          --json     print {{\"case-id\": count, ...}} to stdout for the differential run in\n\
          \x20          checks/scripts/asks-corpus.py --actual; differences still go to\n\

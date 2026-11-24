@@ -33,7 +33,7 @@ bright_cyan = "#89b482"
 bright_blue = "#7daea3"
 bright_magenta = "#d3869b"
 
-# T3 Agents roles: colors from or near this palette that keep Claude, OpenAI, Grok,
+# Loupe roles: colors from or near this palette that keep Claude, OpenAI, Grok,
 # Gemini, "needs you" and the warning apart. See docs/themes.md.
 claude = "#b37cb6"
 openai = "#9ecdaa"

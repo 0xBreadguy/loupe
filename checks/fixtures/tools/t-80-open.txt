@@ -1,4 +1,4 @@
- T3 Agents  TOOLS  Nov 9 – 15  7 of 7 days recorded           t3-agents --tools
+ Loupe  TOOLS  Nov 9 – 15  7 of 7 days recorded                   loupe --tools
 
   CALLS                      CALL TIME                  FAILED
   ▄▄▄▄

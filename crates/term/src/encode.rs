@@ -1,7 +1,7 @@
 //! Diff a cell grid into capability-selected terminal color bytes, and the inverse used by tests.
 //!
 //! The grid is first laid out the way the original's renderer lays it out
-//! ([`t3_agents_core::cluster::lay_out`]): each run of identically styled cells is regrouped into
+//! ([`loupe_core::cluster::lay_out`]): each run of identically styled cells is regrouped into
 //! grapheme clusters, each cluster gets the width OpenTUI gives it and one cell, and the run is
 //! packed to the left. That buffer, not the canvas, is what is diffed and written: a cluster as one
 //! piece of text, its later cells never.
@@ -18,11 +18,11 @@
 //! after every cluster; the encoder does the same, and moves it where the original starts a new
 //! run after a cluster the terminal may measure differently.
 use std::io::Write;
-use t3_agents_core::cluster::{
+use loupe_core::cluster::{
     self, DEFAULT_BG, Glyph, Laid, LaidCell, TermEnv, WidthMethod, explicit_cursor_positioning,
     select_width_method,
 };
-use t3_agents_core::terminal::{Canvas, Cell};
+use loupe_core::terminal::{Canvas, Cell};
 
 /// Past this many distinct multi-character cluster texts, the next frame is laid out afresh, so
 /// the text table a reused buffer carries from frame to frame cannot grow without bound.
@@ -811,8 +811,8 @@ mod tests {
     }
     use super::*;
     use crate::{cells_match, compose};
-    use t3_agents_core::terminal::CONT;
-    use t3_agents_core::model::{Snapshot, State};
+    use loupe_core::terminal::CONT;
+    use loupe_core::model::{Snapshot, State};
 
     fn round_trip(canvas: &Canvas, full: bool, enc: &mut Encoder, screen: &mut Screen) -> Vec<u8> {
         let bytes = enc.encode(canvas, full);
@@ -1035,7 +1035,7 @@ mod tests {
 #[cfg(test)]
 mod row_reuse_tests {
     use super::*;
-    use t3_agents_core::terminal::CONT;
+    use loupe_core::terminal::CONT;
 
     /// Cells written raw, so the canvas can hold anything a frame can: wide halves, orphaned
     /// continuations, combining marks, emoji sequences split across cells, and style changes in

@@ -8,7 +8,7 @@ the installed program, /tmp, or a desktop.
 Environment (set by tests/scripts/asks.sh, or by hand):
     TMPDIR, CARGO_TARGET_DIR, TMUX_TMPDIR   folders under ~/.cache, not /tmp
     T3CODE_HOME                              an empty folder under ~/.cache
-    T3_AGENTS_BIN, T3_AGENTS_CORE_BIN        optional; default to the release build in CARGO_TARGET_DIR
+    LOUPE_BIN, LOUPE_CORE_BIN        optional; default to the release build in CARGO_TARGET_DIR
     ASKS_KEEP=1                              keep the run's scratch folder for inspection
 """
 import hashlib
@@ -83,8 +83,8 @@ def cleanup():
 
 
 def binary(kind="term"):
-    name, var = (("t3-agents-term", "T3_AGENTS_BIN") if kind == "term"
-                 else ("t3-agents-core", "T3_AGENTS_CORE_BIN"))
+    name, var = (("loupe-term", "LOUPE_BIN") if kind == "term"
+                 else ("loupe-core", "LOUPE_CORE_BIN"))
     path = Path(os.environ.get(var) or environment()["CARGO_TARGET_DIR"] / "release" / name)
     if not path.is_file():
         raise SystemExit(f"{path} is missing; build it first (tests/scripts/asks.sh does)")
@@ -100,7 +100,7 @@ def child_env(**extra):
         "T3CODE_HOME": str(environment()["T3CODE_HOME"]),
         "TMPDIR": str(environment()["TMPDIR"]),
         "SQLITE_TMPDIR": str(environment()["TMPDIR"]),
-        "T3_AGENTS_NO_THEMES": "1",
+        "LOUPE_NO_THEMES": "1",
         "TERM": "xterm-256color",
         "LANG": "C.UTF-8",
         "NO_COLOR": "1",
@@ -123,7 +123,7 @@ WATCH_POLL_S = 2.0
 
 
 class StatusWatch:
-    """One built `t3-agents-term --status --watch --db` process.
+    """One built `loupe-term --status --watch --db` process.
 
     This is the installed entry's real watch loop, not `--probe-status-db`.
     Stop it by the pid captured at start. A recycled pid whose command line is
@@ -206,7 +206,7 @@ class StatusWatch:
         if proc.poll() is None:
             command = self._cmdline()
             if command is not None:
-                expected = (b"t3-agents-term", b"--status", b"--watch", os.fsencode(str(self.db)))
+                expected = (b"loupe-term", b"--status", b"--watch", os.fsencode(str(self.db)))
                 if not all(part in command for part in expected):
                     raise RuntimeError(f"refusing to signal {self.pid}: {command!r}")
                 os.kill(self.pid, signal.SIGTERM)

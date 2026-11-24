@@ -6,7 +6,7 @@
 mod support;
 use serde_json::Value;
 
-const BINARY: &str = env!("CARGO_BIN_EXE_t3-agents-core");
+const BINARY: &str = env!("CARGO_BIN_EXE_loupe-core");
 
 fn line(output: &std::process::Output) -> String {
     let text = support::stdout_text(output);

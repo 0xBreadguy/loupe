@@ -44,7 +44,7 @@ $N checks/scripts/export-demo.ts
 $N checks/scripts/export-cross.ts
 $N checks/scripts/export-full-read.ts
 $N checks/scripts/export-text.ts       # about 4 minutes: three timezones, two runs each
-$N checks/scripts/export-terminal.ts   # about 20 minutes: two runs of the tmux gate; needs tmux and a release t3-agents-term
+$N checks/scripts/export-terminal.ts   # about 20 minutes: two runs of the tmux gate; needs tmux and a release loupe-term
 ```
 
 `canonicalDigest` gives a whole JSON value one order-independent digest (object keys sorted, strings as UTF-8 bytes, numbers as integers or IEEE-754 bits). The full-reader fixture uses it, so 39 snapshots of about 1.3 MB each cost a few hundred bytes; `golden_full_read.rs` checks both implementations against the same two vectors.
@@ -56,7 +56,7 @@ Each exporter only makes sense while `oracle/` is the frozen oracle. It records 
 ## Check
 
 ```sh
-cargo test --release --locked -p t3-agents-core -p t3-agents-term
+cargo test --release --locked -p loupe-core -p loupe-term
 ```
 
 `T3_GOLDEN_DIR` points a test at another export, which is how the fail-on-purpose check is done: change one expected value in a copy and watch the test name the case.
@@ -83,7 +83,7 @@ Each zone is run with `TZ` set explicitly and the rest of the environment cleare
 
 ## The real terminal
 
-`terminal-parity.ts` runs the original and `t3-agents-term` side by side in a private tmux server and compares every captured cell. `terminal.json.gz` keeps what the original did, and `crates/term/tests/golden_terminal.rs` drives only `t3-agents-term` through the same steps and compares with it. It needs tmux, not Node: where tmux is missing each tmux case says `SKIPPED ... tmux is not installed` on stderr and passes.
+`terminal-parity.ts` runs the original and `loupe-term` side by side in a private tmux server and compares every captured cell. `terminal.json.gz` keeps what the original did, and `crates/term/tests/golden_terminal.rs` drives only `loupe-term` through the same steps and compares with it. It needs tmux, not Node: where tmux is missing each tmux case says `SKIPPED ... tmux is not installed` on stderr and passes.
 
 - `screen`: 14 cases (demo and database sources at four sizes, and other `TERM` and `COLORTERM` values) of 38 captures each: the initial frame and 37 steps. Every entry holds the step's name, **the key that was sent** (a tmux key name, a character, or SGR mouse bytes as `hex:...`, or a resize), the terminal size at that point, the original's capture verbatim (`tmux capture-pane -p -e -N`, content-addressed in `assets`), and a digest of the cells the gate's parser reads from it. The replay sends the recorded key, waits for the screen to settle as the gate does, parses both captures with a Rust port of the gate's parser, and reports every differing cell (glyph, colour, background, weight, attributes) with its position. The recorded digest proves that the port reads the original's capture as the original's parser did, so a parser fault is told apart from a program difference.
 - `screen`, bracketed paste: a fifteenth case, `paste demo 80x24 tmux-256color truecolor`, of the initial frame and 11 steps: pastes of quit keys, newlines, escape sequences and 100 KB, a paste in three reads and keys right after one, each paste followed by a `j` so state a paste changed without showing it comes out on the next screen. The key is `paste:<hex>[*<n>]` (the text, n times, given to tmux's `paste-buffer -p`, which wraps it in markers only for a program that switched mode 2004 on) or `pieces:<hex>|<ms>ms|<hex>...` (raw writes with pauses). The test `recording_holds_exactly_the_screen_cases_replayed_here` holds it to 12 captures.
@@ -115,5 +115,5 @@ Each record holds:
 
 Plain arrays inside gzip were chosen over run-length or palette-indexed encodings: the records stay readable with `zcat`, the Rust test needs no decoder beyond `flate2`, and the compressed file is about 1.2 MB.
 
-Regenerate with `TZ=UTC $N checks/scripts/export-golden.ts` after `fixtures.ts`; a third argument records one file only (`states`, `hidden` or `labels`), which is how a new fixture is added without rewriting the older recordings. Check with `cargo test ... -p t3-agents-core --test golden`.
+Regenerate with `TZ=UTC $N checks/scripts/export-golden.ts` after `fixtures.ts`; a third argument records one file only (`states`, `hidden` or `labels`), which is how a new fixture is added without rewriting the older recordings. Check with `cargo test ... -p loupe-core --test golden`.
 

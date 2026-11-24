@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Build t3-agents-term for this machine's own architecture and package it for release:
-# checks/generated/linux-release/TARGET/t3-agents-VERSION-TARGET.tar.gz and SHA256SUMS beside it.
+# Build loupe-term for this machine's own architecture and package it for release:
+# checks/generated/linux-release/TARGET/loupe-VERSION-TARGET.tar.gz and SHA256SUMS beside it.
 # The archive unpacks into one folder holding the program, install.sh, LICENSE, THIRD-PARTY-NOTICES.md, README and
 # BUILD-INFO (the commit, the Rust version, the target, the glibc it needs). Nothing is published.
 # The hand-started workflow .github/workflows/linux-release.yml runs this on GitHub's runners.
@@ -13,14 +13,14 @@ done
 target=$(rustc -vV | awk '/^host: / {print $2}')
 case "$target" in x86_64-unknown-linux-gnu|aarch64-unknown-linux-gnu) ;; *) echo "Unsupported native target: $target" >&2; exit 1;; esac
 [[ $(uname -m) == "${target%%-*}" ]] || { echo 'Rust host does not match machine architecture' >&2; exit 1; }
-version=$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(p["version"] for p in d["packages"] if p["name"] == "t3-agents-term"))')
+version=$(cargo metadata --locked --no-deps --format-version 1 | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(p["version"] for p in d["packages"] if p["name"] == "loupe-term"))')
 out="$PWD/checks/generated/linux-release/$target"
-folder="t3-agents-$version-$target"
+folder="loupe-$version-$target"
 rm -rf -- "$out/$folder"
 mkdir -p "$out/$folder"
 export CARGO_TARGET_DIR="$PWD/checks/generated/linux-release/target"
-cargo build --release --locked -p t3-agents-term --target "$target"
-binary="$CARGO_TARGET_DIR/$target/release/t3-agents-term"
+cargo build --release --locked -p loupe-term --target "$target"
+binary="$CARGO_TARGET_DIR/$target/release/loupe-term"
 echo 'Dynamic dependencies:'
 deps=$(ldd "$binary")
 printf '%s\n' "$deps"
@@ -32,7 +32,7 @@ glibc=$(objdump -T "$binary" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' | sort -Vu | t
 [[ -n $glibc ]] || { echo 'Could not determine glibc requirement' >&2; exit 1; }
 echo "Highest glibc symbol version: $glibc"
 cp "$binary" install.sh LICENSE THIRD-PARTY-NOTICES.md "$out/$folder/"
-printf 'T3 Agents %s for %s\n\nInstall for the current user, from this folder:\n\n  ./install.sh --binary ./t3-agents-term\n\nRemove it again:\n\n  ./install.sh --uninstall\n\nTHIRD-PARTY-NOTICES.md contains third-party notices.\n\nBUILD-INFO says which commit this was built from and which glibc it needs.\n' "$version" "$target" > "$out/$folder/README"
+printf 'Loupe %s for %s\n\nInstall for the current user, from this folder:\n\n  ./install.sh --binary ./loupe-term\n\nRemove it again:\n\n  ./install.sh --uninstall\n\nTHIRD-PARTY-NOTICES.md contains third-party notices.\n\nBUILD-INFO says which commit this was built from and which glibc it needs.\n' "$version" "$target" > "$out/$folder/README"
 {
   printf 'Commit: %s\n' "$(git rev-parse HEAD)"
   if [[ -n $(git status --porcelain --untracked-files=normal) ]]; then echo 'Working tree: dirty'; else echo 'Working tree: clean'; fi

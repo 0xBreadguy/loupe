@@ -1,6 +1,6 @@
 mod support;
 use support::Db;
-use t3_agents_core::{
+use loupe_core::{
     live::{Reader, Served},
     model::{Changed, Snapshot, wants_attention},
     source,

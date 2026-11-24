@@ -21,7 +21,7 @@ Every run that starts a product (`live`, `insights`, `snap`, `floor`, the selfte
 | Data | `--db FILE`, a copy of a fixture's database made for this trial inside the scratch folder; or `--demo` (`snap` only) |
 | `T3CODE_HOME` | a new **empty** folder in the scratch; checked empty at the start and again at the end |
 | `HOME`, four XDG folders, `TMPDIR`, `SQLITE_TMPDIR`, `XDG_RUNTIME_DIR` | new folders in the scratch; nothing is inherited |
-| `T3_AGENTS_NO_CACHE` | `1` (the persistent report cache is opt-in; measure without it) |
+| `LOUPE_NO_CACHE` | `1` (the persistent report cache is opt-in; measure without it) |
 | `T3_FIXED_NOW` | the fixture's own `now_ms` (pinned runs), or unset (`--real-clock`) |
 
 `product_command` is the only place that builds the argument list. `--db` and `--demo` are added
@@ -195,7 +195,7 @@ its data is relative to the instant it was built, and a real-clock run refuses a
 
 ```sh
 S=$HOME/tmp/ux-scratch && mkdir -p $S/tmp && export TMPDIR=$S/tmp CARGO_TARGET_DIR=$S/target
-cargo build --release --locked -p t3-agents-term && cp $S/target/release/t3-agents-term $S/new   # and $S/old from the base commit
+cargo build --release --locked -p loupe-term && cp $S/target/release/loupe-term $S/new   # and $S/old from the base commit
 cd checks/bench
 python3 -I terminal_ux.py selftest --scratch $S/selftest       # the harness's own controls; about 15 minutes on a busy machine
 python3 -I terminal_ux.py fixture --root $S/fixture            # dated, relative to now; only its database is used
@@ -281,7 +281,7 @@ virtual screen equals the byte-at-a-time reference.
    candidate's reader raised it by about 19 MB for a this-week read on the default fixture, so it works here.
    If a later build reads through mmap, or from a pre-built cache, `rchar` can stay flat during a real read and
    every sample would be rejected (a false negative, not a false pass). The cache is opt-in and the harness sets
-   `T3_AGENTS_NO_CACHE=1`. If mmap is used, replace the evidence with per-thread CPU. The harness cannot tell
+   `LOUPE_NO_CACHE=1`. If mmap is used, replace the evidence with per-thread CPU. The harness cannot tell
    a read thread from the main thread by `rchar` alone, so it proves that reading continued, not which thread read.
 4. **A key is "during a read" by the screen and the counter, not by the program's own state.** The
    ready frame could be drawn later than the read ends; the counter bounds that to reads that were

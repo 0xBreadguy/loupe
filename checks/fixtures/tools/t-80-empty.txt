@@ -1,8 +1,8 @@
- T3 Agents  TOOLS  Nov 9 – 15  no tool calls                  t3-agents --tools
+ Loupe  TOOLS  Nov 9 – 15  no tool calls                          loupe --tools
 
 
   No tool calls recorded Nov 9 – 15, or this week so far.
 
   · Tools reads the tool calls T3 Code has recorded on this machine.
-  · Just looking? t3-agents --tools --demo shows a made-up week.
+  · Just looking? loupe --tools --demo shows a made-up week.
 

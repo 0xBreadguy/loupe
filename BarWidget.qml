@@ -13,9 +13,9 @@ import "ui"
 // opens the dashboard, middle-click restarts the watcher.
 BarWidget {
   id: root
-  moduleName: "0xbreadguy.t3-agents"
+  moduleName: "0xbreadguy.loupe"
 
-  readonly property var service: bar && bar.shell ? bar.shell.serviceFor("0xbreadguy.t3-agents") : null
+  readonly property var service: bar && bar.shell ? bar.shell.serviceFor("0xbreadguy.loupe") : null
   // Without the service there is nothing to show; say so rather than look idle.
   readonly property var status: service ? service.status : Status.unavailable("", "service")
   readonly property bool broken: !!status && !!status.error
@@ -53,7 +53,7 @@ BarWidget {
   function reason() {
     var s = root.status
     if (s.cause === "service") return translations.t("reason.noService")
-    if (s.cause === "launcher") return translations.t("reason.noLauncher").arg("~/.local/bin/t3-agents")
+    if (s.cause === "launcher") return translations.t("reason.noLauncher").arg("~/.local/bin/loupe")
     if (s.cause === "exited") return translations.t("reason.exited").arg(s.code === null ? "?" : String(s.code))
     return s.error // the watcher's own message, which names the path it tried
   }

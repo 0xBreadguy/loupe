@@ -94,9 +94,9 @@ from each other and from the sample agents on Live.
 
 ## Recap
 
-`t3-agents --recap` prints one card: the last full week of agent work, Monday
+`loupe --recap` prints one card: the last full week of agent work, Monday
 to Sunday. T3 shows you one thread at a time. This is the week across all of
-them. `t3-agents --recap --demo` shows a made-up week.
+them. `loupe --recap --demo` shows a made-up week.
 
 - **Agent hours,** with the week beside them, a column a day. Agent hours are
   the time runs were open, plus the time a thread sat waiting on you after its
@@ -178,7 +178,7 @@ when the terminal is under 39 columns.
 and `--recap --this-month` for the current month so far. Every number means
 what it means for a week, over the longer span. Where a week shows its days, a
 month shows its weeks, and on the wide card a calendar.
-`t3-agents --recap --month --demo` shows a made-up one.
+`loupe --recap --month --demo` shows a made-up one.
 
 - **On the 80-column card,** the hours have a column for each week beside
   them, where a week has a column for each day. Under each is the date that
@@ -200,9 +200,9 @@ month shows its weeks, and on the wide card a calendar.
 
 ## Tools
 
-`t3-agents --tools` prints what agents ran in the last full week, Monday to
+`loupe --tools` prints what agents ran in the last full week, Monday to
 Sunday, and what failed. T3 shows tool calls one at a time, inside a
-conversation. This is every thread at once. `t3-agents --tools --demo` shows a
+conversation. This is every thread at once. `loupe --tools --demo` shows a
 made-up week.
 
 - **Calls, call time and failed,** as three tiles. A call is a command, a file
@@ -274,8 +274,8 @@ Press `w` on an agent in the dashboard and you get its task on a clock: when
 you asked, each tool call, each time it waited on you, each agent it handed
 work to, all on one time axis, live. It answers "why is this taking so long?"
 while it's happening, and "where did the time go?" once it's done.
-`t3-agents --trace` prints the latest task the same way, and
-`t3-agents --trace --demo` shows a made-up one.
+`loupe --trace` prints the latest task the same way, and
+`loupe --trace --demo` shows a made-up one.
 
 - **Where the time went,** split the way Recap splits a week: tools, the model,
   waiting on you, and the stretches when no run was open because a delegate

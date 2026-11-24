@@ -1,7 +1,7 @@
 //! `--frame-stream`: the dashboard's frame loop without a terminal, for proving that a change to
 //! how frames are made leaves every written byte as it was.
 //!
-//! It launches the product as `t3-agents --db PATH` (or `--demo`) does, then drives the same
+//! It launches the product as `loupe --db PATH` (or `--demo`) does, then drives the same
 //! functions the loop in `present` drives (`host::poll_host`, the key handlers, `paint_with`
 //! with the real encoder) through a fixed script of clock steps, sizes and keys. The clock is
 //! pinned through `T3_FIXED_NOW`, which `clock::wall_now` reads, and advanced by the script. On a
@@ -18,9 +18,9 @@
 //! `--encoders primary` encodes only for the primary terminal (for timing); `--break-cell` flips
 //! one cell of one canvas before it is encoded (to show the check can fail).
 use super::*;
-use t3_agents_core::cluster::{TermEnv, WidthMethod};
-use t3_agents_core::live;
-use t3_agents_core::product::Origin;
+use loupe_core::cluster::{TermEnv, WidthMethod};
+use loupe_core::live;
+use loupe_core::product::Origin;
 
 mod sched;
 

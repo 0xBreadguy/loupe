@@ -1010,7 +1010,7 @@ mod tests {
         expect(&[
             ("Should I run a third count-only check?", 1, 0),
             (
-                "3. May T3 Agents measure folder sizes on disk? Today it reads only the database.",
+                "3. May Loupe measure folder sizes on disk? Today it reads only the database.",
                 1,
                 0,
             ),

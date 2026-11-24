@@ -424,7 +424,7 @@ impl InsightsView {
         }
         let p = input.palette;
         self.frame.clear(p.bg, p.fg);
-        self.frame.text_bold(1, 0, "T3 Agents · Insights", p.bright);
+        self.frame.text_bold(1, 0, "Loupe · Insights", p.bright);
         let notice = if cols < 17 {
             "Enlarge terminal".to_owned()
         } else if cols < 42 {
@@ -2301,7 +2301,7 @@ mod tests {
         let tips = vec![
             "Check that it is T3 Code's statev2.sqlite and that your user can read it.".to_owned(),
             "Check the path given to --db.".to_owned(),
-            "Just looking? t3-agents --recap --demo shows a made-up week.".to_owned(),
+            "Just looking? loupe --recap --demo shows a made-up week.".to_owned(),
         ];
         for (name, cols, rows) in [
             ("db-unreadable-55x24", 55, 24),

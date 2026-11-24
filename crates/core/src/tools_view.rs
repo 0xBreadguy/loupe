@@ -15,7 +15,7 @@ pub use recap_view::Source;
 pub const REPORT_COLUMNS: usize = 80;
 pub const WIDE_COLUMNS: usize = 120;
 
-const COMMAND: &str = "t3-agents --tools";
+const COMMAND: &str = "loupe --tools";
 const EXAMPLE: &str = "\"cd app && cargo test | tail\"";
 const EIGHTHS: [char; 8] = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
 const BUCKET_WORDS: [&str; 5] = ["under 1s", "1–10s", "10–60s", "1–10 min", "over 10 min"];
@@ -77,8 +77,9 @@ pub fn wide(tools: &Tools, palette: &Palette, source: Source, mono: bool) -> Can
 pub fn notice(p: &Palette, period: &str, state: &str, alarm: bool, message: &str, tips: &[String]) -> Canvas {
     let mut canvas = recap_view::notice(p, period, state, alarm, message, tips);
     // Recap's header is the same width: `TOOLS` sits where `RECAP` did, and `tools` where `recap` did.
-    canvas.text_bold(12, 0, "TOOLS", p.text2);
-    canvas.text(74, 0, "tools", p.dim);
+    let title_x = 1 + terminal::width("Loupe") as i32 + 2;
+    canvas.text_bold(title_x, 0, "TOOLS", p.text2);
+    canvas.text(canvas.w as i32 - 1 - terminal::width("tools") as i32, 0, "tools", p.dim);
     canvas
 }
 
@@ -115,7 +116,7 @@ fn finish(mut pen: Pen<'_>, rows: i32) -> Canvas {
 
 fn header(pen: &mut Pen, period: &str, state: &str, state_color: Rgb) {
     let p = pen.p;
-    let x = pen.runs(1, 0, &[("T3 Agents", p.fg, true), ("  ", p.dim, false), ("TOOLS", p.text2, true), ("  ", p.dim, false), (period, p.fg, false), ("  ", p.dim, false)]);
+    let x = pen.runs(1, 0, &[("Loupe", p.fg, true), ("  ", p.dim, false), ("TOOLS", p.text2, true), ("  ", p.dim, false), (period, p.fg, false), ("  ", p.dim, false)]);
     pen.c.text(x, 0, state, state_color);
     pen.c.right(pen.c.w as i32 - 1, 0, COMMAND, p.dim);
 }
@@ -1134,7 +1135,7 @@ pub fn list(tools: &Tools, source: Source, width: usize) -> String {
         format!("failed       {}  {}", count(tools.failed), failed_note(tools))
     };
     let mut out = vec![
-        format!("T3 AGENTS · TOOLS · {period} · {}", coverage(tools, source)),
+        format!("LOUPE · TOOLS · {period} · {}", coverage(tools, source)),
         String::new(),
         format!("calls        {}  {}", count(tools.calls), calls_note(tools)),
         format!("call time    {}  {}", time_cell(u64::from(tools.calls), tools.ms, u64::from(tools.open), u64::from(tools.closed_together)).0, clock_note(tools)),
@@ -1441,13 +1442,13 @@ mod tests {
         let period = recap_view::period_text(full.period, &full.from, &full.to);
         let empty = notice(&p, &period, "no tool calls", false, &format!("No tool calls recorded {period}, or this week so far."), &[
             "Tools reads the tool calls T3 Code has recorded on this machine.".into(),
-            "Just looking? t3-agents --tools --demo shows a made-up week.".into(),
+            "Just looking? loupe --tools --demo shows a made-up week.".into(),
         ]);
         assert_frame("t-80-empty", &plain(&empty), include_str!("../../../checks/fixtures/tools/t-80-empty.txt"));
         let unreadable = notice(&p, &period, "can't read T3", true, "Can't read the T3 database at ~/.t3/userdata/statev2.sqlite: database is locked.", &[
             "Is T3 Code installed, and has it been opened at least once?".into(),
             "T3 data somewhere else? Start with --db PATH, or set T3CODE_HOME to its folder.".into(),
-            "Just looking? t3-agents --tools --demo shows a made-up week.".into(),
+            "Just looking? loupe --tools --demo shows a made-up week.".into(),
         ]);
         assert_frame("t-80-unreadable", &plain(&unreadable), include_str!("../../../checks/fixtures/tools/t-80-unreadable.txt"));
     }
@@ -1577,7 +1578,7 @@ mod tests {
             assert_ne!(cell.bg, p.warn);
         }
         let period = recap_view::period_text(tools.period, &tools.from, &tools.to);
-        let unread = notice(&p, &period, "can't read T3", true, "Can't read the T3 database at ~/.t3/userdata/statev2.sqlite: database is locked.", &["Just looking? t3-agents --tools --demo shows a made-up week.".into()]);
+        let unread = notice(&p, &period, "can't read T3", true, "Can't read the T3 database at ~/.t3/userdata/statev2.sqlite: database is locked.", &["Just looking? loupe --tools --demo shows a made-up week.".into()]);
         let mut hot = String::new();
         for cell in &unread.cells {
             if cell.fg == p.hot {
@@ -1738,8 +1739,8 @@ mod tests {
             assert!(frame_lines(&report120).last().is_some_and(|line| line.trim_end() == format!(" {LAST_NOTE}")), "{name} 120");
             assert!(frame_lines(&listed).last().is_some_and(|line| !line.is_empty()), "{name} list");
             let when = recap_view::period_text(tools.period, &tools.from, &tools.to);
-            let empty = notice(&p, &when, "no tool calls", false, &format!("No tool calls recorded {when}, or this week so far."), &["Tools reads the tool calls T3 Code has recorded on this machine.".into(), "Just looking? t3-agents --tools --demo shows a made-up week.".into()]);
-            let unread = notice(&p, &when, "can't read T3", true, "Can't read the T3 database at ~/.t3/userdata/statev2.sqlite: database is locked.", &["Just looking? t3-agents --tools --demo shows a made-up week.".into()]);
+            let empty = notice(&p, &when, "no tool calls", false, &format!("No tool calls recorded {when}, or this week so far."), &["Tools reads the tool calls T3 Code has recorded on this machine.".into(), "Just looking? loupe --tools --demo shows a made-up week.".into()]);
+            let unread = notice(&p, &when, "can't read T3", true, "Can't read the T3 database at ~/.t3/userdata/statev2.sqlite: database is locked.", &["Just looking? loupe --tools --demo shows a made-up week.".into()]);
             for (which, canvas) in [("empty", empty), ("unreadable", unread)] {
                 let text = plain(&canvas);
                 assert_no_shell_prompt(&format!("{name} {which}"), &text);

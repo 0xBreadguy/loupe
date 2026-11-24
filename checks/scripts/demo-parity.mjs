@@ -12,7 +12,7 @@ import {Source} from '../../oracle/src/source.ts'
 // Opt-in: with T3_RECORD set, export-demo.ts turns this run into the recorded fixture.
 import {enabled as recording, recordCase} from './record.ts'
 const root=resolve(dirname(fileURLToPath(import.meta.url)),'..')
-const binary=resolve(process.argv[2]??process.env.T3_NATIVE_BINARY??join(root,'..','target/release/t3-agents-core'))
+const binary=resolve(process.argv[2]??process.env.T3_NATIVE_BINARY??join(root,'..','target/release/loupe-core'))
 const output=resolve(process.argv[3]??join(root,'generated/demo-parity.json'))
 const executable=readFileSync(binary)
 // Fail before invoking stale binaries: older prototypes ignore this unknown flag

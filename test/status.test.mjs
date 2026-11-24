@@ -56,7 +56,7 @@ test("unusable lines are rejected and errors become an unavailable status", () =
 })
 
 test("an unavailable status keeps why, bounded", () => {
-  const launcher = S.unavailable("cannot start /home/u/.local/bin/t3-agents", "launcher")
+  const launcher = S.unavailable("cannot start /home/u/.local/bin/loupe", "launcher")
   assert.equal(launcher.cause, "launcher")
   assert.equal(launcher.code, null)
   const exited = S.unavailable("exit code 127", "exited", 127)

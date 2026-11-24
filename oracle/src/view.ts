@@ -305,7 +305,7 @@ export function draw(c: Canvas, st: ViewState, snap: Snapshot, usage: Provider[]
     detailMax: 0, helpMax: 0, beat: false, smooth: false, linked: new Set<string>(),
     paces: new Map<string, Pace>(), face: faceFor(W, H) }
   if (W < 48 || H < 14) {
-    c.text(1, 0, "T3 Agents", p.bright, { attr: BOLD })
+    c.text(1, 0, "Loupe", p.bright, { attr: BOLD })
     c.text(1, 2, "Enlarge the terminal to at least 48 × 14.", p.dim)
     c.text(1, 3, "q quit", p.accent)
     return frame
@@ -600,7 +600,7 @@ export function nextScope(st: ViewState, now: number) {
 function header(c: Canvas, st: ViewState, snap: Snapshot, p: Palette, now: number, W: number) {
   c.fill(0, 0, W, 1, p.panel)
   // The product name as plain text: a badge would read as T3's own branding.
-  let x = 1 + c.text(1, 0, "T3 Agents", p.bright, { attr: BOLD }) + 2
+  let x = 1 + c.text(1, 0, "Loupe", p.bright, { attr: BOLD }) + 2
   if (st.paused) x += c.text(x, 0, "‖ PAUSED", p.warn, { attr: BOLD })
   else if (st.error) x += c.text(x, 0, st.calm || blink(now) ? `${RETRY} RETRYING` : "  RETRYING", p.hot, { attr: BOLD })
   else {
@@ -1176,11 +1176,11 @@ function unread(c: Canvas, r: Rect, st: ViewState, snap: Snapshot, p: Palette): 
     : t?.kind === "schema" ? `T3's database at ${path} has a layout this version doesn't know: ${t.detail}.`
     : `Can't read the T3 database at ${path}: ${t?.detail || st.error}.`
   const tries = !st.error ? [] : t?.kind === "schema"
-    ? ["T3 Code may have changed its database: look for a newer T3 Agents."]
+    ? ["T3 Code may have changed its database: look for a newer Loupe."]
     : [t?.kind === "unreadable" ? "Check it is T3 Code's statev2.sqlite and that your user can read it."
         : "Is T3 Code installed, and has it been opened at least once?",
       "T3 data somewhere else? Start with --db PATH, or set T3CODE_HOME to its folder."]
-  if (st.error) tries.push("Just looking? t3-agents --demo shows made-up agents.")
+  if (st.error) tries.push("Just looking? loupe --demo shows made-up agents.")
   let y = Y + 2
   const w = W - 4
   for (const line of wrap(head, w)) if (y < Y + H) c.text(X + 2, y++, line, p.fg, { attr: BOLD })
@@ -1644,7 +1644,7 @@ function help(c: Canvas, st: ViewState, p: Palette, W: number, H: number): numbe
   c.set(bx + bw - 1, by, "╮", p.accent)
   c.set(bx, by + bh - 1, "╰", p.accent)
   c.set(bx + bw - 1, by + bh - 1, "╯", p.accent)
-  c.text(bx + 2, by, " T3 Agents · help ", p.bright, { attr: BOLD })
+  c.text(bx + 2, by, " Loupe · help ", p.bright, { attr: BOLD })
   // Too short for all of it: the help scrolls (↓ ↑), and its border says what is out of view.
   if (st.helpScroll < max) c.textRight(bx + bw - 2, by + bh - 1, ` ▼ ${max - st.helpScroll} more · ↓ `, p.bright, { bg: p.panel })
   if (st.helpScroll > 0) c.textRight(bx + bw - 2, by, ` ▲ ${st.helpScroll} more · ↑ `, p.bright, { bg: p.panel })

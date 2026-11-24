@@ -5,7 +5,7 @@
 # SCALE_DIR=checks/generated/scale re-runs the demo-schema lab.
 set -u
 cd "$(dirname "$0")/../.."
-BIN=target/release/t3-agents-core
+BIN=target/release/loupe-core
 DIR="${SCALE_DIR:-checks/generated/scale/t3}"
 TAG=$(echo "$DIR" | tr / -)
 OUT=checks/generated/scale/results/$TAG

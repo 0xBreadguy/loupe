@@ -3,7 +3,7 @@
 #   python3 checks/bench/storage.py bench --help
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-: "${CARGO_TARGET_DIR:=$HOME/.cache/t3-agents-checks/storage-walker-target}"
+: "${CARGO_TARGET_DIR:=$HOME/.cache/loupe-checks/storage-walker-target}"
 export CARGO_TARGET_DIR
 cargo build --release --locked --manifest-path checks/storage-walker/Cargo.toml
 args=()

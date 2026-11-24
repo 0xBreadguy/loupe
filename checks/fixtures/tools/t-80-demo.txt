@@ -1,4 +1,4 @@
- T3 Agents  TOOLS  Nov 9 – 15  demo data · made up            t3-agents --tools
+ Loupe  TOOLS  Nov 9 – 15  demo data · made up                    loupe --tools
 
   CALLS                      CALL TIME                  FAILED
   ▄▄▄   ▄▄                   ▄▄▄▄ ▄▄▄▄                   ▄▄  ▄▄▄▄  ▄▄

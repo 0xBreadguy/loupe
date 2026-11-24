@@ -576,7 +576,7 @@ mod tests {
 
     impl Scratch {
         fn new() -> Self {
-            let path = std::env::temp_dir().join("t3-agents-wal-XXXXXX");
+            let path = std::env::temp_dir().join("loupe-wal-XXXXXX");
             let mut path = std::ffi::CString::new(path.as_os_str().as_bytes())
                 .unwrap()
                 .into_bytes_with_nul();

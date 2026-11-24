@@ -6382,7 +6382,7 @@ impl Reader {
             environment: None,
             previous: None,
             valid_until: f64::NEG_INFINITY,
-            self_check: std::env::var_os("T3_AGENTS_LIVE_SELF_CHECK").is_some(),
+            self_check: std::env::var_os("LOUPE_LIVE_SELF_CHECK").is_some(),
             mismatches: 0,
             feed: None,
             cache: None,

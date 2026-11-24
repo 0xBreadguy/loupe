@@ -4,11 +4,11 @@
 //! tests keep those defects from returning.
 mod support;
 use support::{Db, stamp};
-use t3_agents_core::{live::Reader, source};
+use loupe_core::{live::Reader, source};
 const NOW: f64 = 1_794_484_800_000.;
 
 /// Poll once and demand what the oracle says: the same snapshot as a full read, and no mismatch flag.
-fn agrees(reader: &mut Reader, db: &Db, what: &str) -> t3_agents_core::live::Update {
+fn agrees(reader: &mut Reader, db: &Db, what: &str) -> loupe_core::live::Update {
     let update = reader.poll(NOW).unwrap();
     let full = source::snapshot(&db.path, NOW).unwrap();
     let served = serde_json::to_value(&update.snapshot).unwrap();
@@ -24,7 +24,7 @@ fn agrees(reader: &mut Reader, db: &Db, what: &str) -> t3_agents_core::live::Upd
     update
 }
 
-fn ids(snapshot: &t3_agents_core::model::Snapshot, agent: &str) -> Vec<String> {
+fn ids(snapshot: &loupe_core::model::Snapshot, agent: &str) -> Vec<String> {
     snapshot
         .agents
         .iter()
@@ -94,7 +94,7 @@ fn capped_candidates(case: &str, self_check: bool, cold: bool) {
         };
         db.touch("b", 4, sql);
         let after = agrees(&mut reader, &db, case);
-        assert_eq!(after.served, t3_agents_core::live::Served::Incremental);
+        assert_eq!(after.served, loupe_core::live::Served::Incremental);
         // Moving b's run selects it on a: its item remains a candidate.
         assert_eq!(ids(&after.snapshot, "a").iter().any(|c| c == "cmd-1"), case != "move");
         assert_eq!(reader.mismatches(), 0);
@@ -109,7 +109,7 @@ fn capped_candidates(case: &str, self_check: bool, cold: bool) {
     );
     let after = agrees(&mut reader, &db, "the poll after b's first run");
     assert!(ids(&after.snapshot, "a").iter().any(|c| c == "cmd-1"), "the cut command returns when b's leaves");
-    assert_eq!(after.served, t3_agents_core::live::Served::Incremental);
+    assert_eq!(after.served, loupe_core::live::Served::Incremental);
 
     if case != "first" {
         assert!(after.snapshot.agents.iter().find(|a| a.id == "b").unwrap().plan.is_none());
@@ -117,7 +117,7 @@ fn capped_candidates(case: &str, self_check: bool, cold: bool) {
         // must fetch its row by run id, not depend on a retained key.
         db.touch("b", 5, "DELETE FROM orchestration_v2_projection_runs WHERE run_id='rb'");
         let restored = agrees(&mut reader, &db, "the previous latest run returns");
-        assert_eq!(restored.served, t3_agents_core::live::Served::Incremental);
+        assert_eq!(restored.served, loupe_core::live::Served::Incremental);
         assert_eq!(restored.snapshot.agents.iter().find(|a| a.id == "b").unwrap().plan.as_ref().unwrap()[0].text, "old-plan");
         assert!(ids(&restored.snapshot, "b").iter().any(|c| c == "cmd-b"));
         assert!(!ids(&restored.snapshot, "a").iter().any(|c| c == "cmd-1"));
@@ -127,7 +127,7 @@ fn capped_candidates(case: &str, self_check: bool, cold: bool) {
     // must retain it even when it is outside the event window (the cold variant).
     db.touch("b", 5, "DELETE FROM orchestration_v2_projection_runs WHERE run_id='rb'");
     let restored = agrees(&mut reader, &db, "the poll after b loses its last run");
-    assert_eq!(restored.served, t3_agents_core::live::Served::Incremental);
+    assert_eq!(restored.served, loupe_core::live::Served::Incremental);
     assert!(!ids(&restored.snapshot, "a").iter().any(|c| c == "cmd-1"));
     assert!(ids(&restored.snapshot, "b").iter().any(|c| c == "cmd-b"));
     assert_eq!(reader.mismatches(), 0);

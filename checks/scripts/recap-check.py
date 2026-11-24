@@ -93,7 +93,7 @@ def add_finished(db, first, count, status="completed"):
                    (f"new{i}", "t1", 10 + i, json.dumps({"status": status, "startedAt": start}), start, end, status))
 
 def main(scratch):
-    program = str(Path(sys.argv[1] if len(sys.argv) > 1 else "target/release/t3-agents-term").resolve())
+    program = str(Path(sys.argv[1] if len(sys.argv) > 1 else "target/release/loupe-term").resolve())
     home = os.path.join(scratch, "home")
     os.makedirs(os.path.join(scratch, "emptyhome"))
     env = {"HOME": home, "XDG_CONFIG_HOME": home + "/.config", "XDG_DATA_HOME": home + "/.local/share", "XDG_CACHE_HOME": home + "/.cache",
@@ -134,7 +134,7 @@ def main(scratch):
     def is_short_list(out, rows_expected=None):
         """A colored list: 39 cells a row, and the recap header on the first."""
         rows = rows_of(out)
-        ok = bool(rows) and rows[0].startswith(" T3 Agents  RECAP") and all(len(row) == 39 for row in rows) and "\x1b" in out
+        ok = bool(rows) and rows[0].startswith(" Loupe  RECAP") and all(len(row) == 39 for row in rows) and "\x1b" in out
         if rows_expected is not None:
             ok = ok and len(rows) == rows_expected
         return ok
@@ -156,10 +156,10 @@ def main(scratch):
         run = piped(["--recap", "--narrow", "--demo", "--json"])
         return run.returncode == 0 and json.loads(run.stdout)["period"] == "week"
     def original_does_not_know_narrow():
-        run = piped(["--narrow"], {"T3_AGENTS_NO_THEMES": "1"})
+        run = piped(["--narrow"], {"LOUPE_NO_THEMES": "1"})
         return run.returncode == 2 and "Unknown option '--narrow'" in run.stderr
     def list_wider_than_thirty_columns_says_why():
-        note = "t3-agents: the list is 39 columns wide,\nthis terminal is 30, so its lines wrap.\n"
+        note = "loupe: the list is 39 columns wide,\nthis terminal is 30, so its lines wrap.\n"
         asked = terminal(["--recap", "--narrow", "--demo"], size=(30, 24))
         auto = terminal(["--recap", "--demo"], size=(30, 24))
         return asked[1] == 0 and auto[1] == 0 and asked[2] == note and auto[2] == note
@@ -202,9 +202,9 @@ def main(scratch):
         """Give each cache check a separately built source and a private cache folder."""
         path = database(dbs, name, cache_week)
         root = Path(scratch) / name
-        extra = {"XDG_CACHE_HOME": str(root), "T3_AGENTS_CACHE": "1"}
+        extra = {"XDG_CACHE_HOME": str(root), "LOUPE_CACHE": "1"}
         time.sleep(0.025)
-        return ["--recap", "--db", path], extra, root / "t3-agents" / "insights.sqlite3"
+        return ["--recap", "--db", path], extra, root / "loupe" / "insights.sqlite3"
 
     def cache_result(args, extra, expected, stats):
         """Check the raw output, exit status, and entire diagnostic line."""
@@ -215,19 +215,19 @@ def main(scratch):
 
     def cache_stats(hits, finished, writes):
         """The single diagnostic line emitted for an open store."""
-        return f"t3-agents: cache: {hits} of {finished} finished runs from the cache, {writes} written\n".encode()
+        return f"loupe: cache: {hits} of {finished} finished runs from the cache, {writes} written\n".encode()
 
     def cold_and_warm_cache():
         """Exercise both output formats with actual misses and hits, excluding the live run."""
         args, extra, cache = cache_fixture("cold-and-warm")
-        diagnostic = {**extra, "T3_AGENTS_CACHE_STATS": "1"}
-        off = {**diagnostic, "T3_AGENTS_NO_CACHE": "1"}
+        diagnostic = {**extra, "LOUPE_CACHE_STATS": "1"}
+        off = {**diagnostic, "LOUPE_NO_CACHE": "1"}
         for mode in ("--json", "--wide"):
             if cache.exists():
                 cache.unlink()
             output_args = [*args, mode]
             expected = piped(output_args, off, text=False).stdout
-            cache_result(output_args, off, expected, b"t3-agents: cache: not used\n")
+            cache_result(output_args, off, expected, b"loupe: cache: not used\n")
             assert not cache.exists()
             cache_result(output_args, diagnostic, expected, cache_stats(0, 3, 3))
             cache_result(output_args, diagnostic, expected, cache_stats(3, 3, 0))
@@ -240,8 +240,8 @@ def main(scratch):
         """Adding two runs invalidates the three entries that were already in the store."""
         args, extra, _ = cache_fixture("retired")
         args.append("--json")
-        diagnostic = {**extra, "T3_AGENTS_CACHE_STATS": "1"}
-        off = {**extra, "T3_AGENTS_NO_CACHE": "1"}
+        diagnostic = {**extra, "LOUPE_CACHE_STATS": "1"}
+        off = {**extra, "LOUPE_NO_CACHE": "1"}
         before = piped(args, off, text=False).stdout
         cache_result(args, diagnostic, before, cache_stats(0, 3, 3))
         with sqlite3.connect(args[2]) as db:
@@ -260,9 +260,9 @@ def main(scratch):
     def unusable_cache_is_silent():
         """A broken cache file or an occupied cache path leaves the command usable."""
         args, extra, cache = cache_fixture("unusable")
-        off = {**extra, "T3_AGENTS_NO_CACHE": "1"}
+        off = {**extra, "LOUPE_NO_CACHE": "1"}
         output = {mode: piped([*args, mode], off, text=False).stdout for mode in ("--json", "--wide")}
-        cache_result([*args, "--json"], {**extra, "T3_AGENTS_CACHE_STATS": "1"}, output["--json"], cache_stats(0, 3, 3))
+        cache_result([*args, "--json"], {**extra, "LOUPE_CACHE_STATS": "1"}, output["--json"], cache_stats(0, 3, 3))
         with cache.open("r+b") as broken:
             broken.write(bytes(1024))
         for mode, expected in output.items():
@@ -277,18 +277,18 @@ def main(scratch):
     def cache_requires_opt_in():
         """Demo and default reads never open the store, and the off switch wins."""
         args, extra, cache = cache_fixture("opt-in")
-        diagnostic = {**extra, "T3_AGENTS_CACHE_STATS": "1"}
-        off = {**diagnostic, "T3_AGENTS_NO_CACHE": "1"}
-        default = {name: value for name, value in diagnostic.items() if name != "T3_AGENTS_CACHE"}
+        diagnostic = {**extra, "LOUPE_CACHE_STATS": "1"}
+        off = {**diagnostic, "LOUPE_NO_CACHE": "1"}
+        default = {name: value for name, value in diagnostic.items() if name != "LOUPE_CACHE"}
         for mode in ("--json", "--wide"):
             expected = piped([*args, mode], off, text=False).stdout
-            cache_result([*args, mode], off, expected, b"t3-agents: cache: not used\n")
-            cache_result([*args, mode], default, expected, b"t3-agents: cache: not used\n")
-            cache_result([*args, mode], {**diagnostic, "T3_AGENTS_CACHE": "true"}, expected, b"t3-agents: cache: not used\n")
+            cache_result([*args, mode], off, expected, b"loupe: cache: not used\n")
+            cache_result([*args, mode], default, expected, b"loupe: cache: not used\n")
+            cache_result([*args, mode], {**diagnostic, "LOUPE_CACHE": "true"}, expected, b"loupe: cache: not used\n")
             assert not cache.exists()
             demo = ["--recap", "--demo", mode]
             expected = piped(demo, off, text=False).stdout
-            cache_result(demo, diagnostic, expected, b"t3-agents: cache: not used\n")
+            cache_result(demo, diagnostic, expected, b"loupe: cache: not used\n")
             assert not cache.exists()
         return True
 
@@ -300,9 +300,9 @@ def main(scratch):
             add_finished(db, 1, 1, status="unknown")
             add_finished(db, 2, 1, status="waiting")
         time.sleep(0.025)
-        off = {**extra, "T3_AGENTS_NO_CACHE": "1"}
+        off = {**extra, "LOUPE_NO_CACHE": "1"}
         expected = piped(args, off, text=False).stdout
-        diagnostic = {**extra, "T3_AGENTS_CACHE_STATS": "1"}
+        diagnostic = {**extra, "LOUPE_CACHE_STATS": "1"}
         cache_result(args, diagnostic, expected, cache_stats(0, 4, 3))
         cache_result(args, diagnostic, expected, cache_stats(3, 4, 0))
         with sqlite3.connect(cache) as store:
@@ -313,9 +313,9 @@ def main(scratch):
         """Exercise default skim, SQLite, and head reads at each worker count."""
         for skim in (None, "off", "head"):
             for workers in ("1", "4", "8"):
-                settings = {"T3_AGENTS_READ_THREADS": workers}
+                settings = {"LOUPE_READ_THREADS": workers}
                 if skim is not None:
-                    settings["T3_AGENTS_SKIM"] = skim
+                    settings["LOUPE_SKIM"] = skim
                 yield settings
 
     def reader_modes_keep_cards():
@@ -339,7 +339,7 @@ def main(scratch):
         for mode in ("--json", "--wide"):
             args = ["--recap", "--db", path, mode]
             color = {"FORCE_COLOR": "1"}
-            serial = {**color, "T3_AGENTS_SKIM": "off", "T3_AGENTS_READ_THREADS": "1"}
+            serial = {**color, "LOUPE_SKIM": "off", "LOUPE_READ_THREADS": "1"}
             expected = piped(args, serial, text=False)
             assert expected.returncode == 0 and expected.stderr == b""
             for index, settings in enumerate(reader_settings()):
@@ -347,10 +347,10 @@ def main(scratch):
                 cache = str(Path(scratch) / f"reader-modes{mode}-{index}")
                 cache_result(args, settings, expected.stdout, b"")
                 cached = {**settings, "XDG_CACHE_HOME": cache,
-                          "T3_AGENTS_CACHE": "1", "T3_AGENTS_CACHE_STATS": "1"}
+                          "LOUPE_CACHE": "1", "LOUPE_CACHE_STATS": "1"}
                 cache_result(args, cached, expected.stdout, cache_stats(0, 3, 3))
                 cache_result(args, cached, expected.stdout, cache_stats(3, 3, 0))
-                cache_result(args, {**cached, "T3_AGENTS_CACHE_STATS": "0"}, expected.stdout, b"")
+                cache_result(args, {**cached, "LOUPE_CACHE_STATS": "0"}, expected.stdout, b"")
         return True
 
     def non_strict_week(db):
@@ -363,12 +363,12 @@ def main(scratch):
         """A strict JSON failure gives the same notice from a serial or parallel read."""
         path = database(dbs, "non-strict", non_strict_week)
         args = ["--recap", "--db", path, "--json"]
-        expected = piped(args, {"T3_AGENTS_READ_THREADS": "1"}, text=False)
+        expected = piped(args, {"LOUPE_READ_THREADS": "1"}, text=False)
         assert expected.returncode == 1 and expected.stdout == b""
         assert b"a recorded item is not strict JSON" in expected.stderr
         for workers in ("1", "4", "8"):
-            for mode in ({}, {"T3_AGENTS_SKIM": "head"}, {"T3_AGENTS_SKIM": "early"}):
-                result = piped(args, {**mode, "T3_AGENTS_READ_THREADS": workers}, text=False)
+            for mode in ({}, {"LOUPE_SKIM": "head"}, {"LOUPE_SKIM": "early"}):
+                result = piped(args, {**mode, "LOUPE_READ_THREADS": workers}, text=False)
                 assert (result.returncode, result.stdout, result.stderr) == (1, b"", expected.stderr)
         return True
 
@@ -377,7 +377,7 @@ def main(scratch):
         path = database(dbs, "sqlite-json", non_strict_week)
         args = ["--recap", "--db", path, "--json"]
         for workers in ("1", "4", "8"):
-            result = piped(args, {"T3_AGENTS_SKIM": "off", "T3_AGENTS_READ_THREADS": workers}, text=False)
+            result = piped(args, {"LOUPE_SKIM": "off", "LOUPE_READ_THREADS": workers}, text=False)
             assert result.returncode == 0 and result.stderr == b""
             assert json.loads(result.stdout)["runs"] == 4
         return True
@@ -394,9 +394,9 @@ def main(scratch):
         with sqlite3.connect(path) as db:
             db.execute(f"""UPDATE {P}turn_items
                 SET payload_json=json_set(payload_json,'$.startedAt',1) WHERE item_id='command_execution0'""")
-        for mode in ({}, {"T3_AGENTS_SKIM": "head"}):
+        for mode in ({}, {"LOUPE_SKIM": "head"}):
             cache_result(args, mode, expected.stdout, b"")
-        sqlite = piped(args, {"T3_AGENTS_SKIM": "off"}, text=False)
+        sqlite = piped(args, {"LOUPE_SKIM": "off"}, text=False)
         assert sqlite.returncode == 1 and sqlite.stdout == b""
         assert b"Invalid column type Integer" in sqlite.stderr
         return True
@@ -448,11 +448,11 @@ def main(scratch):
         ('--narrow --json is valid JSON', narrow_json_is_json),
         ("the original's command line does not know --narrow", original_does_not_know_narrow),
         ('a list wider than a terminal of 30 columns says why its lines wrap', list_wider_than_thirty_columns_says_why),
-        ('a card asked for in a narrower terminal is drawn, and says after it why its lines wrap', lambda: (lambda compact, wide: len(rows_of(compact[0])) == 23 and compact[2] == 't3-agents: the card is 80 columns wide,\nthis terminal is 60, so its lines wrap.\nLeave out --compact for what fits here.\n' and len(rows_of(wide[0])) == 39 and 'the card is 120 columns wide,\nthis terminal is 100, so its lines wrap.' in wide[2] and 'Leave out --wide' in wide[2])(terminal(['--recap', '--demo', '--compact'], size=(60, 24)), terminal(['--recap', '--demo', '--wide'], size=(100, 40)))),
+        ('a card asked for in a narrower terminal is drawn, and says after it why its lines wrap', lambda: (lambda compact, wide: len(rows_of(compact[0])) == 23 and compact[2] == 'loupe: the card is 80 columns wide,\nthis terminal is 60, so its lines wrap.\nLeave out --compact for what fits here.\n' and len(rows_of(wide[0])) == 39 and 'the card is 120 columns wide,\nthis terminal is 100, so its lines wrap.' in wide[2] and 'Leave out --wide' in wide[2])(terminal(['--recap', '--demo', '--compact'], size=(60, 24)), terminal(['--recap', '--demo', '--wide'], size=(100, 40)))),
         ('a card that fits its terminal, or goes into a pipe, says nothing after it', lambda: terminal(['--recap', '--demo', '--compact'], size=big)[2] == '' and terminal(['--recap', '--demo', '--wide'], size=(120, 24))[2] == '' and terminal(['--recap', '--demo'], size=(80, 24))[2] == '' and piped(['--recap', '--demo', '--wide']).stderr == ''),
         ('--wide with --compact, and either without --recap, are usage errors', lambda: all((piped(args).returncode == 2 for args in (['--recap', '--wide', '--compact'], ['--wide'], ['--compact'])))),
-        ("the original's command line does not know --recap", lambda: (lambda r: r.returncode == 2 and "Unknown option '--recap'" in r.stderr)(piped(['--recap', '--demo'], {'T3_AGENTS_NO_THEMES': '1'}))),
-        ('--month is the last full calendar month: October 2026, on 23 rows of 80 cells or fewer', lambda: (lambda month_plain: (lambda rows: len(rows) == 23 and all((len(row) <= 80 for row in rows)) and rows[0].startswith(' T3 Agents  RECAP  October 2026'))(month_plain.stdout.rstrip('\n').split('\n')))(piped(["--recap", "--month", "--demo"]))),
+        ("the original's command line does not know --recap", lambda: (lambda r: r.returncode == 2 and "Unknown option '--recap'" in r.stderr)(piped(['--recap', '--demo'], {'LOUPE_NO_THEMES': '1'}))),
+        ('--month is the last full calendar month: October 2026, on 23 rows of 80 cells or fewer', lambda: (lambda month_plain: (lambda rows: len(rows) == 23 and all((len(row) <= 80 for row in rows)) and rows[0].startswith(' Loupe  RECAP  October 2026'))(month_plain.stdout.rstrip('\n').split('\n')))(piped(["--recap", "--month", "--demo"]))),
         ("--month --wide is 39 rows of 120 cells or fewer, with a calendar and each week's hours", lambda: (lambda month_wide_plain: (lambda rows: len(rows) == 39 and all((len(row) <= 120 for row in rows)) and rows[8].startswith(' AGENTS AT WORK, BY DAY') and rows[9].startswith(' Mon    Tue    Wed    Thu    Fri    Sat    Sun        week'))(month_wide_plain.stdout.rstrip('\n').split('\n')))(piped(["--recap", "--month", "--demo", "--wide"]))),
         ("a month's JSON says it is a month, has a value for each of its 31 days, and the days add up to its hours", lambda: (lambda month_json: month_json['period'] == 'month' and month_json['days'] == 31 and (len(month_json['by_day']) == 31) and (len(month_json['by_hour']) == 31) and (abs(sum(month_json['by_day']) - month_json['hours']) < 1e-06))(json.loads(piped(["--recap", "--month", "--demo", "--json"]).stdout))),
         ("a week's JSON says it is a week, and has seven days", lambda: (lambda week_json: week_json['period'] == 'week' and len(week_json['by_day']) == 7 and (week_json['days'] == 7))(json.loads(piped(["--recap", "--demo", "--json"]).stdout))),
@@ -461,7 +461,7 @@ def main(scratch):
         ('--month on an empty database says there is nothing in the month, or in this one so far', lambda: (lambda r: r.returncode == 0 and 'No agent runs recorded in October 2026, or this month so far.' in r.stdout)(piped(['--recap', '--month', '--db', empty]))),
         ('--month with no records in it shows this month so far', lambda: 'November 2026' in piped(['--recap', '--month', '--db', thin]).stdout),
         ('two periods at once, and --month without --recap, are usage errors', lambda: all((piped(args).returncode == 2 for args in (['--recap', '--month', '--this-month'], ['--recap', '--this-week', '--month'], ['--month'], ['--this-month'])))),
-        ("the original's command line does not know --month", lambda: (lambda r: r.returncode == 2 and 'Unknown option' in r.stderr)(piped(['--recap', '--month', '--demo'], {'T3_AGENTS_NO_THEMES': '1'}))),
+        ("the original's command line does not know --month", lambda: (lambda r: r.returncode == 2 and 'Unknown option' in r.stderr)(piped(['--recap', '--month', '--demo'], {'LOUPE_NO_THEMES': '1'}))),
         ('made-up data asked for at 3 on a Monday morning ends: nothing yet this week, and the month up to the day before', lambda: (lambda r: r.returncode == 0 and 'No agent runs recorded Nov 16 – 22 so far.' in r.stdout)(piped(['--recap', '--this-week', '--demo'], now=EARLY)) and (lambda r: r['returncode'] == 0 and r['days_elapsed'] == 16 and (r['by_day'][14] > 0) and (r['by_day'][15] == 0))((lambda run: {'returncode': run.returncode, **json.loads(run.stdout)})(piped(['--recap', '--this-month', '--demo', '--json'], now=EARLY))))
     ]
     failed = False

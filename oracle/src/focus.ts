@@ -13,7 +13,7 @@ import { threadRef } from "./identity.ts"
 import type { Agent } from "./source.ts"
 export { environmentId } from "./identity.ts"
 
-const T3_CLASS = /t3code/i // com.t3tools.T3Code; never this dashboard (t3-agents)
+const T3_CLASS = /t3code/i // com.t3tools.T3Code; never this dashboard (loupe)
 const RETRY_MS = 10_000
 const strip = (address: string) => address.trim().replace(/^0x/, "")
 const norm = (s: string) => clean(s).trim()

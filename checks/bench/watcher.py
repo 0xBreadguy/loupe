@@ -4,8 +4,8 @@
 Three arms, each `--status --watch` on a working copy of one lab tier:
 
   original           node oracle/src/main.ts
-  rust_incremental   t3-agents-term, the default: the incremental reader
-  rust_full_read     t3-agents-term with T3_AGENTS_SYNC_READ=1: the original's full read
+  rust_incremental   loupe-term, the default: the incremental reader
+  rust_full_read     loupe-term with LOUPE_SYNC_READ=1: the original's full read
 
 While an arm runs, the lab's write stream applies one write a second. Every trial starts from
 an untouched copy and from step one, because that stream is sequential and runs dry after a few
@@ -42,7 +42,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--tier", default="real", help="lab tier (real is the skewed synthetic workload)")
     ap.add_argument("--dir", type=Path, default=ROOT / "checks/generated/scale/t3")
-    ap.add_argument("--native", type=Path, default=ROOT / "target/release/t3-agents-term")
+    ap.add_argument("--native", type=Path, default=ROOT / "target/release/loupe-term")
     ap.add_argument("--work", type=Path, default=ROOT / "checks/generated/tmp/watcher")
     ap.add_argument("--arms", nargs="*", default=ARMS)
     ap.add_argument("--trials", type=int, default=5)
@@ -74,7 +74,7 @@ def main():
                 argv = NODE + [str(ROOT / "oracle/src/main.ts"), "--status", "--watch", "--db", str(db)]
             else:
                 argv = [str(args.native), "--status", "--watch", "--db", str(db)]
-            arm_env = dict(env, T3_AGENTS_SYNC_READ="1") if arm == "rust_full_read" else env
+            arm_env = dict(env, LOUPE_SYNC_READ="1") if arm == "rust_full_read" else env
             p = subprocess.Popen(argv, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=arm_env)
             os.set_blocking(p.stdout.fileno(), False)
             lines = writes = step = 0

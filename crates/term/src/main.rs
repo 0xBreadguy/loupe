@@ -1,4 +1,4 @@
-//! `t3-agents-term`: the cell grid on any terminal.
+//! `loupe-term`: the cell grid on any terminal.
 //!
 //! It speaks the product command line of the original (`--demo`, `--db`, `--once`,
 //! `--status`, `--interval`, `--calm`), and the experiment flags when one is present.
@@ -9,7 +9,7 @@ use std::io::{self, IsTerminal, Write};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
-use t3_agents_core::{
+use loupe_core::{
     cli::{self, interaction_state},
     clock, demo, host,
     host::{Clock, Host},
@@ -18,8 +18,8 @@ use t3_agents_core::{
     product::{self, Command, Database},
     recap, source, terminal, theme, trace, trace_live, trace_view,
 };
-use t3_agents_term::platform::{self, Wake, Waker};
-use t3_agents_term::{
+use loupe_term::platform::{self, Wake, Waker};
+use loupe_term::{
     BACKGROUND_QUERY, Encoder, Event, GRAPHEME_ON, Parser, Probe, Report, compose, probe_wanted,
     startup_probe_for,
     storage::StorageSource,
@@ -318,7 +318,7 @@ fn draw_trace(s: &State, t: &mut trace_live::Screen, cols: usize, rows: usize) -
         demo: s.demo,
         now: s.now,
     };
-    if let Some(canvas) = t.frame(&s.palette, cols, rows, &view, &t3_agents_core::platform::local_time) {
+    if let Some(canvas) = t.frame(&s.palette, cols, rows, &view, &loupe_core::platform::local_time) {
         return canvas;
     }
     match &t.data {
@@ -393,7 +393,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
         platform::write_stdout(&startup_probe_for(theme_mode))?;
     }
     if std::env::var_os("T3_TERM_PANIC").is_some() {
-        panic!("t3-agents-term: test panic");
+        panic!("loupe-term: test panic");
     }
     let replay = cli::option("--replay")
         .map(|path| host::load_replay(std::path::Path::new(&path)))
@@ -405,7 +405,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
     };
     let mut parser = Parser::new();
     // The width method and cursor rules the original takes from this terminal's environment.
-    let mut encoder = Encoder::for_terminal(t3_agents_core::cluster::TermEnv::from_process());
+    let mut encoder = Encoder::for_terminal(loupe_core::cluster::TermEnv::from_process());
     encoder.process_color_environment();
     let mut palette_queried = false;
     // When the background was last asked for after a color scheme report (OpenTUI asks once per
@@ -685,19 +685,19 @@ fn bench(spec: &str) -> Result<(), Box<dyn std::error::Error>> {
     let before = compose(&mut state, w, h);
     state.action("down");
     let after = compose(&mut state, w, h);
-    let mut screen = t3_agents_term::Screen::new(w, h);
+    let mut screen = loupe_term::Screen::new(w, h);
     let mut enc = Encoder::new();
     let full_bytes = enc.encode(&before, true);
     screen.apply(&full_bytes);
-    t3_agents_term::cells_match(&screen, &before)
+    loupe_term::cells_match(&screen, &before)
         .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
     let diff_bytes = enc.encode(&after, false);
     if diff_bytes.is_empty() {
-        t3_agents_term::cells_match(&screen, &after)
+        loupe_term::cells_match(&screen, &after)
             .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
     } else {
         screen.apply(&diff_bytes);
-        t3_agents_term::cells_match(&screen, &after)
+        loupe_term::cells_match(&screen, &after)
             .map_err(|e| -> Box<dyn std::error::Error> { e.into() })?;
     }
     for _ in 0..20 {
@@ -780,7 +780,7 @@ fn product_launch(
         }
         Database::Path { path, .. } => {
             let mut initial_reader = None;
-            let result = if std::env::var_os("T3_AGENTS_SYNC_READ").is_some() {
+            let result = if std::env::var_os("LOUPE_SYNC_READ").is_some() {
                 source::snapshot(&path, now)
             } else {
                 match live::Reader::open(&path).and_then(|mut reader| {
@@ -887,12 +887,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             match theme::Themes::from_environment(flag.as_deref()) {
                 Ok((themes, skipped)) => {
                     for line in skipped {
-                        eprintln!("t3-agents: skipped {line}");
+                        eprintln!("loupe: skipped {line}");
                     }
                     Some(themes)
                 }
                 Err(e) => {
-                    eprintln!("t3-agents: {e}");
+                    eprintln!("loupe: {e}");
                     std::process::exit(2);
                 }
             }
@@ -906,7 +906,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 /// Arm the optional report only for the Recap command.
 fn request_recap_cache_stats() -> bool {
-    if !std::env::var_os("T3_AGENTS_CACHE_STATS").is_some_and(|value| value == "1") {
+    if !std::env::var_os("LOUPE_CACHE_STATS").is_some_and(|value| value == "1") {
         return false;
     }
     let args: Vec<_> = std::env::args().skip(1).collect();
@@ -928,7 +928,7 @@ extern "C" fn report_cache_stats() {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("t3-agents-term: {e}");
+        eprintln!("loupe-term: {e}");
         std::process::exit(1);
     }
 }

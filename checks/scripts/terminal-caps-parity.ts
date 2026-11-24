@@ -42,7 +42,7 @@ import { CLUSTERS } from "./cluster-titles.ts"
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const REPO = resolve(ROOT, "..")
-const termBin = resolve(process.env.T3_NATIVE_BINARY ?? join(REPO, "target/release/t3-agents-term"))
+const termBin = resolve(process.env.T3_NATIVE_BINARY ?? join(REPO, "target/release/loupe-term"))
 const baselineBin = process.env.T3_CAPS_BASELINE_BINARY ? resolve(process.env.T3_CAPS_BASELINE_BINARY) : null
 const mainTs = join(REPO, "oracle/src/main.ts")
 const fixedClock = pathToFileURL(join(ROOT, "scripts/fixed-clock.mjs")).href
@@ -566,7 +566,7 @@ async function runProgram(side: Side, profileName: string, keys: string[], input
     LANG: "C.UTF-8",
     T3_FIXED_NOW: String(NOW),
     // The original's theme behavior; the product's themes are tested in crates/term/tests/pty.rs.
-    T3_AGENTS_NO_THEMES: "1",
+    LOUPE_NO_THEMES: "1",
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
     COLUMNS: String(COLS),
@@ -802,7 +802,7 @@ function startedSlowly(raw: Buffer): boolean {
   const from = raw.indexOf("\x1b[?2026h")
   if (from < 0) return false
   const to = raw.indexOf("\x1b[?2026l", from)
-  return !raw.subarray(from, to < 0 ? raw.length : to).includes("T3 Agents")
+  return !raw.subarray(from, to < 0 ? raw.length : to).includes("Loupe")
 }
 
 async function scenario(profileName: string, keys: string[], input: string[] = ["--demo"], tag = "") {
@@ -972,7 +972,7 @@ async function runPaste(side: "node" | "rust", c: PasteCase): Promise<Run & { al
     LANG: "C.UTF-8",
     T3_FIXED_NOW: String(NOW),
     // The original's theme behavior; the product's themes are tested in crates/term/tests/pty.rs.
-    T3_AGENTS_NO_THEMES: "1",
+    LOUPE_NO_THEMES: "1",
     TERM: "xterm-256color",
     COLORTERM: "truecolor",
     COLUMNS: String(COLS),

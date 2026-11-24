@@ -11,11 +11,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use t3_agents_core::storage::{
+use loupe_core::storage::{
     self, Coverage, Folder, FolderKind, InventoryInput, Owner, Project, Thread,
 };
-use t3_agents_core::storage_view::adapter::{ProjectMetadata, ThreadMetadata, convert};
-use t3_agents_core::storage_view::data::{
+use loupe_core::storage_view::adapter::{ProjectMetadata, ThreadMetadata, convert};
+use loupe_core::storage_view::data::{
     Bytes, Entry, Inventory as ViewInventory, Scan, Sizes, ThreadState,
 };
 

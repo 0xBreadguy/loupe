@@ -3,7 +3,7 @@ use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use t3_agents_core::storage::{Cancelled, Inventory};
+use loupe_core::storage::{Cancelled, Inventory};
 
 #[derive(Debug)]
 pub enum ScanState {

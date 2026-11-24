@@ -1,5 +1,5 @@
-# T3 Agents
+# Loupe
 
-The instructions for working in this repository, and for installing T3 Agents for someone, are in AGENTS.md. They apply to Claude Code as written.
+The instructions for working in this repository, and for installing Loupe for someone, are in AGENTS.md. They apply to Claude Code as written.
 
 @AGENTS.md

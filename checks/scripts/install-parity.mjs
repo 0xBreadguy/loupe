@@ -13,14 +13,14 @@
 //      given --binary, and it installs one binary. (The original's install output is otherwise
 //      byte-identical for the default name.)
 //   2. The new installer takes --name, --title and --binary. The original is fixed to
-//      t3-agents, so only the new one can sit two builds side by side. --uninstall also exists
+//      loupe, so only the new one can sit two builds side by side. --uninstall also exists
 //      only here: the original is removed by hand (docs/install.md, "Remove").
-//   3. The launcher runs the installed `t3-agents-term` instead of
+//   3. The launcher runs the installed `loupe-term` instead of
 //      `node --experimental-ffi .../src/main.ts`. Everything after the interpreter prefix is
 //      compared, which is the argv the program receives.
-//   4. When the program is missing the message names t3-agents-term rather than Node.js, and
+//   4. When the program is missing the message names loupe-term rather than Node.js, and
 //      the --status JSON carries that wording. The JSON shape and exit 127 are compared.
-//   5. The marker comment differs ("t3-agents-rust"), so uninstall can tell the two installs
+//   5. The marker comment differs ("loupe-rust"), so uninstall can tell the two installs
 //      apart. The rest of the launcher entry is compared line for line.
 //   6. The launcher resolves the program directory from XDG_DATA_HOME at run time, exactly as
 //      the original resolves its app directory; only the file inside it differs.
@@ -43,18 +43,18 @@ const REAL_BASH = "/usr/bin/bash"
 const REAL_HEAD = "/usr/bin/head"
 const TMP = mkdtempSync(join(tmpdir(), "t3-install-parity-"))
 const STUBS = join(TMP, "stubs")
-const PROGRAM_STUB = join(STUBS, "t3-agents-term")
-const ORIGINAL_MARKER = "Managed by t3-agents (github.com/0xBreadguy/t3-agents)"
-const NATIVE_MARKER = "Managed by t3-agents-rust (github.com/0xBreadguy/t3-agents)"
+const PROGRAM_STUB = join(STUBS, "loupe-term")
+const ORIGINAL_MARKER = "Managed by loupe (github.com/0xBreadguy/loupe)"
+const NATIVE_MARKER = "Managed by loupe-rust (github.com/0xBreadguy/loupe)"
 
 const DELIBERATE = [
   "no Node.js/npm check, no node_modules: the native installer needs cargo or --binary",
   "native-only flags: --name, --title, --binary, --uninstall",
-  "the launcher runs t3-agents-term, not `node .../src/main.ts`",
-  "the missing-program message names t3-agents-term, not Node.js (JSON shape and exit 127 match)",
+  "the launcher runs loupe-term, not `node .../src/main.ts`",
+  "the missing-program message names loupe-term, not Node.js (JSON shape and exit 127 match)",
   "the marker comment differs so uninstall can tell the two installs apart",
   "after installing or removing, the native installer ends that install's running status watcher so the bar restarts it on the new program; the stubs here have no pkill, so the gate does not exercise it",
-  "the installer builds into ${XDG_CACHE_HOME:-$HOME/.cache}/t3-agents/target, outside the checkout, unless CARGO_TARGET_DIR is set; the original has no build step",
+  "the installer builds into ${XDG_CACHE_HOME:-$HOME/.cache}/loupe/target, outside the checkout, unless CARGO_TARGET_DIR is set; the original has no build step",
   "the native installer refuses to run when HOME is not the account's home folder while XDG_DATA_HOME or XDG_CACHE_HOME still points into it; the original would install there",
 ]
 
@@ -64,10 +64,10 @@ const DELIBERATE = [
 // entry, so this works whatever HOME says.)
 const ACCOUNT_HOME = userInfo().homedir
 const REAL_DATA = process.env.XDG_DATA_HOME || join(ACCOUNT_HOME, ".local", "share")
-const WATCHED = ["t3-agents", "t3-agents-next"].flatMap((name) => [
+const WATCHED = ["loupe", "loupe-next"].flatMap((name) => [
   [`bin/${name}`, join(ACCOUNT_HOME, ".local", "bin", name)],
   [`share/${name}`, join(REAL_DATA, name)],
-  [`share/${name}/t3-agents-term`, join(REAL_DATA, name, "t3-agents-term")],
+  [`share/${name}/loupe-term`, join(REAL_DATA, name, "loupe-term")],
   [`share/${name}/src`, join(REAL_DATA, name, "src")],
   [`applications/${name}.desktop`, join(REAL_DATA, "applications", `${name}.desktop`)],
 ])
@@ -170,7 +170,7 @@ function buildStubs() {
   stub("npm", 'record npm "$@"\nmkdir -p node_modules\nexit 0')
   // The build path is exercised by the real end-to-end run; here cargo only proves the command.
   stub("cargo", 'record cargo "$@"\nexit 1')
-  stub("t3-agents-term", 'record program "$@"\nexit 0')
+  stub("loupe-term", 'record program "$@"\nexit 0')
 }
 
 // A cargo stub for the build-directory cases: it records the target directory the installer
@@ -184,8 +184,8 @@ function buildCargoPath() {
     recorder(),
     'record cargo "$@"',
     'mkdir -p -- "${CARGO_TARGET_DIR:?}/release"',
-    'printf \'#!/bin/sh\\nexit 0\\n\' > "${CARGO_TARGET_DIR:?}/release/t3-agents-term"',
-    'chmod 755 -- "${CARGO_TARGET_DIR:?}/release/t3-agents-term"',
+    'printf \'#!/bin/sh\\nexit 0\\n\' > "${CARGO_TARGET_DIR:?}/release/loupe-term"',
+    'chmod 755 -- "${CARGO_TARGET_DIR:?}/release/loupe-term"',
     'printf \'%s\\n\' "${CARGO_TARGET_DIR:?}" >> "${RECORD:?}/cargo-target-dir.txt"',
     "exit 0",
   ].join("\n") + "\n")
@@ -303,7 +303,7 @@ function calls(h, name) {
 function canonical(argv, side, appDir) {
   const out = [...argv]
   for (let i = 0; i < out.length; i++) {
-    if (side === "native" && out[i] === join(appDir, "t3-agents-term")) {
+    if (side === "native" && out[i] === join(appDir, "loupe-term")) {
       out.splice(i, 1, "<PROGRAM>")
       return out
     }
@@ -321,8 +321,8 @@ function canonical(argv, side, appDir) {
 
 function observe(h, side, args, { env = {}, exclude = [] } = {}) {
   clearRecord(h)
-  const appDir = join(h.data, "t3-agents")
-  const result = spawn(join(h.bin, "t3-agents"), args, runEnv(h, launcherPath(exclude), env))
+  const appDir = join(h.data, "loupe")
+  const result = spawn(join(h.bin, "loupe"), args, runEnv(h, launcherPath(exclude), env))
   const node = calls(h, "node")
   const program = side === "original" ? (node[0] ?? []).slice(3) : (calls(h, "program")[0] ?? [])
   const terminal = (name) => calls(h, name).map((argv) => canonical(argv, side, appDir))
@@ -356,7 +356,7 @@ function hash(path) {
 }
 
 function desktop(h) {
-  return read(join(h.data, "applications", "t3-agents.desktop"))
+  return read(join(h.data, "applications", "loupe.desktop"))
 }
 
 function entries(dir) {
@@ -399,8 +399,8 @@ phase("install", () => {
   compare("first install output", { ...a, stdout: normalizeHome(a.stdout, ORIGINAL), stderr: normalizeHome(a.stderr, ORIGINAL) },
     { ...b, stdout: normalizeHome(b.stdout, NATIVE), stderr: normalizeHome(b.stderr, NATIVE) })
   eq("original install stdout", normalizeHome(a.stdout, ORIGINAL),
-    "Installed T3 Agents. Run t3-agents or t3-agents --window.\n" +
-    "Note: <HOME>/.local/bin is not on your PATH, so run <HOME>/.local/bin/t3-agents or add that folder to PATH.\n")
+    "Installed Loupe. Run loupe or loupe --window.\n" +
+    "Note: <HOME>/.local/bin is not on your PATH, so run <HOME>/.local/bin/loupe or add that folder to PATH.\n")
 
   // The original needed Node and npm; the new one used neither (deliberate difference 1).
   eq("original npm ci calls", calls(ORIGINAL, "npm").length, 1)
@@ -416,17 +416,17 @@ phase("install", () => {
     nd.slice(1).map((line) => normalizeHome(line, NATIVE)),
     od.slice(1).map((line) => normalizeHome(line, ORIGINAL)))
 
-  eq("original program directory", entries(join(ORIGINAL.data, "t3-agents")),
+  eq("original program directory", entries(join(ORIGINAL.data, "loupe")),
     [".installed-lock", "node_modules", "package-lock.json", "package.json", "src"])
-  eq("native program directory", entries(join(NATIVE.data, "t3-agents")),
-    [".t3-agents-install", "t3-agents-term"])
-  ok("native command exists", existsSync(join(NATIVE.bin, "t3-agents")), "command not written")
+  eq("native program directory", entries(join(NATIVE.data, "loupe")),
+    [".loupe-install", "loupe-term"])
+  ok("native command exists", existsSync(join(NATIVE.bin, "loupe")), "command not written")
   // Nothing else: no autostart entry, keybinding, window rule or service.
   eq("native install wrote only its own files", filesUnder(NATIVE.home), [
-    join(NATIVE.home, ".local/bin/t3-agents"),
-    join(NATIVE.home, ".local/share/applications/t3-agents.desktop"),
-    join(NATIVE.home, ".local/share/t3-agents/.t3-agents-install"),
-    join(NATIVE.home, ".local/share/t3-agents/t3-agents-term"),
+    join(NATIVE.home, ".local/bin/loupe"),
+    join(NATIVE.home, ".local/share/applications/loupe.desktop"),
+    join(NATIVE.home, ".local/share/loupe/.loupe-install"),
+    join(NATIVE.home, ".local/share/loupe/loupe-term"),
   ])
 })
 
@@ -447,12 +447,12 @@ phase("launcher", () => {
 
   const foot = launcherCase("--window with foot", ["--window", "--demo"])
   eq("foot argv", foot.native.foot,
-    [["--app-id=TUI.t3-agents", "--title=T3 Agents", "<PROGRAM>", "--demo"]])
+    [["--app-id=TUI.loupe", "--title=Loupe", "<PROGRAM>", "--demo"]])
   ok("foot case exits 0", foot.native.exit === 0, `exit ${foot.native.exit}`)
 
   const xdg = launcherCase("--window with xdg-terminal-exec", ["--window", "--demo"], { exclude: ["foot"] })
   eq("xdg-terminal-exec argv", xdg.native.xdg,
-    [["--app-id=TUI.t3-agents", "--title=T3 Agents", "--", "<PROGRAM>", "--demo"]])
+    [["--app-id=TUI.loupe", "--title=Loupe", "--", "<PROGRAM>", "--demo"]])
 
   const terminal = launcherCase("--window with TERMINAL", ["--window", "--demo"], {
     exclude: ["foot", "xdg-terminal-exec"], env: { TERMINAL: "myterm --class demo" },
@@ -463,14 +463,14 @@ phase("launcher", () => {
   const none = launcherCase("--window with no terminal", ["--window"], {
     exclude: ["foot", "xdg-terminal-exec"],
   })
-  const message = "t3-agents --window needs foot, xdg-terminal-exec or a TERMINAL variable. Or run t3-agents inside any terminal."
+  const message = "loupe --window needs foot, xdg-terminal-exec or a TERMINAL variable. Or run loupe inside any terminal."
   eq("no-terminal stderr", none.native.stderr, `${message}\n`)
   eq("no-terminal exit", none.native.exit, 1)
-  eq("no-terminal notification", none.native.notify, [["T3 Agents", message]])
+  eq("no-terminal notification", none.native.notify, [["Loupe", message]])
   eq("no-terminal starts nothing", [none.native.foot, none.native.xdg, none.native.terminal], [[], [], []])
 
   const hypr = { HYPRLAND_INSTANCE_SIGNATURE: "test" }
-  const open = JSON.stringify([{ class: "TUI.t3-agents", address: "0x55a" }])
+  const open = JSON.stringify([{ class: "TUI.loupe", address: "0x55a" }])
   const other = JSON.stringify([{ class: "foot", address: "0x1" }])
 
   const modern = launcherCase("Hyprland, window open, current dispatch", ["--window", "--demo"], {
@@ -494,19 +494,19 @@ phase("launcher", () => {
     env: { ...hypr, HYPR_JSON: open, HYPR_FOCUS: "fail" },
   })
   eq("failed focus still opens foot", failed.native.foot,
-    [["--app-id=TUI.t3-agents", "--title=T3 Agents", "<PROGRAM>"]])
+    [["--app-id=TUI.loupe", "--title=Loupe", "<PROGRAM>"]])
 
   const shut = launcherCase("Hyprland, window not open", ["--window"], {
     env: { ...hypr, HYPR_JSON: other },
   })
   eq("closed window opens foot", shut.native.foot,
-    [["--app-id=TUI.t3-agents", "--title=T3 Agents", "<PROGRAM>"]])
+    [["--app-id=TUI.loupe", "--title=Loupe", "<PROGRAM>"]])
 
   const nojq = launcherCase("Hyprland without jq", ["--window", "--demo"], {
     env: { ...hypr, HYPR_JSON: open }, exclude: ["jq"],
   })
   eq("no jq opens foot", nojq.native.foot,
-    [["--app-id=TUI.t3-agents", "--title=T3 Agents", "<PROGRAM>", "--demo"]])
+    [["--app-id=TUI.loupe", "--title=Loupe", "<PROGRAM>", "--demo"]])
   eq("no jq runs no hyprctl", nojq.native.hyprctl, [])
 })
 
@@ -514,7 +514,7 @@ phase("launcher", () => {
 // text differs by design (difference 4); the exit code and the --status JSON shape must not.
 phase("missing program", () => {
   const node = join(STUBS, "node")
-  const program = join(NATIVE.data, "t3-agents", "t3-agents-term")
+  const program = join(NATIVE.data, "loupe", "loupe-term")
   renameSync(node, `${node}.off`)
   renameSync(program, `${program}.off`)
   try {
@@ -539,7 +539,7 @@ phase("missing program", () => {
     eq("missing program stdout", [plainO.stdout, plainN.stdout], ["", ""])
     ok("missing program stderr", plainO.stderr.length > 0 && plainN.stderr.length > 0,
       "one side was silent")
-    ok("missing program stderr names the program", /t3-agents-term/.test(plainN.stderr), plainN.stderr)
+    ok("missing program stderr names the program", /loupe-term/.test(plainN.stderr), plainN.stderr)
   } finally {
     renameSync(`${node}.off`, node)
     renameSync(`${program}.off`, program)
@@ -549,21 +549,21 @@ phase("missing program", () => {
 // 4. Rerun is the update path: same output, same files, and the original skips npm the second
 // time because node_modules and the lock are already there.
 phase("rerun", () => {
-  const before = { desktop: hash(join(ORIGINAL.data, "applications", "t3-agents.desktop")), command: hash(join(ORIGINAL.bin, "t3-agents")) }
+  const before = { desktop: hash(join(ORIGINAL.data, "applications", "loupe.desktop")), command: hash(join(ORIGINAL.bin, "loupe")) }
   const a = installHomes("original", ORIGINAL, [])
   eq("original rerun output", normalizeHome(a.stdout, ORIGINAL),
-    "Installed T3 Agents. Run t3-agents or t3-agents --window.\n" +
-    "Note: <HOME>/.local/bin is not on your PATH, so run <HOME>/.local/bin/t3-agents or add that folder to PATH.\n")
+    "Installed Loupe. Run loupe or loupe --window.\n" +
+    "Note: <HOME>/.local/bin is not on your PATH, so run <HOME>/.local/bin/loupe or add that folder to PATH.\n")
   eq("original rerun skips npm", calls(ORIGINAL, "npm"), [])
-  eq("original rerun leaves its files alone", [hash(join(ORIGINAL.data, "applications", "t3-agents.desktop")), hash(join(ORIGINAL.bin, "t3-agents"))],
+  eq("original rerun leaves its files alone", [hash(join(ORIGINAL.data, "applications", "loupe.desktop")), hash(join(ORIGINAL.bin, "loupe"))],
     [before.desktop, before.command])
 
   const b = installHomes("native", NATIVE, NATIVE_ARGS)
   eq("native rerun output", normalizeHome(b.stdout, NATIVE),
-    "Installed T3 Agents. Run t3-agents or t3-agents --window.\n" +
-    "Note: <HOME>/.local/bin is not on your PATH, so run <HOME>/.local/bin/t3-agents or add that folder to PATH.\n")
-  eq("native rerun program directory", entries(join(NATIVE.data, "t3-agents")),
-    [".t3-agents-install", "t3-agents-term"])
+    "Installed Loupe. Run loupe or loupe --window.\n" +
+    "Note: <HOME>/.local/bin is not on your PATH, so run <HOME>/.local/bin/loupe or add that folder to PATH.\n")
+  eq("native rerun program directory", entries(join(NATIVE.data, "loupe")),
+    [".loupe-install", "loupe-term"])
   const rerun = observe(NATIVE, "native", ["--once", "--demo"], {})
   eq("rerun command still works", rerun.program, ["--once", "--demo"])
 })
@@ -575,8 +575,8 @@ phase("foreign launcher", () => {
   const hn = makeHome("foreign-native")
   for (const h of [ho, hn]) {
     mkdirSync(h.bin, { recursive: true })
-    writeFileSync(join(h.bin, "t3-agents"), foreign)
-    chmodSync(join(h.bin, "t3-agents"), 0o755)
+    writeFileSync(join(h.bin, "loupe"), foreign)
+    chmodSync(join(h.bin, "loupe"), 0o755)
   }
   const a = installHomes("original", ho, [])
   const b = installHomes("native", hn, NATIVE_ARGS)
@@ -584,9 +584,9 @@ phase("foreign launcher", () => {
     { ...a, stderr: normalizeHome(a.stderr, ho) },
     { ...b, stderr: normalizeHome(b.stderr, hn) })
   eq("foreign launcher exit", [a.exit, b.exit], [1, 1])
-  eq("foreign launcher stderr", normalizeHome(b.stderr, hn), `Refusing to overwrite existing file: <HOME>/.local/bin/t3-agents\n`)
-  eq("foreign launcher untouched", [read(join(ho.bin, "t3-agents")), read(join(hn.bin, "t3-agents"))], [foreign, foreign])
-  eq("foreign launcher writes nothing", [existsSync(join(ho.data, "t3-agents")), existsSync(join(hn.data, "t3-agents"))], [false, false])
+  eq("foreign launcher stderr", normalizeHome(b.stderr, hn), `Refusing to overwrite existing file: <HOME>/.local/bin/loupe\n`)
+  eq("foreign launcher untouched", [read(join(ho.bin, "loupe")), read(join(hn.bin, "loupe"))], [foreign, foreign])
+  eq("foreign launcher writes nothing", [existsSync(join(ho.data, "loupe")), existsSync(join(hn.data, "loupe"))], [false, false])
 })
 
 phase("foreign desktop entry", () => {
@@ -595,31 +595,31 @@ phase("foreign desktop entry", () => {
   const hn = makeHome("foreign-desktop-native")
   for (const h of [ho, hn]) {
     mkdirSync(join(h.data, "applications"), { recursive: true })
-    writeFileSync(join(h.data, "applications", "t3-agents.desktop"), foreign)
+    writeFileSync(join(h.data, "applications", "loupe.desktop"), foreign)
   }
   const a = installHomes("original", ho, [])
   const b = installHomes("native", hn, NATIVE_ARGS)
   eq("foreign entry exit", [a.exit, b.exit], [1, 1])
   eq("foreign entry untouched",
-    [read(join(ho.data, "applications", "t3-agents.desktop")), read(join(hn.data, "applications", "t3-agents.desktop"))],
+    [read(join(ho.data, "applications", "loupe.desktop")), read(join(hn.data, "applications", "loupe.desktop"))],
     [foreign, foreign])
-  eq("foreign entry writes nothing", [existsSync(join(ho.bin, "t3-agents")), existsSync(join(hn.bin, "t3-agents"))], [false, false])
+  eq("foreign entry writes nothing", [existsSync(join(ho.bin, "loupe")), existsSync(join(hn.bin, "loupe"))], [false, false])
 })
 
 // The program directory is replaced only when a marker of ours or of the Node installer says
 // who made it. An unmarked directory is refused, even with the launcher and entry clear.
 phase("foreign program directory", () => {
   const h = makeHome("foreign-app")
-  const keep = join(h.data, "t3-agents", "keep.txt")
+  const keep = join(h.data, "loupe", "keep.txt")
   mkdirSync(dirname(keep), { recursive: true })
   writeFileSync(keep, "not ours\n")
   const r = spawn(NATIVE_INSTALLER, NATIVE_ARGS, installEnv(h))
   eq("foreign app exit", r.exit, 1)
   eq("foreign app stderr", normalizeHome(r.stderr, h),
-    "Refusing to overwrite existing directory: <HOME>/.local/share/t3-agents\n" +
-    "It has no marker from this installer or the Node.js installer; remove it yourself if it is a T3 Agents install.\n")
+    "Refusing to overwrite existing directory: <HOME>/.local/share/loupe\n" +
+    "It has no marker from this installer or the Node.js installer; remove it yourself if it is a Loupe install.\n")
   eq("foreign app untouched", read(keep), "not ours\n")
-  eq("foreign app writes no command", existsSync(join(h.bin, "t3-agents")), false)
+  eq("foreign app writes no command", existsSync(join(h.bin, "loupe")), false)
 })
 
 // 6. Two names side by side: the new one must not touch the original install.
@@ -627,32 +627,32 @@ phase("two names side by side", () => {
   const shared = makeHome("side-by-side")
   const first = installHomes("original", shared, [])
   eq("side-by-side: original installs", first.exit, 0)
-  const originalLauncher = join(shared.bin, "t3-agents")
-  const originalDesktop = join(shared.data, "applications", "t3-agents.desktop")
-  const before = { launcher: hash(originalLauncher), desktop: hash(originalDesktop), app: entries(join(shared.data, "t3-agents")) }
+  const originalLauncher = join(shared.bin, "loupe")
+  const originalDesktop = join(shared.data, "applications", "loupe.desktop")
+  const before = { launcher: hash(originalLauncher), desktop: hash(originalDesktop), app: entries(join(shared.data, "loupe")) }
 
-  const second = installHomes("native", shared, ["--name", "t3-agents-next", "--binary", PROGRAM_STUB])
+  const second = installHomes("native", shared, ["--name", "loupe-next", "--binary", PROGRAM_STUB])
   eq("side-by-side: native installs", second.exit, 0)
   eq("side-by-side: original untouched", {
-    launcher: hash(originalLauncher), desktop: hash(originalDesktop), app: entries(join(shared.data, "t3-agents")),
+    launcher: hash(originalLauncher), desktop: hash(originalDesktop), app: entries(join(shared.data, "loupe")),
   }, before)
-  eq("side-by-side: new command", existsSync(join(shared.bin, "t3-agents-next")), true)
-  eq("side-by-side: new program directory", entries(join(shared.data, "t3-agents-next")),
-    [".t3-agents-install", "t3-agents-term"])
+  eq("side-by-side: new command", existsSync(join(shared.bin, "loupe-next")), true)
+  eq("side-by-side: new program directory", entries(join(shared.data, "loupe-next")),
+    [".loupe-install", "loupe-term"])
   eq("side-by-side: first entry", read(originalDesktop).split("\n").find((line) => line.startsWith("StartupWMClass=")),
-    "StartupWMClass=TUI.t3-agents")
-  const nextDesktop = read(join(shared.data, "applications", "t3-agents-next.desktop"))
+    "StartupWMClass=TUI.loupe")
+  const nextDesktop = read(join(shared.data, "applications", "loupe-next.desktop"))
   eq("side-by-side: new entry", [
     nextDesktop.split("\n").find((line) => line.startsWith("Name=")),
     nextDesktop.split("\n").find((line) => line.startsWith("StartupWMClass=")),
-  ], ["Name=T3 Agents (t3-agents-next)", "StartupWMClass=TUI.t3-agents-next"])
+  ], ["Name=Loupe (loupe-next)", "StartupWMClass=TUI.loupe-next"])
 
   // The old command still hands its arguments to the Node app, and the new one to the binary.
   clearRecord(shared)
   spawn(originalLauncher, ["--demo"], runEnv(shared, launcherPath(), {}))
   eq("side-by-side: original still runs", calls(shared, "node")[0]?.slice(3), ["--demo"])
   clearRecord(shared)
-  spawn(join(shared.bin, "t3-agents-next"), ["--demo"], runEnv(shared, launcherPath(), {}))
+  spawn(join(shared.bin, "loupe-next"), ["--demo"], runEnv(shared, launcherPath(), {}))
   eq("side-by-side: new command runs", calls(shared, "program"), [["--demo"]])
 })
 
@@ -661,20 +661,20 @@ phase("upgrade from the Node install", () => {
   const h = makeHome("upgrade")
   const first = installHomes("original", h, [])
   eq("upgrade: Node install in place", first.exit, 0)
-  ok("upgrade: node_modules before", existsSync(join(h.data, "t3-agents", "node_modules")), "no node_modules")
-  eq("upgrade: Node marker on the launcher", read(join(h.bin, "t3-agents")).includes(ORIGINAL_MARKER), true)
+  ok("upgrade: node_modules before", existsSync(join(h.data, "loupe", "node_modules")), "no node_modules")
+  eq("upgrade: Node marker on the launcher", read(join(h.bin, "loupe")).includes(ORIGINAL_MARKER), true)
 
   const upgraded = installHomes("native", h, ["--binary", PROGRAM_STUB])
   eq("upgrade: exit", upgraded.exit, 0)
   eq("upgrade: output", normalizeHome(upgraded.stdout, h),
-    "Installed T3 Agents. Run t3-agents or t3-agents --window.\n" +
-    "Note: <HOME>/.local/bin is not on your PATH, so run <HOME>/.local/bin/t3-agents or add that folder to PATH.\n")
-  eq("upgrade: no stale Node files", entries(join(h.data, "t3-agents")),
-    [".t3-agents-install", "t3-agents-term"])
-  eq("upgrade: marker is ours", read(join(h.data, "applications", "t3-agents.desktop")).split("\n")[0], `# ${NATIVE_MARKER}`)
-  eq("upgrade: launcher is ours", read(join(h.bin, "t3-agents")).includes(NATIVE_MARKER), true)
+    "Installed Loupe. Run loupe or loupe --window.\n" +
+    "Note: <HOME>/.local/bin is not on your PATH, so run <HOME>/.local/bin/loupe or add that folder to PATH.\n")
+  eq("upgrade: no stale Node files", entries(join(h.data, "loupe")),
+    [".loupe-install", "loupe-term"])
+  eq("upgrade: marker is ours", read(join(h.data, "applications", "loupe.desktop")).split("\n")[0], `# ${NATIVE_MARKER}`)
+  eq("upgrade: launcher is ours", read(join(h.bin, "loupe")).includes(NATIVE_MARKER), true)
   clearRecord(h)
-  spawn(join(h.bin, "t3-agents"), ["--status", "--demo"], runEnv(h, launcherPath(), {}))
+  spawn(join(h.bin, "loupe"), ["--status", "--demo"], runEnv(h, launcherPath(), {}))
   eq("upgrade: command runs the binary", calls(h, "program"), [["--status", "--demo"]])
 })
 
@@ -691,20 +691,20 @@ phase("uninstall", () => {
   const first = run(["--uninstall"])
   eq("uninstall: exit", first.exit, 0)
   eq("uninstall: removed files", [
-    existsSync(join(h.bin, "t3-agents")),
-    existsSync(join(h.data, "applications", "t3-agents.desktop")),
-    existsSync(join(h.data, "t3-agents")),
+    existsSync(join(h.bin, "loupe")),
+    existsSync(join(h.data, "applications", "loupe.desktop")),
+    existsSync(join(h.data, "loupe")),
   ], [false, false, false])
   eq("uninstall: leftover files", filesUnder(h.home), [])
   const again = run(["--uninstall"])
-  eq("uninstall: rerun is quiet", [again.exit, normalizeHome(again.stdout, h)], [0, "Nothing to remove for t3-agents.\n"])
+  eq("uninstall: rerun is quiet", [again.exit, normalizeHome(again.stdout, h)], [0, "Nothing to remove for loupe.\n"])
 
   // A foreign file is left in place, with a warning, and the exit code stays 0.
   mkdirSync(h.bin, { recursive: true })
-  writeFileSync(join(h.bin, "t3-agents"), "#!/bin/sh\n")
+  writeFileSync(join(h.bin, "loupe"), "#!/bin/sh\n")
   const foreign = run(["--uninstall"])
   eq("uninstall: foreign exit", foreign.exit, 0)
-  eq("uninstall: foreign file kept", existsSync(join(h.bin, "t3-agents")), true)
+  eq("uninstall: foreign file kept", existsSync(join(h.bin, "loupe")), true)
   ok("uninstall: foreign warning", /Leaving .*not created by this installer/.test(foreign.stderr), foreign.stderr)
 
   // The native uninstaller must not remove an untouched Node install.
@@ -713,9 +713,9 @@ phase("uninstall", () => {
   const nodeRun = spawn(NATIVE_INSTALLER, ["--uninstall"], installEnv(nodeHome, path))
   eq("uninstall: Node install exit", nodeRun.exit, 0)
   eq("uninstall: Node install kept", [
-    existsSync(join(nodeHome.bin, "t3-agents")),
-    existsSync(join(nodeHome.data, "applications", "t3-agents.desktop")),
-    existsSync(join(nodeHome.data, "t3-agents", "node_modules")),
+    existsSync(join(nodeHome.bin, "loupe")),
+    existsSync(join(nodeHome.data, "applications", "loupe.desktop")),
+    existsSync(join(nodeHome.data, "loupe", "node_modules")),
   ], [true, true, true])
 })
 
@@ -723,20 +723,20 @@ phase("uninstall", () => {
 phase("cache uninstall", () => {
   const h = makeHome("cache-uninstall")
   const cache = join(h.home, ".cache")
-  const dir = join(cache, "t3-agents-next")
-  const other = join(cache, "t3-agents")
+  const dir = join(cache, "loupe-next")
+  const other = join(cache, "loupe")
   for (const d of [dir, other]) {
     mkdirSync(d, { recursive: true })
-    writeFileSync(join(d, "insights.owner"), "t3-agents insights cache v1")
+    writeFileSync(join(d, "insights.owner"), "loupe insights cache v1")
     writeFileSync(join(d, "insights.lock"), "")
     const header = Buffer.alloc(100)
     header.write("SQLite format 3\0", 0, "binary")
-    header.write("TSAC", 68, "binary")
+    header.write("LPIC", 68, "binary")
     writeFileSync(join(d, "insights.sqlite3"), header)
     for (const suffix of ["-wal", "-shm", "-journal"]) writeFileSync(join(d, `insights.sqlite3${suffix}`), "data")
   }
   writeFileSync(join(dir, "unrelated"), "keep")
-  const args = ["--name", "t3-agents-next", "--uninstall"]
+  const args = ["--name", "loupe-next", "--uninstall"]
   const env = installEnv(h)
   const busy = spawn("/usr/bin/flock", ["-x", join(dir, "insights.lock"), NATIVE_INSTALLER, ...args], env)
   ok("cache uninstall: busy warning", /in use or cannot be locked/.test(busy.stderr), busy.stderr)
@@ -748,15 +748,15 @@ phase("cache uninstall", () => {
   eq("cache uninstall: lock and unrelated files kept", [existsSync(join(dir, "insights.lock")), existsSync(join(dir, "unrelated")), existsSync(join(other, "insights.sqlite3"))], [true, true, true])
   const reusedHeader = Buffer.alloc(100)
   reusedHeader.write("SQLite format 3\0", 0, "binary")
-  reusedHeader.write("TSAC", 68, "binary")
-  writeFileSync(join(dir, "insights.owner"), "t3-agents insights cache v1")
+  reusedHeader.write("LPIC", 68, "binary")
+  writeFileSync(join(dir, "insights.owner"), "loupe insights cache v1")
   writeFileSync(join(dir, "insights.sqlite3"), reusedHeader)
   spawn(NATIVE_INSTALLER, args, env)
   eq("cache uninstall: persistent lock reused", [existsSync(join(dir, "insights.lock")), existsSync(join(dir, "insights.sqlite3")), existsSync(join(dir, "insights.owner"))], [true, false, false])
   writeFileSync(join(dir, "insights.sqlite3"), "replacement")
   spawn(NATIVE_INSTALLER, args, env)
   eq("cache uninstall: replacement kept after cleanup", existsSync(join(dir, "insights.sqlite3")), true)
-  writeFileSync(join(dir, "insights.owner"), "t3-agents insights cache v1")
+  writeFileSync(join(dir, "insights.owner"), "loupe insights cache v1")
   const replaced = spawn(NATIVE_INSTALLER, args, env)
   eq("cache uninstall: marked foreign database kept", existsSync(join(dir, "insights.sqlite3")), true)
   ok("cache uninstall: foreign database warning", /not owned/.test(replaced.stderr), replaced.stderr)
@@ -784,17 +784,17 @@ phase("PATH warning", () => {
 // 10. A different name everywhere, including the title and the --title override.
 phase("named install", () => {
   const h = makeHome("named")
-  const named = spawn(NATIVE_INSTALLER, ["--name", "t3-agents-next", "--binary", PROGRAM_STUB], installEnv(h))
+  const named = spawn(NATIVE_INSTALLER, ["--name", "loupe-next", "--binary", PROGRAM_STUB], installEnv(h))
   eq("named: install", named.exit, 0)
-  const entry = read(join(h.data, "applications", "t3-agents-next.desktop"))
+  const entry = read(join(h.data, "applications", "loupe-next.desktop"))
   eq("named: title and app id", [
     entry.split("\n").find((line) => line.startsWith("Name=")),
     entry.split("\n").find((line) => line.startsWith("StartupWMClass=")),
-  ], ["Name=T3 Agents (t3-agents-next)", "StartupWMClass=TUI.t3-agents-next"])
+  ], ["Name=Loupe (loupe-next)", "StartupWMClass=TUI.loupe-next"])
   clearRecord(h)
-  spawn(join(h.bin, "t3-agents-next"), ["--window", "--demo"], runEnv(h, launcherPath(), {}))
+  spawn(join(h.bin, "loupe-next"), ["--window", "--demo"], runEnv(h, launcherPath(), {}))
   eq("named: window uses the new app id and title", calls(h, "foot"),
-    [["--app-id=TUI.t3-agents-next", "--title=T3 Agents (t3-agents-next)", join(h.data, "t3-agents-next", "t3-agents-term"), "--demo"]])
+    [["--app-id=TUI.loupe-next", "--title=Loupe (loupe-next)", join(h.data, "loupe-next", "loupe-term"), "--demo"]])
 
   const titled = spawn(NATIVE_INSTALLER, ["--name", "custom", "--title", "My Agents", "--binary", PROGRAM_STUB], installEnv(h))
   eq("titled: install", titled.exit, 0)
@@ -811,32 +811,32 @@ phase("native prerequisites", () => {
   const r = spawn(NATIVE_INSTALLER, [], installEnv(h, noCargoPath()))
   eq("no cargo: exit", r.exit, 1)
   ok("no cargo: message", /cargo is required/.test(r.stderr) && /--binary PATH/.test(r.stderr), r.stderr)
-  eq("no cargo: writes nothing", [existsSync(h.bin), existsSync(join(h.data, "t3-agents"))], [false, false])
+  eq("no cargo: writes nothing", [existsSync(h.bin), existsSync(join(h.data, "loupe"))], [false, false])
 
   const f = makeHome("failing-cargo")
   const build = spawn(NATIVE_INSTALLER, [], installEnv(f))
   eq("failing cargo: exit", build.exit, 1)
-  eq("failing cargo: command", calls(f, "cargo"), [["build", "--release", "--locked", "-p", "t3-agents-term"]])
-  eq("failing cargo: writes nothing", [existsSync(f.bin), existsSync(join(f.data, "t3-agents"))], [false, false])
+  eq("failing cargo: command", calls(f, "cargo"), [["build", "--release", "--locked", "-p", "loupe-term"]])
+  eq("failing cargo: writes nothing", [existsSync(f.bin), existsSync(join(f.data, "loupe"))], [false, false])
 
   const b = makeHome("bad-binary")
   const missing = spawn(NATIVE_INSTALLER, ["--binary", join(TMP, "no-such-binary")], installEnv(b))
   eq("missing --binary: exit", missing.exit, 1)
   ok("missing --binary: message", /not an executable/.test(missing.stderr), missing.stderr)
-  eq("missing --binary: writes nothing", [existsSync(b.bin), existsSync(join(b.data, "t3-agents"))], [false, false])
+  eq("missing --binary: writes nothing", [existsSync(b.bin), existsSync(join(b.data, "loupe"))], [false, false])
 
   // A prebuilt binary installs without cargo on PATH at all.
   const prebuilt = makeHome("prebuilt-no-cargo")
   const prebuiltRun = spawn(NATIVE_INSTALLER, ["--binary", PROGRAM_STUB], installEnv(prebuilt, noCargoPath()))
   eq("prebuilt without cargo: exit", prebuiltRun.exit, 0)
-  eq("prebuilt without cargo: files", entries(join(prebuilt.data, "t3-agents")),
-    [".t3-agents-install", "t3-agents-term"])
+  eq("prebuilt without cargo: files", entries(join(prebuilt.data, "loupe")),
+    [".loupe-install", "loupe-term"])
   eq("prebuilt without cargo: no build", calls(prebuilt, "cargo"), [])
 
   const n = makeHome("bad-name")
   const badName = spawn(NATIVE_INSTALLER, ["--name", "../escape", "--binary", PROGRAM_STUB], installEnv(n))
   eq("bad --name: exit", badName.exit, 1)
-  eq("bad --name: writes nothing", existsSync(join(n.data, "t3-agents")), false)
+  eq("bad --name: writes nothing", existsSync(join(n.data, "loupe")), false)
 })
 
 // 12. The build directory stays out of the checkout, because this repository is also an
@@ -850,16 +850,16 @@ phase("build directory", () => {
   const built = spawn(NATIVE_INSTALLER, [], installEnv(home, path))
   eq("build dir: exit", built.exit, 0)
   const fallback = read(join(home.record, "cargo-target-dir.txt"))?.trim() ?? ""
-  eq("build dir: default target", fallback, join(home.home, ".cache", "t3-agents", "target"))
+  eq("build dir: default target", fallback, join(home.home, ".cache", "loupe", "target"))
   outside(fallback)
-  eq("build dir: cargo argv", calls(home, "cargo"), [["build", "--release", "--locked", "-p", "t3-agents-term"]])
-  eq("build dir: installed the built binary", read(join(home.data, "t3-agents", "t3-agents-term")), "#!/bin/sh\nexit 0\n")
+  eq("build dir: cargo argv", calls(home, "cargo"), [["build", "--release", "--locked", "-p", "loupe-term"]])
+  eq("build dir: installed the built binary", read(join(home.data, "loupe", "loupe-term")), "#!/bin/sh\nexit 0\n")
 
   const cacheHome = makeHome("build-xdg-cache")
   const cache = join(cacheHome.home, "custom-cache")
   const xdg = spawn(NATIVE_INSTALLER, [], { ...installEnv(cacheHome, path), XDG_CACHE_HOME: cache })
   eq("XDG cache: exit", xdg.exit, 0)
-  eq("XDG cache: target", read(join(cacheHome.record, "cargo-target-dir.txt"))?.trim() ?? "", join(cache, "t3-agents", "target"))
+  eq("XDG cache: target", read(join(cacheHome.record, "cargo-target-dir.txt"))?.trim() ?? "", join(cache, "loupe", "target"))
 
   const presetHome = makeHome("build-preset")
   const preset = join(presetHome.base, "preset-target")
@@ -874,8 +874,8 @@ phase("build directory", () => {
 // broken: the name is a probe that no real install uses, and the XDG folders are fresh, unique
 // folders (inside the account's home, as the rule requires) that this removes afterwards.
 phase("stand-in HOME", () => {
-  const probe = join(ACCOUNT_HOME, ".cache", `t3-agents-gate-probe-${process.pid}`)
-  const name = `t3-agents-gate-probe-${process.pid}`
+  const probe = join(ACCOUNT_HOME, ".cache", `loupe-gate-probe-${process.pid}`)
+  const name = `loupe-gate-probe-${process.pid}`
   if (existsSync(probe)) throw new Error("the probe folder already exists; not touching it")
   try {
     const refused = [
@@ -899,7 +899,7 @@ phase("stand-in HOME", () => {
       { ...installEnv(under), XDG_DATA_HOME: join(under.home, "data") })
     eq("stand-in HOME, data folder under it: exit", underRun.exit, 0)
     eq("stand-in HOME, data folder under it: installed there",
-      existsSync(join(under.home, "data", name, "t3-agents-term")), true)
+      existsSync(join(under.home, "data", name, "loupe-term")), true)
 
     // When the temporary folder itself is inside the account's home, "elsewhere" is too.
     const tmpInAccount = TMP === ACCOUNT_HOME || TMP.startsWith(ACCOUNT_HOME + "/")
@@ -908,13 +908,13 @@ phase("stand-in HOME", () => {
       { ...installEnv(apart), XDG_DATA_HOME: join(apart.base, "elsewhere") })
     eq("stand-in HOME, data folder outside the account's home: exit", apartRun.exit, tmpInAccount ? 1 : 0)
     eq("stand-in HOME, data folder outside the account's home: installed there",
-      existsSync(join(apart.base, "elsewhere", name, "t3-agents-term")), !tmpInAccount)
+      existsSync(join(apart.base, "elsewhere", name, "loupe-term")), !tmpInAccount)
   } finally {
     rmSync(probe, { recursive: true, force: true })
   }
 })
 
-// The real install, checked last. If this fires and nobody installed or updated T3 Agents on
+// The real install, checked last. If this fires and nobody installed or updated Loupe on
 // this machine while the checks ran, a case wrote outside its temporary home.
 WATCHED.forEach(([label, path], i) => {
   ok(`the real install is as it was: ${label}`, identity(path) === WATCHED_BEFORE[i],

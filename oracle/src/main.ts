@@ -1,4 +1,4 @@
-// T3 Agents: live visual dashboard for local T3 Code agents and subagents.
+// Loupe: live visual dashboard for local T3 Code agents and subagents.
 import { constants, homedir } from "node:os"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
@@ -8,7 +8,7 @@ import { Source, SourceError, isLive, isRunning, needsYou, tree, type Agent } fr
 import { animationsOff } from "./calm.ts"
 import { line, watch } from "./status.ts"
 
-const USAGE = `Usage: t3-agents [--window] [--once | --status [--watch]] [--db PATH | --demo] [--interval SECONDS] [--calm]
+const USAGE = `Usage: loupe [--window] [--once | --status [--watch]] [--db PATH | --demo] [--interval SECONDS] [--calm]
 
   --window          open in a dedicated terminal window, or focus it (launcher only)
   --once            print a plain-text snapshot and exit
@@ -35,7 +35,7 @@ function once(source: Source, demo = false) {
   const now = Date.now()
   const live = snap.agents.filter(isRunning).length
   const waiting = snap.agents.filter(needsYou).length
-  console.log(`T3 AGENTS · ${demo ? "demo data" : "read-only"} · ${new Date().toTimeString().slice(0, 8)} · ${live} running · ${waiting} waiting · ${snap.agents.length} agents`)
+  console.log(`LOUPE · ${demo ? "demo data" : "read-only"} · ${new Date().toTimeString().slice(0, 8)} · ${live} running · ${waiting} waiting · ${snap.agents.length} agents`)
   for (const row of tree(snap.agents, new Set())) {
     const a = row.agent
     const prefix = row.guides.map((g) => (g ? "│ " : "  ")).join("") + (row.depth ? (row.last ? "└─" : "├─") : "")
@@ -56,7 +56,7 @@ function once(source: Source, demo = false) {
 
 /** What to try when T3's database can't be read, for someone at a terminal. */
 function advice(err: unknown, origin: "--db" | "T3CODE_HOME" | "default"): string {
-  if (!(err instanceof SourceError)) return `t3-agents: ${err instanceof Error ? err.message : err}\n`
+  if (!(err instanceof SourceError)) return `loupe: ${err instanceof Error ? err.message : err}\n`
   const where = {
     "--db": "Check the path given to --db.",
     T3CODE_HOME: `T3CODE_HOME is set to ${process.env.T3CODE_HOME}: check that it is T3's data folder, or unset it to use ~/.t3.`,
@@ -72,10 +72,10 @@ function advice(err: unknown, origin: "--db" | "T3CODE_HOME" | "default"): strin
     where,
   ] : [
     `unsupported T3 schema in ${err.path}; ${err.detail}`,
-    "T3 Code may have changed its database in an update: check for a newer T3 Agents.",
+    "T3 Code may have changed its database in an update: check for a newer Loupe.",
   ]
-  lines.push("To try the dashboard without T3 data: t3-agents --demo")
-  return `t3-agents: ${lines[0]}\n` + lines.slice(1).map((l) => `  ${l}\n`).join("")
+  lines.push("To try the dashboard without T3 data: loupe --demo")
+  return `loupe: ${lines[0]}\n` + lines.slice(1).map((l) => `  ${l}\n`).join("")
 }
 
 async function main() {
@@ -125,7 +125,7 @@ async function main() {
   const app = new App(source, interval, kit && demo ? { usage: new kit.DemoUsage(demo.epoch), demo: true, calm } : { calm })
   const fail = (err: unknown) => {
     app.renderer?.destroy()
-    process.stderr.write(`t3-agents crashed: ${err instanceof Error ? err.stack : err}\n`)
+    process.stderr.write(`loupe crashed: ${err instanceof Error ? err.stack : err}\n`)
     process.exit(1)
   }
   process.on("uncaughtException", fail)

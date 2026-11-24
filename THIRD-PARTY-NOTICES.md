@@ -2,7 +2,7 @@
 
 Covers T3 Code fixtures, OpenTUI ports, the Omarchy and Dracula theme palettes, uucode and Unicode data, and the Rust dependency tree and bundled SQLite in the Linux binary.
 
-The original T3 Agents in `oracle/` is this project’s earlier implementation; its npm dependencies are not checked in or included in the release.
+The original Loupe in `oracle/` is this project’s earlier implementation; its npm dependencies are not checked in or included in the release.
 
 ## T3 Code
 
@@ -216,7 +216,7 @@ authorization of the copyright holder.
 
 ## Rust dependencies
 
-The following packages appear in `cargo tree -p t3-agents-term --edges normal`; they are sourced from the Cargo registry and compiled into or used to build `t3-agents-term`. License files below are copied from each package’s registry source. Multiple listed licenses reflect the package’s declared terms.
+The following packages appear in `cargo tree -p loupe-term --edges normal`; they are sourced from the Cargo registry and compiled into or used to build `loupe-term`. License files below are copied from each package’s registry source. Multiple listed licenses reflect the package’s declared terms.
 
 ## bitflags 2.13.2
 

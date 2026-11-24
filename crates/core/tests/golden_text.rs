@@ -29,7 +29,7 @@ use std::{
     process::{Command, Stdio},
 };
 
-const BINARY: &str = env!("CARGO_BIN_EXE_t3-agents-core");
+const BINARY: &str = env!("CARGO_BIN_EXE_loupe-core");
 const BLOCK: usize = 64;
 const HEAD: usize = 64;
 

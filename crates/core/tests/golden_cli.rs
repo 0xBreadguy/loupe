@@ -7,7 +7,7 @@ mod support;
 use serde_json::Value;
 use std::{collections::HashMap, path::{Path, PathBuf}};
 
-const BINARY: &str = env!("CARGO_BIN_EXE_t3-agents-core");
+const BINARY: &str = env!("CARGO_BIN_EXE_loupe-core");
 
 fn unhex(text: &str) -> Vec<u8> {
     assert!(text.len() % 2 == 0, "hex has an even length");
@@ -157,7 +157,7 @@ fn command_line_matches_frozen_oracle() {
             .env("LANG", "C.UTF-8")
             .env("HOME", &home)
             // The original's command line; the product's theme options are a deliberate addition.
-            .env("T3_AGENTS_NO_THEMES", "1")
+            .env("LOUPE_NO_THEMES", "1")
             .envs(extra.iter().map(|(k, v)| (*k, *v)))
             .output()
             .unwrap_or_else(|e| panic!("{label}: run: {e}"));

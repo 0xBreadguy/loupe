@@ -24,10 +24,10 @@ use std::sync::Arc;
 use std::time::Duration;
 use wal::WalView;
 
-const APPLICATION_ID: u32 = u32::from_be_bytes(*b"TSAC");
+const APPLICATION_ID: u32 = u32::from_be_bytes(*b"LPIC");
 const FORMAT: u32 = 2;
 // The installer checks this ownership marker independently of the SQLite schema version.
-const OWNER: &[u8] = b"t3-agents insights cache v1";
+const OWNER: &[u8] = b"loupe insights cache v1";
 const MAX_PAYLOAD: usize = 1024 * 1024;
 const MAX_WITNESS: usize = 128 * 1024;
 const MAX_WAL_STAMP: usize = 128;
@@ -783,7 +783,7 @@ mod tests {
 
     impl Scratch {
         fn new() -> Self {
-            let name = std::env::temp_dir().join("t3-agents-cache-XXXXXX");
+            let name = std::env::temp_dir().join("loupe-cache-XXXXXX");
             let mut name = std::ffi::CString::new(name.as_os_str().as_bytes()).unwrap().into_bytes_with_nul();
             // SAFETY: mkdtemp receives a writable, NUL-terminated pathname.
             assert!(!unsafe { libc::mkdtemp(name.as_mut_ptr().cast()) }.is_null());

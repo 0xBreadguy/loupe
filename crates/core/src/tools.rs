@@ -4,8 +4,8 @@
 //! By default, up to four read-only connections read calls, passing over each payload
 //! once inside the query through `skim.rs`. The scope lists and coverage share one
 //! snapshot, and each worker holds its own, so commits can land between snapshots.
-//! Set `T3_AGENTS_READ_THREADS=1` to read in one transaction or
-//! `T3_AGENTS_SKIM=off` to use SQLite's JSON parser.
+//! Set `LOUPE_READ_THREADS=1` to read in one transaction or
+//! `LOUPE_SKIM=off` to use SQLite's JSON parser.
 
 use crate::{
     fanout, program, recap::{self, DAYS, DEMO_SCHEMA, HOUR, Local, Period, Span, iso, local_date, ms},
@@ -288,9 +288,9 @@ impl Call {
     fn name(&self) -> Option<&str> { self.label.or(self.name.as_deref()) }
 }
 
-// Whether this report uses the Insights cache. The store itself honours T3_AGENTS_NO_CACHE=1
+// Whether this report uses the Insights cache. The store itself honours LOUPE_NO_CACHE=1
 // for every reader (`cache_path::insights_file`); turning the cache on is each reader's own
-// decision, and Tools' is: only when asked with T3_AGENTS_CACHE=1. Measured on an aged
+// decision, and Tools' is: only when asked with LOUPE_CACHE=1. Measured on an aged
 // database, the cached report is slower than the plain one after any write to T3's
 // database, so it stays opt-in here whatever another report does.
 fn cache_enabled(enabled: Option<&str>, disabled: Option<&str>) -> bool {
@@ -560,7 +560,7 @@ fn skim_calls_with(scope: &str, order: &str, extra: &str) -> String {
            AND type IN ('command_execution','dynamic_tool','file_change','file_search','web_search'){order}")
 }
 
-// T3_AGENTS_SKIM=head (`skim.rs`, "Head reads"): a command's payload goes whole into t3_call,
+// LOUPE_SKIM=head (`skim.rs`, "Head reads"): a command's payload goes whole into t3_call,
 // since its exit code follows its output; every other call's row goes to t3_call_head, which
 // reads only as far into its payload as T3's key order says it must. `typeof` of the payload
 // tells it text from a BLOB or NULL without loading the value. Nothing else of the payload is
@@ -768,9 +768,9 @@ fn split_name(recorded: String) -> (Option<String>, Option<String>) {
 }
 
 pub fn load(path: &Path, period: &Period, local: Local) -> Result<Tools, SourceError> {
-    let enabled = cache_enabled(std::env::var("T3_AGENTS_CACHE").ok().as_deref(),
-                                std::env::var("T3_AGENTS_NO_CACHE").ok().as_deref());
-    let measure = std::env::var("T3_AGENTS_CACHE_STATS").ok().as_deref() == Some("1");
+    let enabled = cache_enabled(std::env::var("LOUPE_CACHE").ok().as_deref(),
+                                std::env::var("LOUPE_NO_CACHE").ok().as_deref());
+    let measure = std::env::var("LOUPE_CACHE_STATS").ok().as_deref() == Some("1");
     let result = load_file(path, period, enabled, None, measure);
     if measure {
         let stats = result.as_ref().ok().and_then(|(_, stats)| *stats);
@@ -832,13 +832,13 @@ impl LiveRows {
 
 fn cache_diagnostic(stats: Option<CacheStats>) -> String {
     match stats {
-        Some(s) => format!("t3-agents: cache: {} of {} finished runs from the cache, {} written", s.hits, s.finished, s.written),
-        None => "t3-agents: cache: not used".into(),
+        Some(s) => format!("loupe: cache: {} of {} finished runs from the cache, {} written", s.hits, s.finished, s.written),
+        None => "loupe: cache: not used".into(),
     }
 }
 
 fn cache_read_diagnostic(rows: LiveRows) -> String {
-    format!("t3-agents: cache: {} named-tool rows by ordinal ({} outside the period), {} no-run rows, {} other run rows, {:.3} ms in ordinal reads (sum across workers)",
+    format!("loupe: cache: {} named-tool rows by ordinal ({} outside the period), {} no-run rows, {} other run rows, {:.3} ms in ordinal reads (sum across workers)",
         rows.by_ordinal, rows.outside, rows.children, rows.other, rows.ordinal_time.as_secs_f64() * 1000.)
 }
 
@@ -1964,13 +1964,13 @@ mod tests {
                 item(&db, 2, (THREAD, Some("finished-with-open-call")), "dynamic_tool", "running", timing(t, None, "toolName", "Read"));
                 let files = Files::fixture(&db);
                 let (_, closed) = load_file(&files.source, &period, cache_enabled(Some("1"), Some("1")), Some(&files.store), false).unwrap();
-                assert_eq!(cache_diagnostic(closed), "t3-agents: cache: not used");
+                assert_eq!(cache_diagnostic(closed), "loupe: cache: not used");
                 assert!(!files.store.exists());
                 let (report, first) = files.cached(&period, FULL, workers);
                 let (warm, second) = files.cached(&period, FULL, workers);
                 check_equal(&report, &warm);
-                assert_eq!(cache_diagnostic(first), "t3-agents: cache: 0 of 2 finished runs from the cache, 1 written");
-                assert_eq!(cache_diagnostic(second), "t3-agents: cache: 1 of 2 finished runs from the cache, 0 written");
+                assert_eq!(cache_diagnostic(first), "loupe: cache: 0 of 2 finished runs from the cache, 1 written");
+                assert_eq!(cache_diagnostic(second), "loupe: cache: 1 of 2 finished runs from the cache, 0 written");
                 files.with_store(&files.source_db(), |store| {
                     store.lookup_many(run_entry::KIND, run_entry::VERSION, &[RUN]);
                     assert_eq!(store.write_many(run_entry::KIND, run_entry::VERSION, &[(RUN, vec![0xff])]), 1);
@@ -2576,7 +2576,7 @@ mod tests {
     impl Scratch {
         fn new() -> Self {
             static NEXT: AtomicUsize = AtomicUsize::new(0);
-            let dir = std::env::temp_dir().join(format!("t3-agents-tools-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
+            let dir = std::env::temp_dir().join(format!("loupe-tools-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
             fs::create_dir(&dir).unwrap();
             Self(dir)
         }
@@ -3189,7 +3189,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "a long run: cargo test --release -p t3-agents-core -- --ignored skim"]
+    #[ignore = "a long run: cargo test --release -p loupe-core -- --ignored skim"]
     fn the_skim_reads_the_same_calls_long() {
         for seed in 100..110 {
             skim_payloads(seed, 4000, true);

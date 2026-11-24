@@ -39,8 +39,8 @@ const rounds = Number(opt('--rounds', '5'))
 // --only schema,snapshot,once,status,incremental runs just those sections.
 const only = new Set((opt('--only', 'schema,snapshot,once,status,incremental')).split(','))
 const polls = Number(opt('--polls', '120'))
-const core = resolve(opt('--core', process.env.T3_NATIVE_BINARY ?? join(root, '..', 'target/release/t3-agents-core')))
-const term = resolve(opt('--term', join(root, '..', 'target/release/t3-agents-term')))
+const core = resolve(opt('--core', process.env.T3_NATIVE_BINARY ?? join(root, '..', 'target/release/loupe-core')))
+const term = resolve(opt('--term', join(root, '..', 'target/release/loupe-term')))
 const main = join(root, '..', 'oracle/src/main.ts')
 const fixedClock = pathToFileURL(join(root, 'scripts/fixed-clock.mjs')).href
 const NODE = ['--experimental-ffi', '--disable-warning=ExperimentalWarning', '--import', fixedClock]

@@ -1,7 +1,7 @@
 use super::*;
 use std::sync::{Arc, mpsc};
 use std::time::Duration;
-use t3_agents_core::model::{Agent, Shelf, ThreadStorage};
+use loupe_core::model::{Agent, Shelf, ThreadStorage};
 
 const WAIT: Duration = Duration::from_secs(5);
 
@@ -34,7 +34,7 @@ fn owned_input_uses_local_thread_identity_and_only_explicit_worktrees() {
         ..Shelf::default()
     });
     let mut remote = agent("remote", "untrusted", &root, Some(&root.join("remote")));
-    remote.remote = Some(t3_agents_core::model::AgentRemote::from_value(&serde_json::json!({"environmentId": "another-host", "threadId": "child"})));
+    remote.remote = Some(loupe_core::model::AgentRemote::from_value(&serde_json::json!({"environmentId": "another-host", "threadId": "child"})));
     let input = StorageSource::Unavailable.input(&Snapshot {
         agents: vec![Arc::clone(&main), Arc::new(child), Arc::new(remote), main],
         ..Snapshot::default()
@@ -203,8 +203,8 @@ fn demo_inventory_is_repeatable_and_has_no_disk_roots() {
     let base = 1_794_484_800_000.;
     let source = StorageSource::for_database(&Database::Demo);
     assert_eq!(source, StorageSource::Demo);
-    let a = t3_agents_core::demo::snapshot(base, base).unwrap();
-    let b = t3_agents_core::demo::snapshot(base + 5_000., base).unwrap();
+    let a = loupe_core::demo::snapshot(base, base).unwrap();
+    let b = loupe_core::demo::snapshot(base + 5_000., base).unwrap();
     let first = source.input(&a);
     assert_eq!(first, source.input(&b));
     let result = first.scan(|| false).unwrap();
@@ -289,7 +289,7 @@ fn worker_replaces_pending_input_and_never_publishes_a_stale_completion() {
 fn a_cancelled_rescan_does_not_replace_or_publish_the_last_completion() {
     use super::{Commit, Decision, Session};
     use std::time::Instant;
-    use t3_agents_core::storage::Coverage;
+    use loupe_core::storage::Coverage;
 
     let base = std::env::temp_dir();
     let input = StorageSource::Unavailable.input(&Snapshot {

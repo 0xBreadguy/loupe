@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use t3_agents_core::{
+use loupe_core::{
     model::Snapshot,
     product::{Database, Origin},
     storage::{
@@ -111,7 +111,7 @@ fn live_source(database: &Path) -> StorageSource {
     linux_source(
         database,
         var_os("T3CODE_HOME").as_deref(),
-        t3_agents_core::platform::home_dir().as_deref(),
+        loupe_core::platform::home_dir().as_deref(),
         cwd.as_deref(),
         temp,
         crate::platform::user_id(),
@@ -137,7 +137,7 @@ fn linux_source(
     temp: PathBuf,
     uid: u32,
 ) -> StorageSource {
-    use t3_agents_core::product::{data_folder, HomeRules};
+    use loupe_core::product::{data_folder, HomeRules};
 
     // T3's deriveServerPaths (apps/server/src/config.ts) places worktrees beside userdata.
     let base = data_folder(t3code_home, home, cwd, HomeRules::T3);

@@ -45,7 +45,7 @@ def main() -> int:
     ap.add_argument("--frames", type=int, default=300)
     ap.add_argument("--grid", default="233x55")
     ap.add_argument("--usage", type=Path, default=ROOT / "checks/generated/scale/usage.json")
-    ap.add_argument("--native", type=Path, default=ROOT / "target/release/t3-agents-core")
+    ap.add_argument("--native", type=Path, default=ROOT / "target/release/loupe-core")
     ap.add_argument("--trials", type=int, default=5)
     ap.add_argument("--skip-baseline", action="store_true", help="native only (no ratio)")
     ap.add_argument("--output", type=Path)

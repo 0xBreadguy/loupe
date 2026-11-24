@@ -1,4 +1,4 @@
-//! T3 Agents without a presenter.
+//! Loupe without a presenter.
 //!
 //! Model, read-only T3 projection, synthetic demo and the cell-grid composition of the
 //! dashboard. Front doors (the Rune window, a terminal presenter, status output) depend on

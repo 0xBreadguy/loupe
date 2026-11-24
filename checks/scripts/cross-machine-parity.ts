@@ -11,7 +11,7 @@ import {span} from '../../oracle/src/format.ts'
 // Opt-in: with T3_RECORD set, export-cross.ts turns this run into the recorded fixture.
 import {numbersDigest} from './golden.ts'
 import {enabled as recording, recordCase, recordTree} from './record.ts'
-const binary=resolve(process.env.T3_NATIVE_BINARY??'target/release/t3-agents-core')
+const binary=resolve(process.env.T3_NATIVE_BINARY??'target/release/loupe-core')
 const dir=mkdtempSync(join(tmpdir(),'t3-cross-parity-'))
 const now=Date.parse('2026-11-14T12:00:00Z'),iso=(t:number)=>new Date(t).toISOString()
 const node=['--experimental-ffi','--disable-warning=ExperimentalWarning']

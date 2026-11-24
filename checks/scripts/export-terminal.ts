@@ -1,5 +1,5 @@
 // Records the real-terminal gate (`terminal-parity.ts`) from the TypeScript original at main
-// `2f1d553`, so `crates/term/tests/golden_terminal.rs` can check `t3-agents-term` inside tmux
+// `2f1d553`, so `crates/term/tests/golden_terminal.rs` can check `loupe-term` inside tmux
 // without Node. Needs tmux, the original's dependencies and a release build of the terminal
 // program (the gate also runs it). Takes about ten minutes a run, twice.
 //

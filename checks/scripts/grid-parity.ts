@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process'
 import {writeFileSync,mkdirSync,readFileSync} from 'node:fs'
 import {createHash} from 'node:crypto'
 import {resolve} from 'node:path'
-const binary=resolve(process.env.T3_NATIVE_BINARY??'target/release/t3-agents-core')
+const binary=resolve(process.env.T3_NATIVE_BINARY??'target/release/loupe-core')
 const snapshot=resolve(process.argv[2]??'checks/fixtures/demo.json')
 // Both sides run in the same zone. GATE_TZ picks another one: clock labels are local time.
 const zone=process.env.GATE_TZ??'UTC'

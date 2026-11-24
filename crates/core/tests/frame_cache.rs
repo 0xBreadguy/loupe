@@ -1,4 +1,4 @@
-use t3_agents_core::{
+use loupe_core::{
     model::{Changed, Event, Item, Snapshot, State, RECENT_MS},
     ui,
 };
@@ -53,11 +53,11 @@ fn differential_sequences() {
             epoch + RECENT_MS,
         ];
         for agent in a.snap.agents.iter().take(40) {
-            thresholds.push(t3_agents_core::model::last_seen(agent) + RECENT_MS);
+            thresholds.push(loupe_core::model::last_seen(agent) + RECENT_MS);
             if let Some(t) = agent
                 .shelf
                 .as_ref()
-                .and_then(|s| t3_agents_core::model::ms(s.snoozed_until.as_deref()))
+                .and_then(|s| loupe_core::model::ms(s.snoozed_until.as_deref()))
             {
                 thresholds.push(t);
             }
@@ -66,25 +66,25 @@ fn differential_sequences() {
                 .iter()
                 .map(|e| e.t)
                 .fold(0f64, f64::max)
-                .max(t3_agents_core::model::ms(agent.started.as_deref()).unwrap_or(0.))
+                .max(loupe_core::model::ms(agent.started.as_deref()).unwrap_or(0.))
                 .max(
                     agent
                         .now
                         .as_ref()
-                        .and_then(|i| t3_agents_core::model::ms(Some(&i.updated_at)))
+                        .and_then(|i| loupe_core::model::ms(Some(&i.updated_at)))
                         .unwrap_or(0.),
                 )
                 .max(
                     agent
                         .items
                         .first()
-                        .and_then(|i| t3_agents_core::model::ms(Some(&i.updated_at)))
+                        .and_then(|i| loupe_core::model::ms(Some(&i.updated_at)))
                         .unwrap_or(0.),
                 );
             thresholds.extend([last + 120_000., last + 480_000.]);
             if let Some(t) = agent.now.as_ref().and_then(|i| {
-                t3_agents_core::model::ms(i.started_at.as_deref())
-                    .or_else(|| t3_agents_core::model::ms(Some(&i.updated_at)))
+                loupe_core::model::ms(i.started_at.as_deref())
+                    .or_else(|| loupe_core::model::ms(Some(&i.updated_at)))
             }) {
                 thresholds.push(t + 300_000.);
             }
@@ -287,7 +287,7 @@ fn repaired_tree_sort_and_topology_sequences() {
 
 #[test]
 fn retained_pace_deadlines_and_ancestor_counts() {
-    use t3_agents_core::model::Agent;
+    use loupe_core::model::Agent;
     let epoch = 1_794_484_800_000.;
     let mut snap = Snapshot {
         at: epoch,
@@ -386,9 +386,9 @@ fn structural_observation_arc_multiplicity() {
 #[test]
 fn asks_keep_exact_and_estimated_counts_separate_across_refreshes() {
     use std::sync::Arc;
-    use t3_agents_core::model::{Agent, AskCards, OpenAsks};
+    use loupe_core::model::{Agent, AskCards, OpenAsks};
 
-    let at = t3_agents_core::model::ms(Some("2026-11-18T18:00:00Z")).unwrap();
+    let at = loupe_core::model::ms(Some("2026-11-18T18:00:00Z")).unwrap();
     let agents = (0..5)
         .map(|i| {
             Arc::new(Agent {
@@ -405,7 +405,7 @@ fn asks_keep_exact_and_estimated_counts_separate_across_refreshes() {
         agents,
         ..Snapshot::default()
     };
-    let text = |line: &[t3_agents_core::terminal::Cell]| -> String {
+    let text = |line: &[loupe_core::terminal::Cell]| -> String {
         line.iter().map(|cell| cell.ch).collect()
     };
     let mut state = State::new(snap.clone());
@@ -552,7 +552,7 @@ fn header_cache_follows_every_key_field() {
         ("scope back", Box::new(|s| s.scope = "all".into())),
         ("window", Box::new(|s| s.window_index += 1)),
         ("acked", Box::new(|s| {
-            let id = s.snap.agents.iter().find(|a| t3_agents_core::model::needs_you(a)).or(s.snap.agents.first()).map(|a| a.id.clone()).unwrap();
+            let id = s.snap.agents.iter().find(|a| loupe_core::model::needs_you(a)).or(s.snap.agents.first()).map(|a| a.id.clone()).unwrap();
             s.acked.insert(id);
         })),
         ("usage percent", Box::new(|s| {
@@ -624,7 +624,7 @@ fn header_cache_follows_every_key_field() {
 /// second frame is drawn from whatever the first cached).
 #[test]
 fn list_row_cache_follows_the_clock_and_every_input() {
-    use t3_agents_core::{integration, model::ms, theme};
+    use loupe_core::{integration, model::ms, theme};
     let demo: Snapshot =
         serde_json::from_str(include_str!("../../../checks/fixtures/demo.json")).unwrap();
     // Few enough rows for card layout (two lines a row) at the larger sizes.
@@ -691,7 +691,7 @@ fn list_row_cache_follows_the_clock_and_every_input() {
             .snap
             .agents
             .iter()
-            .find(|x| t3_agents_core::model::needs_you(x))
+            .find(|x| loupe_core::model::needs_you(x))
             .map(|x| x.id.clone());
         let edits: Vec<(&str, Box<dyn Fn(&mut State)>)> = vec![
             ("down", Box::new(|s| s.action("down"))),
@@ -795,7 +795,7 @@ fn list_row_cache_follows_the_clock_and_every_input() {
 #[test]
 fn list_row_cache_edge_rows() {
     use std::sync::Arc;
-    use t3_agents_core::model::Agent;
+    use loupe_core::model::Agent;
     let demo: Snapshot =
         serde_json::from_str(include_str!("../../../checks/fixtures/demo.json")).unwrap();
     let epoch = demo.at;
@@ -936,7 +936,7 @@ fn list_row_cache_edge_rows() {
 #[test]
 fn header_follows_the_home_folder() {
     use std::sync::Arc;
-    use t3_agents_core::{model::Agent, terminal::Palette};
+    use loupe_core::{model::Agent, terminal::Palette};
     let agent = Agent {
         id: "a".into(),
         status: "waiting".into(),
@@ -954,7 +954,7 @@ fn header_follows_the_home_folder() {
         ..Snapshot::default()
     });
     let theme = Palette::default();
-    let header = |c: &t3_agents_core::terminal::Canvas, text: &str| {
+    let header = |c: &loupe_core::terminal::Canvas, text: &str| {
         (0..10).any(|y| c.row_text(y).contains(text))
     };
     state.home = "/home/a".into();

@@ -13,7 +13,7 @@ import { Source } from "../../oracle/src/source.ts"
 const root = resolve(import.meta.dirname, "..")
 // Strip only additive numeric fields, preserving legacy JSON bytes and surrogate escapes.
 const legacy = (s: string) => s.replace(/,"openAsks":\d+,"estimatedAsks":\d+/g, "")
-const binary = resolve(process.env.T3_NATIVE_BINARY ?? join(root, "..", "target/release/t3-agents-core"))
+const binary = resolve(process.env.T3_NATIVE_BINARY ?? join(root, "..", "target/release/loupe-core"))
 const directory = mkdtempSync(join(tmpdir(), "t3-status-live-"))
 const home = join(directory, "empty-home")
 mkdirSync(home)
