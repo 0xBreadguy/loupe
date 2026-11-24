@@ -43,13 +43,10 @@ pub fn status_view(agent: &mut crate::model::Agent) {
     agent.history = Vec::new();
     agent.spans = Vec::new();
     agent.plan = None;
-    agent.turn = serde_json::Value::Null;
+    agent.turn = crate::model::AgentTurn::Null;
     agent.options = Vec::new();
     agent.mix = Default::default();
-    agent.run = match agent.run.get("provider") {
-        Some(provider) => serde_json::json!({ "provider": provider }),
-        None => serde_json::json!({}),
-    };
+    agent.run = agent.run.into_status_view();
     if let Some(now) = agent.now.as_mut() {
         now.label = String::new();
         now.command = String::new();
@@ -660,22 +657,596 @@ mod cache {
         "turn_items",
     ];
 
-    #[derive(Clone, Debug)]
-    pub(super) struct Payload {
-        pub(super) payload: Value,
+    type RowidHash = std::hash::BuildHasherDefault<poll1::RowidHasher>;
+    type FnvHash = std::hash::BuildHasherDefault<poll1::FnvHasher>;
+
+    /// Compact sorted set of SQLite rowids owned by one key: inline with zero heap
+    /// allocation when an owner holds 0 or 1 row, and a contiguous sorted `Vec<i64>`
+    /// (instead of B-tree nodes) when it holds many.
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    pub(super) enum OwnerIds {
+        #[default]
+        Empty,
+        One(i64),
+        Many(Vec<i64>),
     }
+    impl OwnerIds {
+        fn from_sorted_unique(mut ids: Vec<i64>) -> Self {
+            match ids.len() {
+                0 => Self::Empty,
+                1 => Self::One(ids[0]),
+                _ => {
+                    ids.shrink_to_fit();
+                    Self::Many(ids)
+                }
+            }
+        }
+        fn insert(&mut self, id: i64) {
+            match self {
+                Self::Empty => *self = Self::One(id),
+                Self::One(cur) => {
+                    if *cur != id {
+                        let pair = if *cur < id { vec![*cur, id] } else { vec![id, *cur] };
+                        *self = Self::Many(pair);
+                    }
+                }
+                Self::Many(vec) => {
+                    if let Err(pos) = vec.binary_search(&id) {
+                        vec.insert(pos, id);
+                    }
+                }
+            }
+        }
+        fn remove(&mut self, id: &i64) -> bool {
+            match self {
+                Self::Empty => false,
+                Self::One(cur) => {
+                    if cur == id {
+                        *self = Self::Empty;
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Self::Many(vec) => {
+                    if let Ok(pos) = vec.binary_search(id) {
+                        vec.remove(pos);
+                        if vec.len() == 1 {
+                            let only = vec[0];
+                            *self = Self::One(only);
+                        } else if vec.is_empty() {
+                            *self = Self::Empty;
+                        }
+                        true
+                    } else {
+                        false
+                    }
+                }
+            }
+        }
+        fn is_empty(&self) -> bool {
+            matches!(self, Self::Empty)
+        }
+        fn len(&self) -> usize {
+            match self {
+                Self::Empty => 0,
+                Self::One(_) => 1,
+                Self::Many(vec) => vec.len(),
+            }
+        }
+        fn first(&self) -> Option<&i64> {
+            match self {
+                Self::Empty => None,
+                Self::One(id) => Some(id),
+                Self::Many(vec) => vec.first(),
+            }
+        }
+        fn as_slice(&self) -> &[i64] {
+            match self {
+                Self::Empty => &[],
+                Self::One(id) => std::slice::from_ref(id),
+                Self::Many(vec) => vec.as_slice(),
+            }
+        }
+        fn iter(&self) -> std::slice::Iter<'_, i64> {
+            self.as_slice().iter()
+        }
+        fn shrink_to_fit(&mut self) {
+            if let Self::Many(vec) = self {
+                vec.shrink_to_fit();
+            }
+        }
+    }
+    impl<'a> IntoIterator for &'a OwnerIds {
+        type Item = &'a i64;
+        type IntoIter = std::slice::Iter<'a, i64>;
+        fn into_iter(self) -> Self::IntoIter {
+            self.iter()
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub(super) struct DelegatedFrom {
+        environment_id: Option<Arc<str>>,
+        thread_id: Option<Arc<str>>,
+        title: Option<Arc<str>>,
+    }
+    impl DelegatedFrom {
+        fn to_value(&self) -> Value {
+            json!({
+                "environmentId": self.environment_id.as_deref(),
+                "threadId": self.thread_id.as_deref(),
+                "title": self.title.as_deref(),
+            })
+        }
+        fn thread_ref(&self) -> Option<(&str, &str)> {
+            crate::integration::thread_ref_parts(
+                self.environment_id.as_deref()?,
+                self.thread_id.as_deref()?,
+            )
+        }
+    }
+    #[derive(Clone, Debug, PartialEq)]
+    pub(super) struct ThreadLineage {
+        relationship_to_parent: Option<Arc<str>>,
+        parent_thread_id: Option<Arc<str>>,
+        side_chat: Option<bool>,
+    }
+    impl ThreadLineage {
+        fn to_value(&self) -> Value {
+            json!({
+                "relationshipToParent": self.relationship_to_parent.as_deref(),
+                "parentThreadId": self.parent_thread_id.as_deref(),
+                "sideChat": self.side_chat,
+            })
+        }
+    }
+    #[derive(Clone, Debug, PartialEq)]
+    pub(super) struct ProjectedThread {
+        id: Option<Arc<str>>,
+        project_id: Option<Arc<str>>,
+        title: Option<Arc<str>>,
+        active_provider_thread_id: Option<Arc<str>>,
+        worktree_path: Option<Arc<str>>,
+        branch: Option<Arc<str>>,
+        updated_at: Option<Stamp>,
+        settled_override: Option<Arc<str>>,
+        snoozed_until: Option<Stamp>,
+        delegated_from: Option<Box<DelegatedFrom>>,
+        lineage: Option<Box<ThreadLineage>>,
+        model_selection: Option<Box<crate::model::ModelSelection>>,
+    }
+    #[derive(Clone, Debug, PartialEq)]
+    pub(super) enum ThreadPayload {
+        Projected(Box<ProjectedThread>),
+        Raw(Box<Value>),
+    }
+    impl ThreadPayload {
+        pub(super) fn from_value(v: Value, pool: &mut Pool) -> Self {
+            if let Value::Object(ref map) = v {
+                if map.len() == 12 {
+                    let opt_intern = |k: &str, pool: &mut Pool| -> Option<Option<Arc<str>>> {
+                        match map.get(k)? {
+                            Value::Null => Some(None),
+                            Value::String(s) => Some(Some(pool.intern(s))),
+                            _ => None,
+                        }
+                    };
+                    let opt_str = |k: &str| -> Option<Option<Arc<str>>> {
+                        match map.get(k)? {
+                            Value::Null => Some(None),
+                            Value::String(s) => Some(Some(Arc::from(s.as_str()))),
+                            _ => None,
+                        }
+                    };
+                    let opt_stamp = |k: &str| -> Option<Option<Stamp>> {
+                        match map.get(k)? {
+                            Value::Null => Some(None),
+                            Value::String(s) => Some(Some(Stamp::parse(s))),
+                            _ => None,
+                        }
+                    };
+                    let delegated_from = match map.get("delegatedFrom") {
+                        Some(Value::Null) => Some(None),
+                        Some(Value::Object(m)) if m.len() == 3 => {
+                            let env = match m.get("environmentId") {
+                                Some(Value::Null) => Some(None),
+                                Some(Value::String(s)) => Some(Some(pool.intern(s))),
+                                _ => None,
+                            };
+                            let tid = match m.get("threadId") {
+                                Some(Value::Null) => Some(None),
+                                Some(Value::String(s)) => Some(Some(pool.intern(s))),
+                                _ => None,
+                            };
+                            let title = match m.get("title") {
+                                Some(Value::Null) => Some(None),
+                                Some(Value::String(s)) => Some(Some(Arc::from(s.as_str()))),
+                                _ => None,
+                            };
+                            match (env, tid, title) {
+                                (Some(environment_id), Some(thread_id), Some(title)) => {
+                                    Some(Some(Box::new(DelegatedFrom {
+                                        environment_id,
+                                        thread_id,
+                                        title,
+                                    })))
+                                }
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    };
+                    let lineage = match map.get("lineage") {
+                        Some(Value::Null) => Some(None),
+                        Some(Value::Object(m)) if m.len() == 3 => {
+                            let rel = match m.get("relationshipToParent") {
+                                Some(Value::Null) => Some(None),
+                                Some(Value::String(s)) => Some(Some(pool.intern(s))),
+                                _ => None,
+                            };
+                            let parent = match m.get("parentThreadId") {
+                                Some(Value::Null) => Some(None),
+                                Some(Value::String(s)) => Some(Some(pool.intern(s))),
+                                _ => None,
+                            };
+                            let side = match m.get("sideChat") {
+                                Some(Value::Null) => Some(None),
+                                Some(Value::Bool(b)) => Some(Some(*b)),
+                                _ => None,
+                            };
+                            match (rel, parent, side) {
+                                (Some(relationship_to_parent), Some(parent_thread_id), Some(side_chat)) => {
+                                    Some(Some(Box::new(ThreadLineage {
+                                        relationship_to_parent,
+                                        parent_thread_id,
+                                        side_chat,
+                                    })))
+                                }
+                                _ => None,
+                            }
+                        }
+                        _ => None,
+                    };
+                    let model_selection = match map.get("modelSelection") {
+                        Some(Value::Null) => Some(None),
+                        Some(ms) => crate::model::ModelSelection::from_value_interned(ms, &mut |s| {
+                            pool.intern(s)
+                        })
+                        .map(|m| Some(Box::new(m))),
+                        None => None,
+                    };
+                    if let (
+                        Some(id),
+                        Some(project_id),
+                        Some(title),
+                        Some(active_provider_thread_id),
+                        Some(worktree_path),
+                        Some(branch),
+                        Some(updated_at),
+                        Some(settled_override),
+                        Some(snoozed_until),
+                        Some(delegated_from),
+                        Some(lineage),
+                        Some(model_selection),
+                    ) = (
+                        opt_intern("id", pool),
+                        opt_intern("projectId", pool),
+                        opt_str("title"),
+                        opt_intern("activeProviderThreadId", pool),
+                        opt_intern("worktreePath", pool),
+                        opt_intern("branch", pool),
+                        opt_stamp("updatedAt"),
+                        opt_intern("settledOverride", pool),
+                        opt_stamp("snoozedUntil"),
+                        delegated_from,
+                        lineage,
+                        model_selection,
+                    ) {
+                        return Self::Projected(Box::new(ProjectedThread {
+                            id,
+                            project_id,
+                            title,
+                            active_provider_thread_id,
+                            worktree_path,
+                            branch,
+                            updated_at,
+                            settled_override,
+                            snoozed_until,
+                            delegated_from,
+                            lineage,
+                            model_selection,
+                        }));
+                    }
+                }
+            }
+            Self::Raw(Box::new(v))
+        }
+        pub(super) fn id(&self) -> Option<&str> {
+            match self {
+                Self::Projected(t) => t.id.as_deref(),
+                Self::Raw(v) => v.get("id").and_then(Value::as_str),
+            }
+        }
+        fn subagent_parent(&self) -> Option<String> {
+            match self {
+                Self::Projected(t) => t
+                    .lineage
+                    .as_ref()
+                    .filter(|l| l.relationship_to_parent.as_deref() == Some("subagent"))
+                    .and_then(|l| l.parent_thread_id.as_deref())
+                    .map(str::to_owned),
+                Self::Raw(v) => {
+                    let lineage = source::obj(v, "lineage");
+                    if source::str_at(&lineage, "relationshipToParent") == "subagent" {
+                        source::optional(&lineage, "parentThreadId")
+                    } else {
+                        None
+                    }
+                }
+            }
+        }
+        fn has_delegated_from_ref(&self) -> bool {
+            match self {
+                Self::Projected(t) => t
+                    .delegated_from
+                    .as_ref()
+                    .and_then(|d| d.thread_ref())
+                    .is_some(),
+                Self::Raw(v) => v
+                    .get("delegatedFrom")
+                    .and_then(crate::integration::thread_ref)
+                    .is_some(),
+            }
+        }
+        fn to_value(&self) -> Value {
+            match self {
+                Self::Projected(t) => json!({
+                    "id": t.id.as_deref(),
+                    "projectId": t.project_id.as_deref(),
+                    "title": t.title.as_deref(),
+                    "activeProviderThreadId": t.active_provider_thread_id.as_deref(),
+                    "worktreePath": t.worktree_path.as_deref(),
+                    "branch": t.branch.as_deref(),
+                    "updatedAt": t.updated_at.as_ref().map(Stamp::text_owned),
+                    "settledOverride": t.settled_override.as_deref(),
+                    "snoozedUntil": t.snoozed_until.as_ref().map(Stamp::text_owned),
+                    "delegatedFrom": t.delegated_from.as_ref().map(|d| d.to_value()),
+                    "lineage": t.lineage.as_ref().map(|l| l.to_value()),
+                    "modelSelection": t.model_selection.as_deref(),
+                }),
+                Self::Raw(v) => (**v).clone(),
+            }
+        }
+    }
+
     #[derive(Clone, Debug)]
     pub(super) struct Thread {
-        pub(super) data: Payload,
-        pub(super) archived_at: Option<String>,
-        pub(super) deleted_at: Option<String>,
+        pub(super) data: ThreadPayload,
+        pub(super) archived_at: Option<Stamp>,
+        pub(super) deleted_at: Option<Stamp>,
     }
+
     #[derive(Clone, Debug)]
     pub(super) struct Run {
-        pub(super) data: Payload,
+        pub(super) run: crate::model::AgentRun,
         pub(super) ordinal: i64,
-        pub(super) requested_at: String,
-        pub(super) completed_at: Option<String>,
+        pub(super) requested_at: Stamp,
+        pub(super) completed_at: Option<Stamp>,
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub(super) struct ProjectedSubagent {
+        id: Option<Arc<str>>,
+        thread_id: Option<Arc<str>>,
+        parent_node_id: Option<Arc<str>>,
+        run_id: Option<Arc<str>>,
+        provider_thread_id: Option<Arc<str>>,
+        child_thread_id: Option<Arc<str>>,
+        status: Option<Arc<str>>,
+        title: Option<Arc<str>>,
+        model: Option<Arc<str>>,
+        started_at: Option<Stamp>,
+        completed_at: Option<Stamp>,
+        updated_at: Option<Stamp>,
+        remote_child: Option<crate::model::AgentRemote>,
+    }
+    #[derive(Clone, Debug, PartialEq)]
+    pub(super) enum SubagentPayload {
+        Projected(Box<ProjectedSubagent>),
+        Raw(Box<Value>),
+    }
+    impl SubagentPayload {
+        pub(super) fn from_value(v: Value, pool: &mut Pool) -> Self {
+            if let Value::Object(ref map) = v {
+                if map.len() == 13 {
+                    let opt_intern = |k: &str, pool: &mut Pool| -> Option<Option<Arc<str>>> {
+                        match map.get(k)? {
+                            Value::Null => Some(None),
+                            Value::String(s) => Some(Some(pool.intern(s))),
+                            _ => None,
+                        }
+                    };
+                    let opt_str = |k: &str| -> Option<Option<Arc<str>>> {
+                        match map.get(k)? {
+                            Value::Null => Some(None),
+                            Value::String(s) => Some(Some(Arc::from(s.as_str()))),
+                            _ => None,
+                        }
+                    };
+                    let opt_stamp = |k: &str| -> Option<Option<Stamp>> {
+                        match map.get(k)? {
+                            Value::Null => Some(None),
+                            Value::String(s) => Some(Some(Stamp::parse(s))),
+                            _ => None,
+                        }
+                    };
+                    let remote_child = match map.get("remoteChild") {
+                        Some(Value::Null) => Some(None),
+                        Some(rc) => Some(Some(crate::model::AgentRemote::from_value_interned(
+                            rc,
+                            &mut |s| pool.intern(s),
+                        ))),
+                        None => None,
+                    };
+                    if let (
+                        Some(id),
+                        Some(thread_id),
+                        Some(parent_node_id),
+                        Some(run_id),
+                        Some(provider_thread_id),
+                        Some(child_thread_id),
+                        Some(status),
+                        Some(title),
+                        Some(model),
+                        Some(started_at),
+                        Some(completed_at),
+                        Some(updated_at),
+                        Some(remote_child),
+                    ) = (
+                        opt_intern("id", pool),
+                        opt_intern("threadId", pool),
+                        opt_intern("parentNodeId", pool),
+                        opt_intern("runId", pool),
+                        opt_intern("providerThreadId", pool),
+                        opt_intern("childThreadId", pool),
+                        opt_intern("status", pool),
+                        opt_str("title"),
+                        opt_intern("model", pool),
+                        opt_stamp("startedAt"),
+                        opt_stamp("completedAt"),
+                        opt_stamp("updatedAt"),
+                        remote_child,
+                    ) {
+                        return Self::Projected(Box::new(ProjectedSubagent {
+                            id,
+                            thread_id,
+                            parent_node_id,
+                            run_id,
+                            provider_thread_id,
+                            child_thread_id,
+                            status,
+                            title,
+                            model,
+                            started_at,
+                            completed_at,
+                            updated_at,
+                            remote_child,
+                        }));
+                    }
+                }
+            }
+            Self::Raw(Box::new(v))
+        }
+        fn id(&self) -> &str {
+            match self {
+                Self::Projected(s) => s.id.as_deref().unwrap_or(""),
+                Self::Raw(v) => source::str_at(v, "id"),
+            }
+        }
+        pub(super) fn run_id(&self) -> Option<&str> {
+            match self {
+                Self::Projected(s) => s.run_id.as_deref(),
+                Self::Raw(v) => v.get("runId").and_then(Value::as_str),
+            }
+        }
+        fn parent_node_id(&self) -> Option<&str> {
+            match self {
+                Self::Projected(s) => s.parent_node_id.as_deref(),
+                Self::Raw(v) => v.get("parentNodeId").and_then(Value::as_str),
+            }
+        }
+        fn provider_thread_id(&self) -> Option<&str> {
+            match self {
+                Self::Projected(s) => s.provider_thread_id.as_deref(),
+                Self::Raw(v) => v.get("providerThreadId").and_then(Value::as_str),
+            }
+        }
+        fn child_thread_id(&self) -> Option<&str> {
+            match self {
+                Self::Projected(s) => s.child_thread_id.as_deref(),
+                Self::Raw(v) => v.get("childThreadId").and_then(Value::as_str),
+            }
+        }
+        fn has_remote_ref(&self) -> bool {
+            match self {
+                Self::Projected(s) => s
+                    .remote_child
+                    .as_ref()
+                    .and_then(crate::model::AgentRemote::thread_ref)
+                    .is_some(),
+                Self::Raw(v) => v
+                    .get("remoteChild")
+                    .and_then(crate::integration::thread_ref)
+                    .is_some(),
+            }
+        }
+        fn to_value(&self) -> Value {
+            match self {
+                Self::Projected(s) => json!({
+                    "id": s.id.as_deref(),
+                    "threadId": s.thread_id.as_deref(),
+                    "parentNodeId": s.parent_node_id.as_deref(),
+                    "runId": s.run_id.as_deref(),
+                    "providerThreadId": s.provider_thread_id.as_deref(),
+                    "childThreadId": s.child_thread_id.as_deref(),
+                    "status": s.status.as_deref(),
+                    "title": s.title.as_deref(),
+                    "model": s.model.as_deref(),
+                    "startedAt": s.started_at.as_ref().map(Stamp::text_owned),
+                    "completedAt": s.completed_at.as_ref().map(Stamp::text_owned),
+                    "updatedAt": s.updated_at.as_ref().map(Stamp::text_owned),
+                    "remoteChild": s.remote_child,
+                }),
+                Self::Raw(v) => (**v).clone(),
+            }
+        }
+    }
+
+    #[derive(Clone, Debug, PartialEq)]
+    pub(super) enum ProviderPayload {
+        Projected {
+            id: Option<Arc<str>>,
+            context_usage: crate::model::TurnUsage,
+        },
+        Raw(Box<Value>),
+    }
+    impl ProviderPayload {
+        pub(super) fn from_value(v: Value, pool: &mut Pool) -> Self {
+            if let Value::Object(ref map) = v {
+                if map.len() == 2 {
+                    let id = match map.get("id") {
+                        Some(Value::Null) => Some(None),
+                        Some(Value::String(s)) => Some(Some(pool.intern(s))),
+                        _ => None,
+                    };
+                    if let (Some(id), Some(cu)) = (id, map.get("contextUsage")) {
+                        return Self::Projected {
+                            id,
+                            context_usage: crate::model::TurnUsage::from_value_interned(cu, &mut |s| {
+                                pool.intern(s)
+                            }),
+                        };
+                    }
+                }
+            }
+            Self::Raw(Box::new(v))
+        }
+        fn id(&self) -> &str {
+            match self {
+                Self::Projected { id, .. } => id.as_deref().unwrap_or(""),
+                Self::Raw(v) => source::str_at(v, "id"),
+            }
+        }
+        fn to_value(&self) -> Value {
+            match self {
+                Self::Projected { id, context_usage } => json!({
+                    "id": id.as_deref(),
+                    "contextUsage": context_usage,
+                }),
+                Self::Raw(v) => (**v).clone(),
+            }
+        }
     }
     /// Canonical ISO-8601 stamps sort like their millisecond value and are stored
     /// as that integer. Anything else keeps the original text. A canonical stamp
@@ -820,11 +1391,13 @@ mod cache {
         pub(super) command: Arc<str>,
         pub(super) file: Arc<str>,
     }
-    /// Projected turn JSON kept as the SQL text, plus the fields a history or
-    /// identity check needs without parsing every turn on a content poll.
+    /// Projected turn JSON kept as the SQL text for each `(owner, provider_thread_id)`'s
+    /// highest-ordinal turn; non-latest turns prune `json` and `lean_context` since only
+    /// scalar history/identity fields are ever read from non-latest turns.
     #[derive(Clone, Debug)]
     pub(super) struct Turn {
         pub(super) json: Arc<str>,
+        pub(super) json_pruned: bool,
         pub(super) provider_thread_id: Arc<str>,
         pub(super) ordinal: i64,
         pub(super) started_at: Option<Stamp>,
@@ -876,10 +1449,10 @@ mod cache {
     /// `thread_id IN (active)` node query does.
     #[derive(Clone, Default)]
     struct NodeIndex {
-        map: HashMap<Arc<str>, NodeSlot>,
+        map: HashMap<Arc<str>, NodeSlot, FnvHash>,
         /// Ids that more than one row holds. Checked against the active set
         /// before every assembly.
-        shared: HashSet<Arc<str>>,
+        shared: HashSet<Arc<str>, FnvHash>,
     }
     #[derive(Clone)]
     enum NodeSlot {
@@ -958,6 +1531,15 @@ mod cache {
                 _ => false,
             })
         }
+        fn shrink_to_fit(&mut self) {
+            self.map.shrink_to_fit();
+            for slot in self.map.values_mut() {
+                if let NodeSlot::Many(list) = slot {
+                    list.shrink_to_fit();
+                }
+            }
+            self.shared.shrink_to_fit();
+        }
     }
     /// `Attributor::owner` over the node index: the first subagent id on the
     /// parent chain, through its alias.
@@ -1013,11 +1595,11 @@ mod cache {
     }
     #[derive(Clone, Debug)]
     pub(super) struct Request {
-        pub(super) node_id: String,
-        pub(super) kind: String,
-        pub(super) status: String,
-        pub(super) created_at: Option<String>,
-        pub(super) resolved_at: Option<String>,
+        pub(super) node_id: Arc<str>,
+        pub(super) kind: Arc<str>,
+        pub(super) status: Arc<str>,
+        pub(super) created_at: Option<Stamp>,
+        pub(super) resolved_at: Option<Stamp>,
         pub(super) async_input: i64,
     }
     /// Label, command, file and todo-list steps, read by rowid for a row inside
@@ -1139,8 +1721,8 @@ mod cache {
     pub(super) enum Data {
         Thread(Box<Thread>),
         Run(Box<Run>),
-        Subagent(Box<Payload>),
-        Provider(Box<Payload>),
+        Subagent(Box<SubagentPayload>),
+        Provider(Box<ProviderPayload>),
         Turn(Box<Turn>),
         Node(Box<Node>),
         Request(Box<Request>),
@@ -1157,7 +1739,7 @@ mod cache {
     #[derive(Clone, Default)]
     struct Table {
         rows: BTreeMap<i64, Row>,
-        owners: BTreeMap<Arc<str>, BTreeSet<i64>>,
+        owners: BTreeMap<Arc<str>, OwnerIds>,
     }
     impl Table {
         /// The table from one full read. `BTreeMap::from_iter` sorts and fills
@@ -1165,8 +1747,7 @@ mod cache {
         /// rowids keep the last row, as repeated `insert` would.
         fn build(rows: Vec<Row>) -> Self {
             let rows: BTreeMap<i64, Row> = rows.into_iter().map(|row| (row.id, row)).collect();
-            let mut owners: HashMap<Arc<str>, Vec<i64>, std::hash::BuildHasherDefault<poll1::FnvHasher>> =
-                HashMap::default();
+            let mut owners: HashMap<Arc<str>, Vec<i64>, FnvHash> = HashMap::default();
             for row in rows.values() {
                 if let Some(ids) = owners.get_mut(&row.owner) {
                     ids.push(row.id);
@@ -1178,13 +1759,13 @@ mod cache {
                 rows,
                 owners: owners
                     .into_iter()
-                    .map(|(owner, ids)| (owner, ids.into_iter().collect()))
+                    .map(|(owner, ids)| (owner, OwnerIds::from_sorted_unique(ids)))
                     .collect(),
             }
         }
         fn remove_owner(&mut self, owner: &str) {
             if let Some(ids) = self.owners.remove(owner) {
-                for id in ids {
+                for &id in ids.as_slice() {
                     self.rows.remove(&id);
                 }
             }
@@ -1211,6 +1792,11 @@ mod cache {
             }
             Some(row)
         }
+        fn shrink_to_fit(&mut self) {
+            for ids in self.owners.values_mut() {
+                ids.shrink_to_fit();
+            }
+        }
     }
     #[derive(Clone, Debug)]
     pub(super) struct Project {
@@ -1229,21 +1815,19 @@ mod cache {
     fn same_data(left: &Data, right: &Data) -> bool {
         match (left, right) {
             (Data::Thread(a), Data::Thread(b)) => {
-                a.data.payload == b.data.payload
-                    && a.archived_at == b.archived_at
-                    && a.deleted_at == b.deleted_at
+                a.data == b.data && a.archived_at == b.archived_at && a.deleted_at == b.deleted_at
             }
             (Data::Run(a), Data::Run(b)) => {
-                a.data.payload == b.data.payload
+                a.run == b.run
                     && a.ordinal == b.ordinal
                     && a.requested_at == b.requested_at
                     && a.completed_at == b.completed_at
             }
-            (Data::Subagent(a), Data::Subagent(b)) | (Data::Provider(a), Data::Provider(b)) => {
-                a.payload == b.payload
-            }
+            (Data::Subagent(a), Data::Subagent(b)) => a == b,
+            (Data::Provider(a), Data::Provider(b)) => a == b,
             (Data::Turn(a), Data::Turn(b)) => {
-                a.json == b.json
+                a.json_pruned == b.json_pruned
+                    && a.json == b.json
                     && a.provider_thread_id == b.provider_thread_id
                     && a.ordinal == b.ordinal
                     && a.started_at == b.started_at
@@ -1253,6 +1837,10 @@ mod cache {
                     && a.context_bad == b.context_bad
                     && a.model == b.model
                     && a.lean_context == b.lean_context
+                    // A pruned turn has no JSON left to compare, and history still reads
+                    // these two. Bits, so NaN equals NaN and -0 differs from 0, as the JSON did.
+                    && a.used.to_bits() == b.used.to_bits()
+                    && a.max.to_bits() == b.max.to_bits()
             }
             (Data::Node(a), Data::Node(b)) => {
                 a.node_id == b.node_id && a.parent_node_id == b.parent_node_id
@@ -1290,8 +1878,8 @@ mod cache {
         nodes: NodeIndex,
         /// Provider rows by payload id and provider turns by provider id,
         /// every owner. Lookups keep active owners only.
-        provider_rows: HashMap<Arc<str>, BTreeSet<i64>>,
-        turn_rows: HashMap<Arc<str>, BTreeSet<i64>>,
+        provider_rows: HashMap<Arc<str>, OwnerIds, FnvHash>,
+        turn_rows: HashMap<Arc<str>, OwnerIds, FnvHash>,
         /// Turns whose payload provider id disagrees with the column.
         bad_turns: BTreeSet<i64>,
         /// What the last stage changed, consumed by `assemble_fast`.
@@ -1299,7 +1887,7 @@ mod cache {
         pool: Pool,
         /// Rowids that currently store label, command, file or steps. Dropping
         /// text walks this set, not every turn item.
-        text_held: HashSet<i64>,
+        text_held: HashSet<i64, RowidHash>,
         /// Test seam. The next text read treats one selected row as drifted.
         force_text_drift: bool,
         /// Status-only: agents are painted as `status_view` and no text is read.
@@ -1696,7 +2284,7 @@ mod cache {
             Data::Run(run) => run
                 .completed_at
                 .as_ref()
-                .is_none_or(|stamp| stamp.as_str() >= since),
+                .is_none_or(|stamp| stamp_ge(stamp, since)),
             _ => false,
         }
     }
@@ -1837,38 +2425,38 @@ mod cache {
         /// which is the row it was built from (`align_items` rebuilds every key
         /// when the item mode changes).
         items: BTreeSet<ItemKey>,
-        item_ids: HashSet<i64>,
+        item_ids: HashSet<i64, RowidHash>,
         /// Newest 3,000 visible items, kept in cap order so a poll does not walk the tree.
         item_prefix: Vec<ItemKey>,
         item_mode: Option<ItemOrder>,
         item_mode_known: bool,
         events: BTreeMap<StampKey, i64>,
-        event_at: HashMap<i64, StampKey>,
+        event_at: HashMap<i64, StampKey, RowidHash>,
         /// Newest 8,000 in-window events, in cap order.
         event_prefix: Vec<i64>,
-        event_ids: HashSet<i64>,
+        event_ids: HashSet<i64, RowidHash>,
         event_group: HashMap<Stamp, u32>,
         event_mode: Option<EncounterOrder>,
         event_mode_known: bool,
         plans: BTreeMap<PlanKey, i64>,
-        plan_at: HashMap<i64, PlanKey>,
+        plan_at: HashMap<i64, PlanKey, RowidHash>,
         plan_mode: Option<PlanOrder>,
         plan_mode_known: bool,
         plan_group: HashMap<Stamp, u32>,
-        by_run: HashMap<String, HashSet<i64>>,
-        plan_by_run: HashMap<String, HashSet<i64>>,
-        runless: HashMap<String, HashSet<i64>>,
+        by_run: HashMap<Arc<str>, HashSet<i64, RowidHash>, FnvHash>,
+        plan_by_run: HashMap<Arc<str>, HashSet<i64, RowidHash>, FnvHash>,
+        runless: HashMap<Arc<str>, HashSet<i64, RowidHash>, FnvHash>,
         pub(super) active: HashSet<String>,
         latest_keys: HashSet<String>,
         pub(super) run_refs: HashSet<String>,
-        item_members: HashSet<i64>,
-        event_members: HashSet<i64>,
-        plan_members: HashSet<i64>,
+        item_members: HashSet<i64, RowidHash>,
+        event_members: HashSet<i64, RowidHash>,
+        plan_members: HashSet<i64, RowidHash>,
         /// Attributed agent of every turn-item row inside a selection: the
         /// item cap, the event cap or the plan set. Exactly those rows.
-        targets: HashMap<i64, String>,
+        targets: HashMap<i64, Arc<str>, RowidHash>,
         /// Attributed agent of every open request.
-        request_targets: HashMap<i64, String>,
+        request_targets: HashMap<i64, Arc<str>, RowidHash>,
         /// Minimum canonical completion among in-window runs, invalidated when
         /// runs, the active set, or the window moves. `span_floor_bad` forces
         /// the cutoff to `now`, matching a noncanonical stamp in `deadline_stamps`.
@@ -1890,7 +2478,7 @@ mod cache {
         for row in threads {
             if let Data::Thread(t) = &row.data {
                 if t.archived_at.is_none() && t.deleted_at.is_none() {
-                    if let Some(id) = t.data.payload.get("id").and_then(|v| v.as_str()) {
+                    if let Some(id) = t.data.id() {
                         active.insert(id.to_string());
                     }
                 }
@@ -1902,18 +2490,8 @@ mod cache {
             if !active.contains(row.owner.as_ref()) {
                 continue;
             }
-            let tid = v
-                .data
-                .payload
-                .get("threadId")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
-            let run_id = v
-                .data
-                .payload
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("");
+            let tid = v.run.thread_id().unwrap_or("");
+            let run_id = v.run.id().unwrap_or("");
             let entry = best.entry(tid.to_string()).or_insert((i64::MIN, String::new()));
             if v.ordinal > entry.0 || (v.ordinal == entry.0 && run_id > entry.1.as_str()) {
                 *entry = (v.ordinal, run_id.to_string());
@@ -1931,7 +2509,7 @@ mod cache {
                 continue;
             }
             if let Data::Subagent(v) = &row.data {
-                if let Some(id) = v.payload.get("runId").and_then(|v| v.as_str()) {
+                if let Some(id) = v.run_id() {
                     if !id.is_empty() {
                         run_refs.insert(id.to_string());
                     }
@@ -2125,23 +2703,24 @@ mod cache {
         }
         fn index_item_inner(&mut self, row: &Row, maintain_prefix: bool) {
             let Data::Item(v) = &row.data else { return };
-            let run = v.run_id.as_deref().filter(|id| !id.is_empty());
+            let run_arc = v.run_id.as_ref().filter(|id| !id.is_empty());
+            let run = run_arc.map(Arc::as_ref);
             if source::is_toolish(&v.kind) {
-                if let Some(run) = run {
-                    if let Some(set) = self.by_run.get_mut(run) {
+                if let Some(run_arc) = run_arc {
+                    if let Some(set) = self.by_run.get_mut(run_arc.as_ref()) {
                         set.insert(row.id);
                     } else {
-                        let mut set = HashSet::new();
+                        let mut set = HashSet::default();
                         set.insert(row.id);
-                        self.by_run.insert(run.to_owned(), set);
+                        self.by_run.insert(Arc::clone(run_arc), set);
                     }
                 } else if v.run_id.is_none() {
                     if let Some(set) = self.runless.get_mut(row.owner.as_ref()) {
                         set.insert(row.id);
                     } else {
-                        let mut set = HashSet::new();
+                        let mut set = HashSet::default();
                         set.insert(row.id);
-                        self.runless.insert(row.owner.to_string(), set);
+                        self.runless.insert(Arc::clone(&row.owner), set);
                     }
                 }
                 if self.item_visible(&row.owner, &v.kind, run) {
@@ -2177,13 +2756,13 @@ mod cache {
                 }
             }
             if v.kind.as_ref() == "todo_list" {
-                if let Some(run) = run {
-                    if let Some(set) = self.plan_by_run.get_mut(run) {
+                if let Some(run_arc) = run_arc {
+                    if let Some(set) = self.plan_by_run.get_mut(run_arc.as_ref()) {
                         set.insert(row.id);
                     } else {
-                        let mut set = HashSet::new();
+                        let mut set = HashSet::default();
                         set.insert(row.id);
-                        self.plan_by_run.insert(run.to_owned(), set);
+                        self.plan_by_run.insert(Arc::clone(run_arc), set);
                     }
                 }
                 if run.is_some_and(|id| self.run_refs.contains(id)) {
@@ -2275,7 +2854,7 @@ mod cache {
         /// event query is `thread_id IN (active)` and a runless item is visible
         /// only on an active thread. Drop those index entries. Run-scoped items
         /// follow `apply_run_diff`.
-        fn forget_inactive(&mut self, ids: &BTreeSet<i64>, items: &BTreeMap<i64, Row>) {
+        fn forget_inactive(&mut self, ids: &OwnerIds, items: &BTreeMap<i64, Row>) {
             for id in ids {
                 let Some(row) = items.get(id) else { continue };
                 let Data::Item(v) = &row.data else { continue };
@@ -2289,13 +2868,13 @@ mod cache {
         }
         fn apply_run_diff(&mut self, gained: &[String], lost: &[String], items: &BTreeMap<i64, Row>) {
             for run in lost {
-                let ids = self.by_run.get(run).cloned().unwrap_or_default();
+                let ids = self.by_run.get(run.as_str()).cloned().unwrap_or_default();
                 for id in ids {
                     if let Some(row) = items.get(&id) {
                         self.remove_item(row);
                     }
                 }
-                let ids = self.plan_by_run.get(run).cloned().unwrap_or_default();
+                let ids = self.plan_by_run.get(run.as_str()).cloned().unwrap_or_default();
                 for id in ids {
                     if let Some(row) = items.get(&id) {
                         if let Data::Item(v) = &row.data {
@@ -2305,7 +2884,7 @@ mod cache {
                 }
             }
             for run in gained {
-                let ids = self.by_run.get(run).cloned().unwrap_or_default();
+                let ids = self.by_run.get(run.as_str()).cloned().unwrap_or_default();
                 for id in ids {
                     if let Some(row) = items.get(&id) {
                         if let Data::Item(v) = &row.data {
@@ -2315,7 +2894,7 @@ mod cache {
                         }
                     }
                 }
-                let ids = self.plan_by_run.get(run).cloned().unwrap_or_default();
+                let ids = self.plan_by_run.get(run.as_str()).cloned().unwrap_or_default();
                 for id in ids {
                     if let Some(row) = items.get(&id) {
                         if let Data::Item(v) = &row.data {
@@ -2324,6 +2903,39 @@ mod cache {
                     }
                 }
             }
+        }
+        fn shrink_to_fit(&mut self) {
+            self.item_ids.shrink_to_fit();
+            self.item_prefix.shrink_to_fit();
+            self.event_at.shrink_to_fit();
+            self.event_prefix.shrink_to_fit();
+            self.event_ids.shrink_to_fit();
+            self.event_group.shrink_to_fit();
+            self.plan_at.shrink_to_fit();
+            self.plan_group.shrink_to_fit();
+            self.by_run.retain(|_, set| !set.is_empty());
+            for set in self.by_run.values_mut() {
+                set.shrink_to_fit();
+            }
+            self.by_run.shrink_to_fit();
+            self.plan_by_run.retain(|_, set| !set.is_empty());
+            for set in self.plan_by_run.values_mut() {
+                set.shrink_to_fit();
+            }
+            self.plan_by_run.shrink_to_fit();
+            self.runless.retain(|_, set| !set.is_empty());
+            for set in self.runless.values_mut() {
+                set.shrink_to_fit();
+            }
+            self.runless.shrink_to_fit();
+            self.active.shrink_to_fit();
+            self.latest_keys.shrink_to_fit();
+            self.run_refs.shrink_to_fit();
+            self.item_members.shrink_to_fit();
+            self.event_members.shrink_to_fit();
+            self.plan_members.shrink_to_fit();
+            self.targets.shrink_to_fit();
+            self.request_targets.shrink_to_fit();
         }
         fn prefix(&self, cap: usize, events: bool) -> Vec<i64> {
             if events {
@@ -2392,8 +3004,7 @@ mod cache {
     }
     /// Fields of a thread row that another agent, or the parent graph, reads.
     /// Everything else in the row only feeds that thread's own `thread_agent`.
-    fn thread_links(thread: &Thread) -> [Option<&Value>; 5] {
-        let payload = &thread.data.payload;
+    fn thread_links_raw(payload: &Value) -> [Option<&Value>; 5] {
         let lineage = payload.get("lineage");
         [
             payload.get("id"),
@@ -2431,7 +3042,7 @@ mod cache {
                 for row in old.iter().chain(new.iter()) {
                     match &row.data {
                         Data::Provider(v) => {
-                            changes.providers.insert(pool.intern(source::str_at(&v.payload, "id")));
+                            changes.providers.insert(pool.intern(v.id()));
                         }
                         Data::Turn(v) => {
                             changes.providers.insert(Arc::clone(&v.provider_thread_id));
@@ -2463,14 +3074,14 @@ mod cache {
     /// Keep the node and provider indexes in step with one row.
     fn note_index(
         nodes: &mut NodeIndex,
-        provider_rows: &mut HashMap<Arc<str>, BTreeSet<i64>>,
-        turn_rows: &mut HashMap<Arc<str>, BTreeSet<i64>>,
+        provider_rows: &mut HashMap<Arc<str>, OwnerIds, FnvHash>,
+        turn_rows: &mut HashMap<Arc<str>, OwnerIds, FnvHash>,
         bad_turns: &mut BTreeSet<i64>,
         pool: &mut Pool,
         row: &Row,
         add: bool,
     ) {
-        let note = |map: &mut HashMap<Arc<str>, BTreeSet<i64>>, key: Arc<str>| {
+        let note = |map: &mut HashMap<Arc<str>, OwnerIds, FnvHash>, key: Arc<str>| {
             if add {
                 map.entry(key).or_default().insert(row.id);
             } else if let Some(set) = map.get_mut(&key) {
@@ -2488,7 +3099,7 @@ mod cache {
                     nodes.remove(row.id, node);
                 }
             }
-            Data::Provider(v) => note(provider_rows, pool.intern(source::str_at(&v.payload, "id"))),
+            Data::Provider(v) => note(provider_rows, pool.intern(v.id())),
             Data::Turn(v) => {
                 note(turn_rows, Arc::clone(&v.provider_thread_id));
                 if add && v.identity_bad {
@@ -2504,12 +3115,31 @@ mod cache {
         thread.archived_at.is_none() && thread.deleted_at.is_none()
     }
     fn same_links(left: &Thread, right: &Thread) -> bool {
-        let norm = |v: Option<&Value>| v.filter(|v| !v.is_null()).cloned();
-        thread_active(left) == thread_active(right)
-            && thread_links(left)
-                .iter()
-                .zip(thread_links(right).iter())
-                .all(|(a, b)| norm(*a) == norm(*b))
+        if thread_active(left) != thread_active(right) {
+            return false;
+        }
+        match (&left.data, &right.data) {
+            (ThreadPayload::Projected(a), ThreadPayload::Projected(b)) => {
+                a.id == b.id
+                    && a.project_id == b.project_id
+                    && a.delegated_from == b.delegated_from
+                    && a.lineage.as_ref().and_then(|l| l.relationship_to_parent.as_deref())
+                        == b.lineage.as_ref().and_then(|l| l.relationship_to_parent.as_deref())
+                    && a.lineage.as_ref().and_then(|l| l.parent_thread_id.as_deref())
+                        == b.lineage.as_ref().and_then(|l| l.parent_thread_id.as_deref())
+            }
+            _ => {
+                let lv = left.data.to_value();
+                let rv = right.data.to_value();
+                fn norm(v: Option<&Value>) -> Option<&Value> {
+                    v.filter(|v| !v.is_null())
+                }
+                thread_links_raw(&lv)
+                    .iter()
+                    .zip(thread_links_raw(&rv).iter())
+                    .all(|(a, b)| norm(*a) == norm(*b))
+            }
+        }
     }
     impl Cache {
         pub(super) fn new(lean: bool) -> Self {
@@ -2517,6 +3147,24 @@ mod cache {
                 lean,
                 ..Self::default()
             }
+        }
+        pub(super) fn shrink_to_fit(&mut self) {
+            for table in &mut self.tables {
+                table.shrink_to_fit();
+            }
+            self.idx.shrink_to_fit();
+            self.shells.shrink_to_fit();
+            self.nodes.shrink_to_fit();
+            for ids in self.provider_rows.values_mut() {
+                ids.shrink_to_fit();
+            }
+            self.provider_rows.shrink_to_fit();
+            for ids in self.turn_rows.values_mut() {
+                ids.shrink_to_fit();
+            }
+            self.turn_rows.shrink_to_fit();
+            self.pool.values.shrink_to_fit();
+            self.text_held.shrink_to_fit();
         }
         pub fn active_count(&self) -> usize {
             self.tables[0]
@@ -2559,7 +3207,7 @@ mod cache {
                 .into_iter()
                 .filter_map(|r| match &r.data {
                     Data::Thread(t) if t.archived_at.is_none() && t.deleted_at.is_none() => {
-                        Some(t.data.payload.clone())
+                        Some(t.data.to_value())
                     }
                     _ => None,
                 })
@@ -2584,7 +3232,7 @@ mod cache {
             let mut ordinals = HashSet::new();
             for r in &run_rows {
                 if let Data::Run(v) = &r.data {
-                    if v.data.payload["threadId"].as_str() != Some(r.owner.as_ref()) {
+                    if v.run.thread_id() != Some(r.owner.as_ref()) {
                         return Err(FallbackReason::RunOwnerMismatch);
                     }
                     // A tie within one thread has no guaranteed latest run.
@@ -2592,8 +3240,8 @@ mod cache {
                         return Err(FallbackReason::RunOrdinalTie);
                     }
                     latest
-                        .entry(v.data.payload["threadId"].as_str().unwrap_or("").to_owned())
-                        .or_insert(v.data.payload.clone());
+                        .entry(v.run.thread_id().unwrap_or("").to_owned())
+                        .or_insert_with(|| v.run.to_value());
                 }
             }
             let mut sub_rows = active(2);
@@ -2610,16 +3258,16 @@ mod cache {
                 if let Data::Subagent(v) = &r.data {
                     // Typed events route past an empty provider alias; the
                     // oracle's JSON event router does not.
-                    if v.payload.get("providerThreadId").and_then(Value::as_str) == Some("") {
+                    if v.provider_thread_id() == Some("") {
                         return Err(FallbackReason::CrossThreadAttribution);
                     }
-                    subs.push(v.payload.clone());
+                    subs.push(v.to_value());
                 }
             }
             let mut provider_ids = HashSet::new();
             for r in active(3) {
                 if let Data::Provider(v) = &r.data {
-                    if !provider_ids.insert(v.payload["id"].as_str().unwrap_or("")) {
+                    if !provider_ids.insert(v.id()) {
                         return Err(FallbackReason::DuplicateProviderId);
                     }
                 }
@@ -2627,10 +3275,7 @@ mod cache {
             let providers = active(3)
                 .into_iter()
                 .filter_map(|r| match &r.data {
-                    Data::Provider(v) => Some((
-                        v.payload["id"].as_str().unwrap_or("").to_owned(),
-                        v.payload.clone(),
-                    )),
+                    Data::Provider(v) => Some((v.id().to_owned(), v.to_value())),
                     _ => None,
                 })
                 .collect();
@@ -2659,14 +3304,17 @@ mod cache {
                     if !turn_keys.insert((v.provider_thread_id.as_ref(), v.ordinal)) {
                         return Err(FallbackReason::ProviderOrdinalTie);
                     }
-                    let parsed = if self.lean {
-                        v.lean_json()?
-                    } else {
-                        v.parsed().map_err(|_| FallbackReason::AssemblyError)?
-                    };
-                    turns
-                        .entry(v.provider_thread_id.to_string())
-                        .or_insert(parsed.clone());
+                    if !turns.contains_key(v.provider_thread_id.as_ref()) {
+                        if v.json_pruned {
+                            return Err(FallbackReason::CacheUnavailable);
+                        }
+                        let parsed = if self.lean {
+                            v.lean_json()?
+                        } else {
+                            v.parsed().map_err(|_| FallbackReason::AssemblyError)?
+                        };
+                        turns.insert(v.provider_thread_id.to_string(), parsed);
+                    }
                     let count = counts.entry(v.provider_thread_id.as_ref()).or_insert(0);
                     *count += 1;
                     if *count <= 160 && !self.lean {
@@ -2675,9 +3323,12 @@ mod cache {
                             "thread_id": r.owner,
                             "started_at": v.started_at.as_ref().map(Stamp::text_owned),
                             "completed_at": v.completed_at.as_ref().map(Stamp::text_owned),
-                            "used": parsed["tokenUsage"]["usedTokens"],
-                            "max": parsed["tokenUsage"]["maxTokens"],
-                            "model": parsed["model"],
+                            // `source::number` read these at stage time; a finite value
+                            // goes back as a JSON number, NaN and the infinities as the
+                            // text `number` parses back to the same value.
+                            "used": if v.used.is_finite() { json!(v.used) } else { json!(v.used.to_string()) },
+                            "max": if v.max.is_finite() { json!(v.max) } else { json!(v.max.to_string()) },
+                            "model": v.model_value(),
                         }));
                     }
                 }
@@ -2694,7 +3345,7 @@ mod cache {
             let projects = self.projects.values().map(|v| (v.project_id.clone(),json!({"project_id":v.project_id,"title":v.title,"workspace_root":v.workspace_root}))).collect();
             let mut requests = Vec::new();
             let mut request_rows = active(6);
-            request_rows.retain(|r| matches!(&r.data, Data::Request(v) if v.resolved_at.is_none() && ["pending", "open", "waiting", "requested"].contains(&v.status.as_str())));
+            request_rows.retain(|r| matches!(&r.data, Data::Request(v) if v.resolved_at.is_none() && ["pending", "open", "waiting", "requested"].contains(&v.status.as_ref())));
             if request_rows.len() > 1 {
                 match request_order {
                     Some(EncounterOrder::ThreadIndex(_)) => request_rows
@@ -2706,9 +3357,9 @@ mod cache {
             for r in request_rows {
                 if let Data::Request(v) = &r.data {
                     if v.resolved_at.is_none()
-                        && ["pending", "open", "waiting", "requested"].contains(&v.status.as_str())
+                        && ["pending", "open", "waiting", "requested"].contains(&v.status.as_ref())
                     {
-                        requests.push(json!({"thread_id":r.owner,"node_id":v.node_id,"kind":v.kind,"status":v.status,"created_at":v.created_at,"async_input":v.async_input}));
+                        requests.push(json!({"thread_id":r.owner,"node_id":v.node_id.as_ref(),"kind":v.kind.as_ref(),"status":v.status.as_ref(),"created_at":v.created_at.as_ref().map(Stamp::text_owned),"async_input":v.async_input}));
                     }
                 }
             }
@@ -2859,7 +3510,13 @@ mod cache {
             let mut spans = Vec::new();
             for r in windowed {
                 if let Data::Run(v) = &r.data {
-                    spans.push(json!({"thread_id":r.owner,"requested_at":v.requested_at,"completed_at":v.completed_at,"started_at":v.data.payload["startedAt"]}));
+                    let started = v.run.started_at();
+                    spans.push(json!({
+                        "thread_id": r.owner,
+                        "requested_at": v.requested_at.text_owned(),
+                        "completed_at": v.completed_at.as_ref().map(Stamp::text_owned),
+                        "started_at": started.as_deref(),
+                    }));
                 }
             }
             let paint = |v: &Item, r: &Row| if self.lean { v.bare(&r.owner) } else { v.materialize(&r.owner) };
@@ -3175,7 +3832,7 @@ mod cache {
                 // so removing one can refill the cap from an untouched owner.
                 let changed_latest: Vec<_> = old_latest.symmetric_difference(&self.idx.latest_keys).cloned().collect();
                 for owner in changed_latest {
-                    let ids = self.idx.runless.get(&owner).cloned().unwrap_or_default();
+                    let ids = self.idx.runless.get(owner.as_str()).cloned().unwrap_or_default();
                     for id in ids {
                         let Some(row) = self.tables[7].rows.get(&id) else { continue };
                         let Data::Item(v) = &row.data else { continue };
@@ -3594,18 +4251,18 @@ mod cache {
             let mut parent_nodes = Vec::new();
             for row in self.ordered_subs(sub_order)? {
                 let Data::Subagent(v) = &row.data else { continue };
-                if let Some(parent) = v.payload.get("parentNodeId").and_then(Value::as_str) {
+                if let Some(parent) = v.parent_node_id() {
                     parent_nodes.push(parent);
                 }
-                let id = source::str_at(&v.payload, "id");
+                let id = v.id();
                 if id.is_empty() {
                     continue;
                 }
                 sub_ids.insert(id.to_owned());
-                if let Some(child) = source::truthy_str(&v.payload, "childThreadId") {
-                    aliases.insert(id.to_owned(), child);
+                if let Some(child) = v.child_thread_id().filter(|s| !s.is_empty()) {
+                    aliases.insert(id.to_owned(), child.to_owned());
                 }
-                if let Some(pid) = v.payload.get("providerThreadId").and_then(Value::as_str).filter(|id| !id.is_empty()) {
+                if let Some(pid) = v.provider_thread_id().filter(|id| !id.is_empty()) {
                     sub_provider.push((id.to_owned(), pid.to_owned()));
                 }
             }
@@ -3712,11 +4369,11 @@ mod cache {
                     continue;
                 }
                 let Data::Run(v) = &row.data else { continue };
-                let Some(done) = v.completed_at.as_deref() else { continue };
-                if done < since.as_str() {
+                let Some(done) = v.completed_at.as_ref() else { continue };
+                if !stamp_ge(done, &since) {
                     continue;
                 }
-                match canonical_stamp(done).then(|| crate::model::ms(Some(done))).flatten() {
+                match done.is_canonical().then(|| done.millis()).flatten() {
                     Some(stamp) => oldest = oldest.min(stamp),
                     None => {
                         bad = true;
@@ -3761,7 +4418,7 @@ mod cache {
             let mut best: Option<(i64, i64)> = None;
             for id in ids {
                 let Data::Run(v) = &self.tables[1].rows[id].data else { continue };
-                if v.data.payload["threadId"].as_str() != Some(thread_id) {
+                if v.run.thread_id() != Some(thread_id) {
                     return Err(FallbackReason::RunOwnerMismatch);
                 }
                 if !seen.insert(v.ordinal) {
@@ -3773,7 +4430,7 @@ mod cache {
             }
             Ok(best
                 .map(|(_, id)| match &self.tables[1].rows[&id].data {
-                    Data::Run(v) => v.data.payload.clone(),
+                    Data::Run(v) => v.run.to_value(),
                     _ => json!({}),
                 })
                 .unwrap_or_else(|| json!({})))
@@ -3794,7 +4451,7 @@ mod cache {
                 if found.is_some() {
                     return Err(FallbackReason::DuplicateProviderId);
                 }
-                found = Some(v.payload.clone());
+                found = Some(v.to_value());
             }
             Ok(found)
         }
@@ -3830,11 +4487,16 @@ mod cache {
         fn latest_turn(&self, pid: &str) -> Result<Option<Value>, FallbackReason> {
             match self.provider_turns(pid)?.first() {
                 Some(row) => match &row.data {
-                    Data::Turn(v) => Ok(Some(if self.lean {
-                        v.lean_json()?
-                    } else {
-                        v.parsed().map_err(|_| FallbackReason::AssemblyError)?
-                    })),
+                    Data::Turn(v) => {
+                        if v.json_pruned {
+                            return Err(FallbackReason::CacheUnavailable);
+                        }
+                        Ok(Some(if self.lean {
+                            v.lean_json()?
+                        } else {
+                            v.parsed().map_err(|_| FallbackReason::AssemblyError)?
+                        }))
+                    }
                     _ => Ok(None),
                 },
                 None => Ok(None),
@@ -3883,10 +4545,9 @@ mod cache {
                 if !thread_active(thread) {
                     continue;
                 }
-                let payload = &thread.data.payload;
                 // The cache keys a thread's rows by its thread_id column; the
                 // oracle names the agent by the payload id.
-                if row.owner.is_empty() || payload.get("id").and_then(Value::as_str) != Some(row.owner.as_ref()) {
+                if row.owner.is_empty() || thread.data.id() != Some(row.owner.as_ref()) {
                     return Err(FallbackReason::ThreadIdentityMismatch);
                 }
                 thread_ids.insert(row.owner.as_ref());
@@ -3901,26 +4562,17 @@ mod cache {
                         (Some(shell), project)
                     }
                 };
-                let lineage = source::obj(payload, "lineage");
                 stubs.push(crate::model::Agent {
                     id: row.owner.to_string(),
-                    parent: if source::str_at(&lineage, "relationshipToParent") == "subagent" {
-                        source::optional(&lineage, "parentThreadId")
-                    } else {
-                        None
-                    },
+                    parent: thread.data.subagent_parent(),
                     kind: "thread".into(),
                     project,
                     thread_id: row.owner.to_string(),
                     ..crate::model::Agent::default()
                 });
                 built.push(shell);
-                if payload
-                    .get("delegatedFrom")
-                    .and_then(crate::integration::thread_ref)
-                    .is_some()
-                {
-                    delegated.push(payload.clone());
+                if thread.data.has_delegated_from_ref() {
+                    delegated.push(thread.data.to_value());
                 }
             }
             let sub_rows = self.ordered_subs(sub_order)?;
@@ -3931,43 +4583,47 @@ mod cache {
             let mut looked = HashSet::new();
             for row in &sub_rows {
                 let Data::Subagent(v) = &row.data else { continue };
-                let payload = &v.payload;
-                let id = source::str_at(payload, "id");
+                let id = v.id();
                 // `link_structure` would replace that thread's agent in place.
                 if thread_ids.contains(id) {
                     return Err(FallbackReason::SubagentThreadCollision);
                 }
                 // The oracle's JSON router reads an empty provider alias; the
                 // typed item router does not.
-                if payload.get("providerThreadId").and_then(Value::as_str) == Some("") {
+                if v.provider_thread_id() == Some("") {
                     return Err(FallbackReason::CrossThreadAttribution);
                 }
                 // `link_structure` reads providers and turns only for an agent it
                 // builds from a subagent row: one whose child is not an active
                 // thread, or the preferred row of a remote child group.
-                let may_build = !source::truthy_str(payload, "childThreadId")
-                    .is_some_and(|child| thread_ids.contains(child.as_str()))
-                    || payload.get("remoteChild").and_then(crate::integration::thread_ref).is_some();
-                if let Some(pid) = source::truthy_str(payload, "providerThreadId").filter(|_| may_build) {
-                    if looked.insert(pid.clone()) {
-                        if let Some(body) = self.provider_payload(&pid)? {
-                            providers.insert(pid.clone(), body);
+                let may_build = !v
+                    .child_thread_id()
+                    .filter(|s| !s.is_empty())
+                    .is_some_and(|child| thread_ids.contains(child))
+                    || v.has_remote_ref();
+                if let Some(pid) = v
+                    .provider_thread_id()
+                    .filter(|s| !s.is_empty() && may_build)
+                {
+                    if looked.insert(pid.to_owned()) {
+                        if let Some(body) = self.provider_payload(pid)? {
+                            providers.insert(pid.to_owned(), body);
                         }
-                        if let Some(turn) = self.latest_turn(&pid)? {
-                            turns.insert(pid, turn);
+                        if let Some(turn) = self.latest_turn(pid)? {
+                            turns.insert(pid.to_owned(), turn);
                         }
                     }
                 }
                 if !id.is_empty() {
                     sub_ids.insert(id);
                 }
-                subs.push(payload.clone());
+                subs.push(v.to_value());
             }
             let active = &self.idx.active;
             let mut nodes: HashMap<String, Value> = HashMap::new();
             for row in &sub_rows {
                 let Data::Subagent(v) = &row.data else { continue };
-                let mut node = v.payload.get("parentNodeId").and_then(Value::as_str).filter(|id| !id.is_empty());
+                let mut node = v.parent_node_id().filter(|id| !id.is_empty());
                 let mut seen: HashSet<&str> = HashSet::new();
                 while let Some(id) = node {
                     if !seen.insert(id) || sub_ids.contains(id) {
@@ -3991,7 +4647,7 @@ mod cache {
                 let prior = old.get(stub.id.as_str()).copied();
                 if index >= threads {
                     if self.lean {
-                        stub.turn = Value::Null;
+                        stub.turn = crate::model::AgentTurn::Null;
                         stub.options.clear();
                     }
                     // A subagent agent or a remote placeholder, built whole.
@@ -4039,7 +4695,7 @@ mod cache {
                 return Err(FallbackReason::CacheUnavailable);
             };
             let Some(thread) = ids.iter().find_map(|id| match &self.tables[0].rows[id].data {
-                Data::Thread(v) if v.archived_at.is_none() && v.deleted_at.is_none() => Some(v.data.payload.clone()),
+                Data::Thread(v) if v.archived_at.is_none() && v.deleted_at.is_none() => Some(v.data.to_value()),
                 _ => None,
             }) else {
                 return Err(FallbackReason::CacheUnavailable);
@@ -4076,7 +4732,7 @@ mod cache {
             )
             .map_err(|_| FallbackReason::AssemblyError)?;
             if self.lean {
-                shell.turn = Value::Null;
+                shell.turn = crate::model::AgentTurn::Null;
                 shell.options.clear();
             }
             Ok(shell)
@@ -4101,12 +4757,10 @@ mod cache {
             order_windowed_runs(&mut rows, order)?;
             for row in rows {
                 let Data::Run(v) = &row.data else { continue };
-                source::attach_span(
-                    agent,
-                    v.data.payload["startedAt"].as_str(),
-                    Some(v.requested_at.as_str()),
-                    v.completed_at.as_deref(),
-                );
+                let started = v.run.started_at();
+                let req = v.requested_at.text();
+                let comp = v.completed_at.as_ref().map(Stamp::text);
+                source::attach_span(agent, started.as_deref(), Some(req.as_ref()), comp.as_deref());
             }
             Ok(())
         }
@@ -4169,7 +4823,7 @@ mod cache {
                 // The parts of `source::attach_item`, `finish_agent_body` and the event loop
                 // below that `status_view` keeps: the newest update, the current item, the
                 // failure count and the events. Label, command and file are never read here.
-                let agent_run_id = agent.run.get("id").and_then(Value::as_str);
+                let agent_run_id = agent.run.id();
                 let mut matched: Vec<(&Item, &Row)> = Vec::new();
                 for id in items.into_iter().flatten() {
                     let Some(row) = self.tables[7].rows.get(id) else { continue };
@@ -4515,8 +5169,8 @@ mod cache {
                     if old_since != since {
                         for row in self.tables[1].rows.values() {
                             let Data::Run(v) = &row.data else { continue };
-                            if let Some(done) = v.completed_at.as_deref() {
-                                if done >= old_since.as_str() && done < since.as_str() {
+                            if let Some(done) = v.completed_at.as_ref() {
+                                if stamp_ge(done, &old_since) && !stamp_ge(done, &since) {
                                     dirty.insert(row.owner.to_string());
                                 }
                             }
@@ -4552,9 +5206,9 @@ mod cache {
             } else {
                 self.idx.plans.values().copied().collect()
             };
-            let new_items: HashSet<i64> = item_ids.iter().copied().collect();
-            let new_events: HashSet<i64> = event_ids.iter().copied().collect();
-            let new_plans: HashSet<i64> = plan_ids.iter().copied().collect();
+            let new_items: HashSet<i64, RowidHash> = item_ids.iter().copied().collect();
+            let new_events: HashSet<i64, RowidHash> = event_ids.iter().copied().collect();
+            let new_plans: HashSet<i64, RowidHash> = plan_ids.iter().copied().collect();
             let mut targets = std::mem::take(&mut self.idx.targets);
             // A row that left every selection takes its old agent with it.
             for id in self
@@ -4566,7 +5220,7 @@ mod cache {
             {
                 if !new_items.contains(id) && !new_events.contains(id) && !new_plans.contains(id) {
                     if let Some(old) = targets.remove(id) {
-                        dirty.insert(old);
+                        dirty.insert(old.to_string());
                     }
                 }
             }
@@ -4578,9 +5232,10 @@ mod cache {
                     continue;
                 }
                 let Some(target) = self.item_target(&routes, *id) else { continue };
-                match targets.insert(*id, target.clone()) {
-                    Some(old) if old != target => {
-                        dirty.insert(old);
+                let target_arc = self.pool.intern(&target);
+                match targets.insert(*id, target_arc) {
+                    Some(old) if old.as_ref() != target.as_str() => {
+                        dirty.insert(old.to_string());
                         dirty.insert(target);
                     }
                     Some(_) if !changed => {}
@@ -4597,12 +5252,12 @@ mod cache {
             ] {
                 for id in now_in.symmetric_difference(before) {
                     if let Some(target) = targets.get(id) {
-                        dirty.insert(target.clone());
+                        dirty.insert(target.to_string());
                     }
                 }
             }
             let mut request_rows = Vec::new();
-            let mut next_request_targets = HashMap::new();
+            let mut next_request_targets: HashMap<i64, Arc<str>, RowidHash> = HashMap::default();
             {
                 let mut rows: Vec<&Row> = self.tables[6]
                     .rows
@@ -4610,7 +5265,7 @@ mod cache {
                     .filter(|row| {
                         self.idx.active.contains(row.owner.as_ref())
                             && matches!(&row.data, Data::Request(v) if v.resolved_at.is_none()
-                                && ["pending", "open", "waiting", "requested"].contains(&v.status.as_str()))
+                                && ["pending", "open", "waiting", "requested"].contains(&v.status.as_ref()))
                     })
                     .collect();
                 if rows.len() > 1 {
@@ -4622,6 +5277,7 @@ mod cache {
                         None => return Err(FallbackReason::MultipleRequests),
                     }
                 }
+                let mut pending_req_targets = Vec::with_capacity(rows.len());
                 for row in rows {
                     let Data::Request(v) = &row.data else { continue };
                     let target = walk_owner(
@@ -4629,12 +5285,12 @@ mod cache {
                         &self.idx.active,
                         &routes.sub_ids,
                         &routes.aliases,
-                        Some(v.node_id.as_str()),
+                        Some(v.node_id.as_ref()),
                     )
                     .unwrap_or_else(|| row.owner.to_string());
                     match self.idx.request_targets.get(&row.id) {
-                        Some(old) if old != &target => {
-                            dirty.insert(old.clone());
+                        Some(old) if old.as_ref() != target.as_str() => {
+                            dirty.insert(old.to_string());
                             dirty.insert(target.clone());
                         }
                         Some(_) if !changes.requests.contains(&row.id) => {}
@@ -4644,15 +5300,18 @@ mod cache {
                     }
                     request_rows.push((
                         target.clone(),
-                        v.kind.clone(),
-                        v.created_at.clone(),
+                        v.kind.to_string(),
+                        v.created_at.as_ref().map(Stamp::text_owned),
                         v.async_input == 1,
                     ));
-                    next_request_targets.insert(row.id, target);
+                    pending_req_targets.push((row.id, target));
+                }
+                for (row_id, target) in pending_req_targets {
+                    next_request_targets.insert(row_id, self.pool.intern(&target));
                 }
                 for (id, old) in &self.idx.request_targets {
                     if !next_request_targets.contains_key(id) {
-                        dirty.insert(old.clone());
+                        dirty.insert(old.to_string());
                     }
                 }
             }
@@ -4665,7 +5324,7 @@ mod cache {
                 let previous_by_id: HashMap<&str, &Arc<crate::model::Agent>> = previous
                     .map(|snapshot| snapshot.agents.iter().map(|agent| (agent.id.as_str(), agent)).collect())
                     .unwrap_or_default();
-                let wanted = |target: &String| everything || dirty.contains(target);
+                let wanted = |target: &str| everything || dirty.contains(target);
                 let mut items_for: HashMap<&str, Vec<i64>> = HashMap::new();
                 let mut events_for: HashMap<&str, Vec<i64>> = HashMap::new();
                 let mut plans_for: HashMap<&str, Vec<i64>> = HashMap::new();
@@ -4675,8 +5334,8 @@ mod cache {
                     (&plan_ids, &mut plans_for),
                 ] {
                     for id in ids {
-                        if let Some(target) = targets.get(id).filter(|target| wanted(target)) {
-                            map.entry(target.as_str()).or_default().push(*id);
+                        if let Some(target) = targets.get(id).filter(|target| wanted(target.as_ref())) {
+                            map.entry(target.as_ref()).or_default().push(*id);
                         }
                     }
                 }
@@ -4740,9 +5399,9 @@ mod cache {
             let since = source::iso(now - source::WINDOW);
             self.tables[1].rows.values().any(|row| {
                 let Data::Run(v) = &row.data else { return false };
-                v.completed_at.as_ref().is_some_and(|stamp| {
-                    stamp.as_str() >= since.as_str() && !canonical_stamp(stamp)
-                })
+                v.completed_at
+                    .as_ref()
+                    .is_some_and(|stamp| stamp_ge(stamp, &since) && !stamp.is_canonical())
             })
         }
     }
@@ -4840,6 +5499,97 @@ mod cache {
                 Value::Bool(_) | Value::Null => {}
             }
         }
+        fn walk_iso(stamp: &crate::model::IsoStamp, bag: &mut Bag) {
+            if let crate::model::IsoStamp::Raw(text) = stamp {
+                bag.owned(text);
+            }
+        }
+        fn walk_opt_iso(stamp: &Option<crate::model::IsoStamp>, bag: &mut Bag) {
+            if let Some(stamp) = stamp {
+                walk_iso(stamp, bag);
+            }
+        }
+        fn walk_option_value(v: &crate::model::OptionValue, bag: &mut Bag) {
+            if let crate::model::OptionValue::Str(s) = v {
+                bag.arc(s);
+            }
+        }
+        fn walk_option(opt: &crate::model::AgentOption, strings: &mut Bag, json_bag: &mut JsonBag) {
+            match opt {
+                crate::model::AgentOption::Typed { id, value } => {
+                    strings.arc(id);
+                    walk_option_value(value, strings);
+                }
+                crate::model::AgentOption::Raw(v) => walk(v, json_bag),
+            }
+        }
+        fn walk_remote(remote: &crate::model::AgentRemote, strings: &mut Bag, json_bag: &mut JsonBag) {
+            match remote {
+                crate::model::AgentRemote::Projected(p) => {
+                    strings.opt_arc(&p.environment_id);
+                    strings.opt_arc(&p.thread_id);
+                    strings.opt_arc(&p.label);
+                }
+                crate::model::AgentRemote::Raw(v) => walk(v, json_bag),
+            }
+        }
+        fn walk_model_selection(ms: &crate::model::ModelSelection, strings: &mut Bag, json_bag: &mut JsonBag) {
+            strings.opt_arc(&ms.model);
+            if let Some(opts) = &ms.options {
+                for opt in opts.iter() {
+                    walk_option(opt, strings, json_bag);
+                }
+            }
+        }
+        fn walk_run(run: &crate::model::AgentRun, strings: &mut Bag, json_bag: &mut JsonBag) {
+            match run {
+                crate::model::AgentRun::Null | crate::model::AgentRun::Empty => {}
+                crate::model::AgentRun::IdOnly(id) => strings.opt_arc(id),
+                crate::model::AgentRun::ProviderOnly(p) => strings.arc(p),
+                crate::model::AgentRun::Projected(r) => {
+                    strings.opt_arc(&r.id);
+                    strings.opt_arc(&r.thread_id);
+                    strings.opt_arc(&r.status);
+                    strings.opt_arc(&r.provider_thread_id);
+                    walk_opt_iso(&r.started_at, strings);
+                    walk_opt_iso(&r.requested_at, strings);
+                    walk_opt_iso(&r.completed_at, strings);
+                    if let Some(ms) = &r.model_selection {
+                        walk_model_selection(ms, strings, json_bag);
+                    }
+                }
+                crate::model::AgentRun::Raw(v) => walk(v, json_bag),
+            }
+        }
+        fn walk_turn_usage(u: &crate::model::TurnUsage, strings: &mut Bag, json_bag: &mut JsonBag) {
+            match u {
+                crate::model::TurnUsage::Null => {}
+                crate::model::TurnUsage::Typed(t) => {
+                    strings.opt_arc(&t.prompt_cache_expires_at);
+                    strings.opt_arc(&t.updated_at);
+                    strings.opt_arc(&t.usage_status);
+                    if let Some(extras) = &t.extras {
+                        for (k, v) in extras.iter() {
+                            strings.arc(k);
+                            walk_option_value(v, strings);
+                        }
+                    }
+                }
+                crate::model::TurnUsage::Raw(v) => walk(v, json_bag),
+            }
+        }
+        fn walk_turn(turn: &crate::model::AgentTurn, strings: &mut Bag, json_bag: &mut JsonBag) {
+            match turn {
+                crate::model::AgentTurn::Null | crate::model::AgentTurn::Empty => {}
+                crate::model::AgentTurn::Projected(t) => {
+                    strings.opt_arc(&t.provider_thread_id);
+                    strings.opt_arc(&t.model);
+                    walk_turn_usage(&t.token_usage, strings, json_bag);
+                    walk_turn_usage(&t.turn_token_usage, strings, json_bag);
+                }
+                crate::model::AgentTurn::Raw(v) => walk(v, json_bag),
+            }
+        }
         let item_cap: HashSet<i64> = cache.idx.item_prefix.iter().map(|key| key.rowid).collect();
         let event_cap: HashSet<i64> = cache.idx.event_prefix.iter().copied().collect();
         let mut tables = Vec::new();
@@ -4860,24 +5610,87 @@ mod cache {
                 fields.entry("owner").or_default().add(&owner);
                 match &row.data {
                     Data::Thread(value) => {
-                        walk(&value.data.payload, &mut payload);
+                        let mut typed = Bag::default();
+                        match &value.data {
+                            ThreadPayload::Projected(t) => {
+                                typed.opt_arc(&t.id);
+                                typed.opt_arc(&t.project_id);
+                                typed.opt_arc(&t.title);
+                                typed.opt_arc(&t.active_provider_thread_id);
+                                typed.opt_arc(&t.worktree_path);
+                                typed.opt_arc(&t.branch);
+                                typed.opt_stamp(&t.updated_at);
+                                typed.opt_arc(&t.settled_override);
+                                typed.opt_stamp(&t.snoozed_until);
+                                if let Some(d) = &t.delegated_from {
+                                    typed.opt_arc(&d.environment_id);
+                                    typed.opt_arc(&d.thread_id);
+                                    typed.opt_arc(&d.title);
+                                }
+                                if let Some(l) = &t.lineage {
+                                    typed.opt_arc(&l.relationship_to_parent);
+                                    typed.opt_arc(&l.parent_thread_id);
+                                }
+                                if let Some(ms) = &t.model_selection {
+                                    walk_model_selection(ms, &mut typed, &mut payload);
+                                }
+                            }
+                            ThreadPayload::Raw(v) => walk(v, &mut payload),
+                        }
+                        fields.entry("typed").or_default().add(&typed);
                         let mut bag = Bag::default();
-                        bag.opt(&value.archived_at);
+                        bag.opt_stamp(&value.archived_at);
                         fields.entry("archived_at").or_default().add(&bag);
                         let mut bag = Bag::default();
-                        bag.opt(&value.deleted_at);
+                        bag.opt_stamp(&value.deleted_at);
                         fields.entry("deleted_at").or_default().add(&bag);
                     }
                     Data::Run(value) => {
-                        walk(&value.data.payload, &mut payload);
+                        let mut typed = Bag::default();
+                        walk_run(&value.run, &mut typed, &mut payload);
+                        fields.entry("typed").or_default().add(&typed);
                         let mut bag = Bag::default();
-                        bag.owned(&value.requested_at);
+                        bag.stamp(&value.requested_at);
                         fields.entry("requested_at").or_default().add(&bag);
                         let mut bag = Bag::default();
-                        bag.opt(&value.completed_at);
+                        bag.opt_stamp(&value.completed_at);
                         fields.entry("completed_at").or_default().add(&bag);
                     }
-                    Data::Subagent(value) | Data::Provider(value) => walk(&value.payload, &mut payload),
+                    Data::Subagent(value) => {
+                        let mut typed = Bag::default();
+                        match &**value {
+                            SubagentPayload::Projected(s) => {
+                                typed.opt_arc(&s.id);
+                                typed.opt_arc(&s.thread_id);
+                                typed.opt_arc(&s.parent_node_id);
+                                typed.opt_arc(&s.run_id);
+                                typed.opt_arc(&s.provider_thread_id);
+                                typed.opt_arc(&s.child_thread_id);
+                                typed.opt_arc(&s.status);
+                                typed.opt_arc(&s.title);
+                                typed.opt_arc(&s.model);
+                                typed.opt_stamp(&s.started_at);
+                                typed.opt_stamp(&s.completed_at);
+                                typed.opt_stamp(&s.updated_at);
+                                if let Some(rc) = &s.remote_child {
+                                    walk_remote(rc, &mut typed, &mut payload);
+                                }
+                            }
+                            SubagentPayload::Raw(v) => walk(v, &mut payload),
+                        }
+                        fields.entry("typed").or_default().add(&typed);
+                    }
+                    Data::Provider(value) => {
+                        let mut typed = Bag::default();
+                        match &**value {
+                            ProviderPayload::Projected { id, context_usage } => {
+                                typed.opt_arc(id);
+                                walk_turn_usage(context_usage, &mut typed, &mut payload);
+                            }
+                            ProviderPayload::Raw(v) => walk(v, &mut payload),
+                        }
+                        fields.entry("typed").or_default().add(&typed);
+                    }
                     Data::Turn(value) => {
                         let mut bag = Bag::default();
                         bag.arc(&value.json);
@@ -4905,21 +5718,19 @@ mod cache {
                     }
                     Data::Request(value) => {
                         for (name, text) in [
-                            ("node_id", Some(&value.node_id)),
-                            ("kind", Some(&value.kind)),
-                            ("status", Some(&value.status)),
+                            ("node_id", &value.node_id),
+                            ("kind", &value.kind),
+                            ("status", &value.status),
                         ] {
                             let mut bag = Bag::default();
-                            if let Some(text) = text {
-                                bag.owned(text);
-                            }
+                            bag.arc(text);
                             fields.entry(name).or_default().add(&bag);
                         }
                         let mut bag = Bag::default();
-                        bag.opt(&value.created_at);
+                        bag.opt_stamp(&value.created_at);
                         fields.entry("created_at").or_default().add(&bag);
                         let mut bag = Bag::default();
-                        bag.opt(&value.resolved_at);
+                        bag.opt_stamp(&value.resolved_at);
                         fields.entry("resolved_at").or_default().add(&bag);
                     }
                     Data::Item(value) => {
@@ -5054,17 +5865,17 @@ mod cache {
             .keys()
             .chain(cache.idx.plan_by_run.keys())
             .chain(cache.idx.runless.keys())
-            .chain(cache.idx.active.iter())
-            .chain(cache.idx.latest_keys.iter())
-            .chain(cache.idx.run_refs.iter())
+            .chain(cache.idx.targets.values())
+            .chain(cache.idx.request_targets.values())
         {
-            index_sets.owned(key);
+            index_sets.arc(key);
         }
         for key in cache
             .idx
-            .targets
-            .values()
-            .chain(cache.idx.request_targets.values())
+            .active
+            .iter()
+            .chain(cache.idx.latest_keys.iter())
+            .chain(cache.idx.run_refs.iter())
         {
             index_sets.owned(key);
         }
@@ -5165,13 +5976,13 @@ mod cache {
             for key in agent.mix.keys() {
                 strings.owned(key);
             }
-            walk(&agent.run, json_bag);
-            walk(&agent.turn, json_bag);
+            walk_run(&agent.run, strings, json_bag);
+            walk_turn(&agent.turn, strings, json_bag);
             if let Some(remote) = &agent.remote {
-                walk(remote, json_bag);
+                walk_remote(remote, strings, json_bag);
             }
             for option in &agent.options {
-                walk(option, json_bag);
+                walk_option(option, strings, json_bag);
             }
         }
         let projects = {
@@ -5436,7 +6247,7 @@ mod cache {
             let pending = Pending::read(&db.db, &db.path, Some(&BTreeSet::from(["b".into()])), &mut cache.pool).unwrap();
             cache.apply(pending);
             assert!(cache.tables[5].owners["a"].is_empty());
-            assert_eq!(cache.tables[5].owners["b"], BTreeSet::from([id]));
+            assert_eq!(cache.tables[5].owners["b"].as_slice(), &[id]);
             assert_eq!(cache.tables[5].rows[&id].owner.as_ref(), "b");
             db.db
                 .execute(
@@ -5447,6 +6258,71 @@ mod cache {
             let pending = Pending::read(&db.db, &db.path, Some(&BTreeSet::from(["b".into()])), &mut cache.pool).unwrap();
             cache.apply(pending);
             assert!(cache.tables[5].rows.is_empty());
+        }
+
+        #[test]
+        fn typed_cache_eliminates_value_trees_and_prunes_non_latest_turn_json() {
+            let mut db = crate::live::privacy_support::Db::new();
+            db.write("a", 0);
+            db.db.execute(
+                "INSERT INTO orchestration_v2_projection_provider_turns(provider_turn_id,thread_id,provider_thread_id,node_id,ordinal,status,started_at,completed_at,payload_json) VALUES('pt-1','a','pt-a','n',1,'completed','2026-11-12T10:00:00.000Z','2026-11-12T10:01:00.000Z',?)",
+                [r#"{"providerThreadId":"pt-a","model":"claude-opus-4-6","tokenUsage":{"usedTokens":100,"maxTokens":1000},"turnTokenUsage":{"inputTokens":50,"outputTokens":20}}"#],
+            ).unwrap();
+            db.db.execute(
+                "INSERT INTO orchestration_v2_projection_provider_turns(provider_turn_id,thread_id,provider_thread_id,node_id,ordinal,status,started_at,completed_at,payload_json) VALUES('pt-2','a','pt-a','n',2,'completed','2026-11-12T10:02:00.000Z','2026-11-12T10:03:00.000Z',?)",
+                [r#"{"providerThreadId":"pt-a","model":"claude-opus-4-6","tokenUsage":{"usedTokens":200,"maxTokens":1000},"turnTokenUsage":{"inputTokens":80,"outputTokens":30}}"#],
+            ).unwrap();
+            let mut reader = Reader::open(&db.path).unwrap().with_self_check(true);
+            let u1 = reader.poll(1_794_484_800_000.0).unwrap();
+            assert!(!u1.mismatch, "Poll 1 self-check mismatch");
+            let acc = reader.cache_account().unwrap();
+            for table in acc["tables"].as_array().unwrap() {
+                assert_eq!(
+                    table["payload_slots"].as_u64().unwrap(),
+                    0,
+                    "table {} retained serde_json::Value slots",
+                    table["table"]
+                );
+            }
+            let cache = reader.cache.as_ref().unwrap();
+            let mut pruned = 0usize;
+            let mut kept = 0usize;
+            for row in cache.tables[4].rows.values() {
+                let Data::Turn(t) = &row.data else { continue };
+                if t.provider_thread_id.as_ref() == "pt-a" {
+                    if t.ordinal == 1 {
+                        assert!(t.json_pruned);
+                        assert_eq!(t.json.as_ref(), "{}");
+                        pruned += 1;
+                    } else if t.ordinal == 2 {
+                        assert!(!t.json_pruned);
+                        assert!(t.json.contains("200"));
+                        kept += 1;
+                    }
+                }
+            }
+            assert_eq!((pruned, kept), (1, 1));
+            // Delete the latest turn and emit an event on thread `a`: Poll 2 must restore
+            // full JSON on ordinal 1 and pass exact oracle self-check.
+            db.db
+                .execute(
+                    "DELETE FROM orchestration_v2_projection_provider_turns WHERE provider_turn_id='pt-2'",
+                    [],
+                )
+                .unwrap();
+            db.write("a", 1);
+            let u2 = reader.poll(1_794_484_805_000.0).unwrap();
+            assert!(!u2.mismatch, "Poll 2 self-check mismatch after deleting latest turn");
+            assert_eq!(u2.served, Served::Incremental);
+            let cache = reader.cache.as_ref().unwrap();
+            for row in cache.tables[4].rows.values() {
+                let Data::Turn(t) = &row.data else { continue };
+                if t.provider_thread_id.as_ref() == "pt-a" {
+                    assert_eq!(t.ordinal, 1);
+                    assert!(!t.json_pruned);
+                    assert!(t.json.contains("100"));
+                }
+            }
         }
     }
 }
@@ -6183,14 +7059,6 @@ impl Reader {
                     return Err(e);
                 }
             };
-        // A full read's temporaries are gone. Return the arenas they peaked in
-        // so the resident size follows the cache, not that one allocation spike.
-        #[cfg(target_os = "linux")]
-        if cache_full {
-            unsafe { malloc_trim(0) };
-        }
-        #[cfg(not(target_os = "linux"))]
-        let _ = cache_full;
         if identity(&self.path)? != self.identity {
             if let Some(undo) = undo {
                 if let Some(cache) = self.cache.as_mut() {
@@ -6200,6 +7068,7 @@ impl Reader {
             self.version = None;
             return Err(error(&self.path, "database replaced during poll; retry"));
         }
+        drop(undo);
         self.mismatches += u64::from(mismatch);
         counters.mismatches = self.mismatches;
         self.version = if mismatch { None } else { Some(version) };
@@ -6213,6 +7082,19 @@ impl Reader {
             self.valid_until = deadline;
         }
         self.previous = Some(snapshot.clone());
+        // A full read's temporaries (old previous snapshot, undo, oversized containers,
+        // and SQLite's Poll 1 page cache) are done. Compact the retained cache, release
+        // SQLite's scratch pages, and return freed glibc arenas to the OS.
+        if cache_full {
+            if let Some(cache) = self.cache.as_mut() {
+                cache.shrink_to_fit();
+            }
+            let _ = self.db.execute_batch("PRAGMA shrink_memory");
+            #[cfg(target_os = "linux")]
+            unsafe {
+                malloc_trim(0);
+            }
+        }
         if let Some(start) = publish {
             counters
                 .phases

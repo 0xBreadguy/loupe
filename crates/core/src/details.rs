@@ -3,7 +3,6 @@
 use crate::model::{self, Agent, Pace, State};
 use crate::terminal::{self, Canvas, Palette, Rect};
 use crate::ui::Prepared;
-use serde_json::Value;
 
 /// The same measurement the original's `textWidth` uses, so a truncation here agrees with
 /// the one the screen draws: `fit` measures the raw string, `text` draws the cleaned one.
@@ -158,9 +157,6 @@ fn ratio(a: &Agent) -> Option<f64> {
 /// `Math.round(x) + "%"`, which rounds a tie up and prints `-0` as `0`.
 fn percent(x: f64) -> String {
     format!("{}%", terminal::js_number(terminal::js_round(x)))
-}
-fn number(v: &Value, key: &str) -> f64 {
-    v.get(key).and_then(Value::as_f64).unwrap_or(0.)
 }
 fn live_status(s: &str) -> bool {
     matches!(
@@ -373,13 +369,8 @@ fn title(c: &mut Canvas, r: Rect, a: &Agent, s: &State, p: &Palette, pc: Option<
     y += 1;
     let mut meta = vec![a.model.clone(), a.project.clone(), a.kind.clone()];
     for opt in &a.options {
-        if let (Some(id), Some(v)) = (opt.get("id").and_then(Value::as_str), opt.get("value")) {
-            meta.push(format!(
-                "{id} {}",
-                v.as_str()
-                    .map(str::to_owned)
-                    .unwrap_or_else(|| v.to_string())
-            ));
+        if let Some((id, v)) = opt.id_and_display() {
+            meta.push(format!("{id} {v}"));
         }
     }
     if let Some(branch) = &a.branch {
@@ -511,10 +502,7 @@ fn title(c: &mut Canvas, r: Rect, a: &Agent, s: &State, p: &Palette, pc: Option<
             &fit(
                 &format!(
                     "  remote on {}; context and activity live there",
-                    remote
-                        .get("label")
-                        .and_then(Value::as_str)
-                        .unwrap_or("another environment")
+                    remote.label().unwrap_or("another environment")
                 ),
                 r.w,
             ),
@@ -583,7 +571,7 @@ fn block(
                 let old = if i
                     .run_id
                     .as_deref()
-                    .is_some_and(|id| Some(id) != a.run.get("id").and_then(Value::as_str))
+                    .is_some_and(|id| Some(id) != a.run.id())
                 {
                     " · earlier run"
                 } else {
@@ -715,16 +703,15 @@ fn block(
             h + 3
         }
         Block::Tokens => {
-            let usage = a.turn.get("turnTokenUsage").filter(|v| v.is_object());
-            let call = a.turn.get("tokenUsage").filter(|v| v.is_object());
+            let usage = a.turn.turn_token_usage_obj();
+            let call = a.turn.token_usage_obj();
             let Some(src) = usage.or(call) else { return 0 };
-            let cached = number(src, "cachedInputTokens");
-            let fresh = (number(src, "inputTokens") - cached).max(0.);
-            let output = number(src, "outputTokens");
+            let cached = src.cached_input_tokens();
+            let fresh = (src.input_tokens() - cached).max(0.);
+            let output = src.output_tokens();
             let reasoning = src
-                .get("reasoningTokens")
-                .and_then(Value::as_f64)
-                .unwrap_or_else(|| number(src, "reasoningOutputTokens"));
+                .reasoning_tokens()
+                .unwrap_or_else(|| src.reasoning_output_tokens());
             let parts: Vec<_> = [
                 ("cached", cached, mix(p.accent, p.bg, 0.45)),
                 ("fresh", fresh, p.accent),
@@ -745,7 +732,7 @@ fn block(
                     "LATEST CALL"
                 },
                 if usage.is_some() {
-                    src.get("usageStatus").and_then(Value::as_str).unwrap_or("")
+                    src.usage_status().unwrap_or("")
                 } else {
                     "turn total pending"
                 },
@@ -762,7 +749,7 @@ fn block(
                 c.set(lx, y + 2, '■', color, None, false);
                 lx += 2 + c.text(lx + 2, y + 2, &label, p.text2) + 2;
             }
-            if usage.is_some_and(|v| v.get("hasSubagents").and_then(Value::as_bool) == Some(true)) {
+            if usage.is_some_and(model::TurnUsageRef::has_subagents) {
                 c.text(
                     x,
                     y + 3,
@@ -775,17 +762,17 @@ fn block(
             }
         }
         Block::Cache => {
-            let call = a.turn.get("tokenUsage").unwrap_or(&Value::Null);
+            let call = a.turn.token_usage_obj();
             let exp = model::ms(
                 a.context
                     .prompt_cache_expires_at
                     .as_deref()
-                    .or_else(|| call.get("promptCacheExpiresAt").and_then(Value::as_str)),
+                    .or_else(|| call.and_then(model::TurnUsageRef::prompt_cache_expires_at)),
             );
             let ttl = a
                 .context
                 .prompt_cache_ttl_ms
-                .or_else(|| call.get("promptCacheTtlMs").and_then(Value::as_f64));
+                .or_else(|| call.and_then(model::TurnUsageRef::prompt_cache_ttl_ms));
             let (Some(exp), Some(ttl)) = (exp, ttl) else {
                 return 0;
             };
@@ -878,7 +865,7 @@ fn block(
             let total: u64 = entries.iter().map(|(_, n)| **n).sum();
             let mut right = format!(
                 "{total} {}",
-                if a.run.get("id").and_then(Value::as_str).is_some() {
+                if a.run.id().is_some() {
                     "this run"
                 } else {
                     "in thread"
@@ -934,7 +921,7 @@ fn block(
                 yy,
                 w,
                 "ACTIVITY",
-                if a.run.get("id").and_then(Value::as_str).is_some() {
+                if a.run.id().is_some() {
                     "latest run"
                 } else {
                     "thread activity"
@@ -948,7 +935,7 @@ fn block(
                     x,
                     yy,
                     &fit(
-                        if a.run.get("id").and_then(Value::as_str).is_some() {
+                        if a.run.id().is_some() {
                             "No tool activity recorded for this run."
                         } else {
                             "No tool activity recorded for this thread."

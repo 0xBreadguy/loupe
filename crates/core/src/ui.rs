@@ -317,6 +317,143 @@ impl Prepared {
 
 /// One bounded entry per derived layer, owned by the snapshot's State. Replacement
 /// drops all entries; layers can later be invalidated by changed agent id.
+/// What [`Prepared`] is built from. This was the `Debug` text of the same tuple; every field
+/// is an integer or a string, so comparing the values hits and misses exactly where the text did.
+#[derive(Clone, Debug)]
+struct PreparedKey {
+    generation: u64,
+    rows_revision: usize,
+    pace_revision: usize,
+    linked: Option<String>,
+}
+impl PreparedKey {
+    fn matches(
+        &self,
+        generation: u64,
+        rows_revision: usize,
+        pace_revision: usize,
+        linked: &Option<String>,
+    ) -> bool {
+        self.generation == generation
+            && self.rows_revision == rows_revision
+            && self.pace_revision == pace_revision
+            && self.linked == *linked
+    }
+}
+
+/// What the cached header rows (`overview::draw_header_kpis_limits`) are keyed on: the same
+/// fields the `Debug` text of a tuple held before, compared as values. Floats compare by their
+/// bits, which is at least as strict as their `Debug` text (that text names a float's bits
+/// exactly, except that every NaN prints alike), so a frame reuses the header only where the
+/// text key would also have matched. The one widening is `acked`: two equal sets compare equal
+/// whatever order their `Debug` text iterates in. The header reads `acked` only through
+/// `contains` (overview.rs), so its rows cannot tell two equal sets apart. `home` is new: the
+/// text key left it out, so a home folder changed in place kept the old waiting-request label.
+#[derive(Clone, Debug)]
+struct TopKey {
+    generation: u64,
+    now: u64,
+    w: usize,
+    h: usize,
+    palette: Palette,
+    calm: bool,
+    paused: bool,
+    error: Option<String>,
+    interval: u64,
+    demo: bool,
+    linked: Option<String>,
+    follow: bool,
+    scope: String,
+    window_index: usize,
+    usage: Vec<overview::Provider>,
+    acked: std::collections::HashSet<String>,
+    /// The waiting-request label shortens paths under the home folder.
+    home: String,
+}
+impl TopKey {
+    fn of(s: &State, w: usize, h: usize, p: &Palette) -> Self {
+        Self {
+            generation: s.generation,
+            now: s.now.to_bits(),
+            w,
+            h,
+            palette: *p,
+            calm: s.calm,
+            paused: s.paused,
+            error: s.error.clone(),
+            interval: s.interval.to_bits(),
+            demo: s.demo,
+            linked: s.linked.clone(),
+            follow: s.follow,
+            scope: s.scope.clone(),
+            window_index: s.window_index,
+            usage: s.usage.clone(),
+            acked: s.acked.clone(),
+            home: s.home.clone(),
+        }
+    }
+    fn matches(&self, s: &State, w: usize, h: usize, p: &Palette) -> bool {
+        self.generation == s.generation
+            && self.now == s.now.to_bits()
+            && self.w == w
+            && self.h == h
+            && palette_bits_eq(&self.palette, p)
+            && self.calm == s.calm
+            && self.paused == s.paused
+            && self.error == s.error
+            && self.interval == s.interval.to_bits()
+            && self.demo == s.demo
+            && self.linked == s.linked
+            && self.follow == s.follow
+            && self.scope == s.scope
+            && self.window_index == s.window_index
+            && self.usage.len() == s.usage.len()
+            && self.usage.iter().zip(&s.usage).all(|(a, b)| a.bit_eq(b))
+            && self.acked == s.acked
+            && self.home == s.home
+    }
+}
+/// Every field of the palette, floats by their bits. The destructuring names every field, so a
+/// new one cannot be left out of the comparison without a compile error.
+fn palette_bits_eq(a: &Palette, b: &Palette) -> bool {
+    let Palette {
+        dark,
+        bg,
+        panel,
+        fg,
+        text2,
+        dim,
+        faint,
+        track,
+        floor,
+        rule,
+        accent,
+        bright,
+        hot,
+        warn,
+        sel,
+        busy,
+        providers,
+    } = a;
+    *dark == b.dark
+        && *bg == b.bg
+        && *panel == b.panel
+        && *fg == b.fg
+        && *text2 == b.text2
+        && *dim == b.dim
+        && *faint == b.faint
+        && *track == b.track
+        && floor.to_bits() == b.floor.to_bits()
+        && *rule == b.rule
+        && *accent == b.accent
+        && *bright == b.bright
+        && *hot == b.hot
+        && *warn == b.warn
+        && *sel == b.sel
+        && *busy == b.busy
+        && *providers == b.providers
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct RenderCache {
     agents: HashMap<usize, AgentCache>,
@@ -329,9 +466,9 @@ pub(crate) struct RenderCache {
     lane_edges: Option<Vec<f64>>,
     pub(crate) tree_edges: Option<Vec<f64>>,
     pub(crate) events: Option<std::sync::Arc<overview::EventIndex>>,
-    pub(crate) rows: Option<(String, std::sync::Arc<model::Rows>)>,
-    top: Option<(String, Vec<terminal::Cell>, overview::Overview)>,
-    prepared: Option<(String, std::sync::Arc<Prepared>)>,
+    pub(crate) rows: Option<(model::RowsKey, std::sync::Arc<model::Rows>)>,
+    top: Option<(TopKey, Vec<terminal::Cell>, overview::Overview)>,
+    prepared: Option<(PreparedKey, std::sync::Arc<Prepared>)>,
     shape: Option<PreparedShape>,
     counts: Option<std::sync::Arc<RowCounts>>,
     pub(crate) count_dirty: std::collections::HashSet<usize>,
@@ -340,6 +477,7 @@ pub(crate) struct RenderCache {
         std::sync::Arc<Vec<model::Lane>>,
         usize,
     )>,
+    list_rows: ListRows,
 }
 
 /// Pointer keys always retain an owning Arc; allocator reuse cannot hit stale data.
@@ -1223,34 +1361,29 @@ fn draw_list(
     // `p.provider(a)` is the family color of `family(model, provider_id)`; a row asks for it up to
     // three times, and neighbouring rows often share a model.
     let mut families = terminal::FamilyMemo::default();
+    let f = RowFrame {
+        s,
+        p,
+        prepared,
+        xx,
+        ww,
+        card,
+        per,
+        bar_w,
+        name_w,
+        lane_x,
+        lane_w,
+        max,
+    };
+    let mut row_cache = if s.cache_enabled {
+        std::mem::take(&mut s.render_cache.borrow_mut().list_rows)
+    } else {
+        ListRows::default()
+    };
+    row_cache.stamp = row_cache.stamp.wrapping_add(1);
+    row_cache.counts = [0; 3];
     for (n, r) in rows.iter().enumerate().skip(first).take(visible) {
-        let a = &s.snap.agents[r.agent];
         let y = by + 1 + (n - first) as i32 * per as i32;
-        let selected = s.selected.as_deref() == Some(&r.id);
-        let linked = prepared.linked[r.agent];
-        let bg = if selected {
-            p.sel
-        } else if linked {
-            terminal::mix(p.bg, p.sel, 0.5)
-        } else {
-            p.bg
-        };
-        if selected || linked {
-            c.fill(xx, y, ww, per as i32, bg);
-        }
-        let ink = |color| {
-            if !selected && !linked {
-                color
-            } else if color == p.dim {
-                p.text2
-            } else if color == p.text2 {
-                p.fg
-            } else if color == p.hot || color == p.warn {
-                reach(color, if p.dark { 0xffffff } else { 0 }, p.sel)
-            } else {
-                color
-            }
-        };
         frame.hits.push(Hit {
             rect: Rect {
                 x: xx,
@@ -1261,279 +1394,20 @@ fn draw_list(
             id: r.id.clone(),
             earlier: r.is_earlier(),
         });
+        let a = &s.snap.agents[r.agent];
         let current_pace = prepared.pace(r.agent, s);
         let pc = current_pace.as_ref();
-        let (g, gcolor) = mark(a, pc, s, p);
-        let attention = !r.is_earlier() && model::needs_you(a);
-        let edge = if selected || attention {
-            '▌'
-        } else if linked {
-            '▎'
+        let glyph = mark(a, pc, s, p);
+        if s.cache_enabled && !r.is_earlier() {
+            row_cache.draw(c, &f, r, y, pc, glyph, row_lane(n), &mut families);
         } else {
-            ' '
-        };
-        let ec = if attention {
-            p.hot
-        } else if selected {
-            p.bright
-        } else {
-            p.dim
-        };
-        for line in 0..per {
-            c.set(xx, y + line as i32, edge, ec, Some(bg), false);
+            draw_row(c, &f, r, y, pc, glyph, row_lane(n), &mut families);
         }
-        let mut x = xx + 2;
-        for guide in &r.guides {
-            c.set(
-                x,
-                y,
-                if *guide { '│' } else { ' ' },
-                p.rule,
-                Some(bg),
-                false,
-            );
-            if per == 2 {
-                c.set(
-                    x,
-                    y + 1,
-                    if *guide { '│' } else { ' ' },
-                    p.rule,
-                    Some(bg),
-                    false,
-                );
-            }
-            x += 2;
-        }
-        if r.depth > 0 {
-            c.text_bg(x, y, if r.last { "└─" } else { "├─" }, p.rule, bg, false);
-            if per == 2 && !r.last {
-                c.set(x, y + 1, '│', p.rule, Some(bg), false);
-            }
-            x += 2;
-        }
-        if r.is_earlier() {
-            let right = xx + ww - 1;
-            let hint = if selected && per == 2 {
-                "⏎ show all"
-            } else {
-                ""
-            };
-            if !hint.is_empty() {
-                c.right(right, y, hint, ink(p.dim));
-            }
-            let end = if per == 2 || lane_w < 8 {
-                right - if hint.is_empty() { 0 } else { width(hint) + 2 }
-            } else {
-                lane_x - 2
-            };
-            let span = earlier_span(&r.earlier, s);
-            let failed = r
-                .earlier
-                .iter()
-                .filter(|i| matches!(s.snap.agents[**i].status.as_str(), "failed" | "error"))
-                .count();
-            let mut parts = vec![(format!("{} earlier ▸", r.earlier.len()), ink(p.text2))];
-            if !span.is_empty() {
-                parts.push((span, ink(p.dim)));
-            }
-            if failed > 0 {
-                parts.push((format!("{failed} ✗"), ink(p.hot)));
-            }
-            c.set(x, y, '┄', ink(p.dim), Some(bg), false);
-            let mut col = 2;
-            for (i, (part, color)) in parts.iter().enumerate() {
-                if i > 0 {
-                    col += c.text(x + col, y, &fit(" · ", end - x - col), ink(p.dim));
-                }
-                col += c.text(x + col, y, &fit(part, end - x - col), *color);
-            }
-            if lane_w >= 8 {
-                lane(
-                    c,
-                    lane_x,
-                    y + per as i32 - 1,
-                    row_lane(n),
-                    max,
-                    p,
-                    bg,
-                    earlier_tint(&r.earlier, s, p),
-                );
-            }
-            continue;
-        }
-        c.set(x, y, g, gcolor, Some(bg), true);
-        let fold = if r.has_children && r.stage == "folded" {
-            " ▸"
-        } else {
-            ""
-        };
-        let folded = if !fold.is_empty() && prepared.descendants_waiting[r.agent] {
-            2
-        } else {
-            0
-        };
-        let live = model::live(a) && !attention;
-        let moving = matches!(a.status.as_str(), "running" | "active")
-            && !attention
-            && !pc.is_some_and(|pc| pc.quiet);
-        let namecolor = ink(if attention || live { p.fg } else { p.text2 });
-        let bold = live || attention || selected;
-        let age = run_length(a, s.now, live || attention);
-        let age_color = ink(if live || attention { p.fg } else { p.dim });
-        let rati = ratio(a);
-        let frac =
-            s.tween
-                .get(&a.id)
-                .copied()
-                .unwrap_or(if s.calm { rati.unwrap_or(0.) } else { 0. });
-        let pct = rati
-            .map(|r| format!("{:>4}", format!("{}%", terminal::js_number(terminal::js_round(r * 100.)))))
-            .unwrap_or("  --".into());
-        let pctcolor = ink(match rati {
-            None => p.dim,
-            Some(r) if r >= 0.9 => p.hot,
-            Some(r) if r >= 0.75 => p.warn,
-            _ => p.text2,
-        });
-        if card {
-            let right = xx + ww - 1;
-            let meta = format!("● {}  {}", terminal::short_model(&a.model), age);
-            let meta_w = width(&meta);
-            let namemax = (right - meta_w - 2 - (x + 2)).max(6);
-            let chip_room = right - meta_w - 2 - (x + 2) - folded - width(fold);
-            let wide_room = (a.open_asks.total() > 0 || a.estimated_asks > 0)
-                .then(|| chip_room - width(&a.title) - 2);
-            let chips = Chips::fit(a, wide_room, chip_room - 8);
-            let chip_w = chips.width();
-            let name_room = if chip_w > 0 {
-                chip_room - chip_w - 2
-            } else {
-                namemax - folded
-            };
-            let title = fit(&a.title, name_room) + fold;
-            let used = name(c, x + 2, y, &title, namecolor, bg, bold, a, s, p, moving) + folded;
-            if folded > 0 {
-                c.set(x + 1 + used, y, '◆', p.hot, Some(bg), true);
-            }
-            let mut ax = x + 2 + used + 2;
-            if chip_w > 0 && ax + chip_w <= right - meta_w - 2 {
-                chips.draw(c, ax, y, bg, ink, p);
-                ax += chip_w + 2;
-            }
-            let aw = right - meta_w - 2 - ax;
-            if aw > 8 && (live || attention) {
-                if let Some((doing, warn)) = doing(a, pc, s, aw) {
-                    c.text(
-                        ax,
-                        y,
-                        &doing,
-                        ink(if warn {
-                            p.warn
-                        } else if pc.is_some_and(|pc| pc.quiet) {
-                            p.text2
-                        } else {
-                            p.dim
-                        }),
-                    );
-                }
-            }
-            c.right(right, y, &meta, ink(p.dim));
-            c.right(right, y, &age, age_color);
-            c.set(right - meta_w, y, '●', p.family_color(families.family(&a.model, a.provider_id.as_deref())), Some(bg), false);
-            let shift = (r.depth as i32 - 2).max(0) * 2;
-            let bx = xx + 6 + shift;
-            let bw = (bar_w - shift).max(4);
-            if r.has_children && r.stage != "folded" && x < bx {
-                c.set(x, y + 1, '│', p.rule, Some(bg), false);
-            }
-            if rati.is_none() {
-                c.text(
-                    bx,
-                    y + 1,
-                    &fit(
-                        if a.remote.is_some() {
-                            "remote · stats on other machine"
-                        } else {
-                            "context not reported"
-                        },
-                        bw + 5,
-                    ),
-                    ink(p.dim),
-                );
-            } else {
-                bar(
-                    c,
-                    bx,
-                    y + 1,
-                    bw,
-                    frac,
-                    p,
-                    if selected {
-                        terminal::mix(p.track, p.sel, 0.4)
-                    } else {
-                        p.track
-                    },
-                );
-                c.text_bg(bx + bw + 1, y + 1, &pct, pctcolor, bg, true);
-            }
-        } else {
-            let end = xx + 4 + name_w;
-            let room = end - (x + 2) - folded;
-            let chips = Chips::fit(a, None, room - width(fold) - 5);
-            let chip_w = chips.width();
-            let show_chips = chip_w > 0 && chip_w < room - width(fold);
-            let title_room = if show_chips {
-                room - width(fold) - chip_w - 1
-            } else {
-                room.max(4)
-            };
-            let title = fit(&a.title, title_room) + fold;
-            let used = name(c, x + 2, y, &title, namecolor, bg, bold, a, s, p, moving);
-            if folded > 0 {
-                c.set(x + 3 + used, y, '◆', p.hot, Some(bg), true);
-            }
-            if show_chips {
-                chips.draw(c, end - chip_w, y, bg, ink, p);
-            }
-            let bx = xx + 4 + name_w + 2;
-            if rati.is_none() {
-                c.text(bx, y, "--", ink(p.dim));
-            } else {
-                bar(
-                    c,
-                    bx,
-                    y,
-                    bar_w,
-                    frac,
-                    p,
-                    if selected {
-                        terminal::mix(p.track, p.sel, 0.4)
-                    } else {
-                        p.track
-                    },
-                );
-                c.text_bg(bx + bar_w + 1, y, &pct, pctcolor, bg, true);
-            }
-            c.right(xx + ww - 1, y, &age, age_color);
-            c.set(
-                xx + ww - 3 - width(&age),
-                y,
-                '●',
-                p.family_color(families.family(&a.model, a.provider_id.as_deref())),
-                Some(bg),
-                false,
-            );
-        }
-        if lane_w >= 8 {
-            let tint = if families.family(&a.model, a.provider_id.as_deref())
-                == terminal::ProviderFamily::Other
-            {
-                None
-            } else {
-                Some(p.family_color(families.family(&a.model, a.provider_id.as_deref())))
-            };
-            lane(c, lane_x, y + per as i32 - 1, row_lane(n), max, p, bg, tint);
-        }
+    }
+    if s.cache_enabled {
+        let stamp = row_cache.stamp;
+        row_cache.entries.retain(|_, e| e.stamp == stamp);
+        s.render_cache.borrow_mut().list_rows = row_cache;
     }
     let shown = visible.min(rows.len() - first);
     let below = rows.len() - first - shown;
@@ -1590,6 +1464,810 @@ fn draw_list(
         return y + 1;
     }
     y
+}
+/// The agent list's drawn rows from the previous frame, by agent index. A row whose inputs
+/// ([`RowKey`]) match is copied instead of drawn again. Rows not drawn in a frame are dropped.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ListRows {
+    entries: HashMap<usize, RowEntry>,
+    stamp: u64,
+    /// The last frame's rows copied, copied with the mark drawn over, and drawn (for
+    /// `T3_FRAME_PROFILE`).
+    counts: [usize; 3],
+}
+#[derive(Clone, Debug)]
+struct RowEntry {
+    key: OwnedRowKey,
+    /// `model::ms` of the agent's `started` and `ended`, which only the age reads.
+    started: Option<f64>,
+    ended: Option<f64>,
+    /// The age the row printed (`run_length`), for a key that differs only in `age`.
+    age_text: String,
+    /// The row's cells, `per` lines of `ww` cells from its left edge.
+    cells: Vec<terminal::Cell>,
+    /// Set when the mark is drawn over the copy instead of being part of the key: its column
+    /// and background. Only checked rows get this (see [`ListRows::draw`]).
+    overlay: Option<(i32, u32)>,
+    stamp: u64,
+}
+
+/// The displayed value of `terminal::span(Some(sec))`, which reads only `sec.floor().max(0.)`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum SpanKey {
+    /// `run_length` without both instants: the empty string.
+    Empty,
+    /// A non-finite length: `--`.
+    Dashes,
+    Floor(u64),
+}
+fn span_key(sec: Option<f64>) -> SpanKey {
+    match sec {
+        None => SpanKey::Empty,
+        Some(sec) if !sec.is_finite() => SpanKey::Dashes,
+        Some(sec) => SpanKey::Floor(sec.floor().max(0.).to_bits()),
+    }
+}
+/// The displayed value of `terminal::duration(sec)`, which reads only `sec.max(0.).floor()`,
+/// and prints `--` for a non-finite `sec` (`None`).
+fn duration_key(sec: f64) -> Option<u64> {
+    sec.is_finite().then(|| sec.max(0.).floor().to_bits())
+}
+/// What a row shows of its pace. The mark reads `quiet` and `stalled`; only a card row's
+/// activity text (`doing`) reads the two durations, and each only in the branch that prints
+/// it: the quiet time when quiet, the tool time when not quiet and at least 30 s.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct PaceKey {
+    quiet: bool,
+    stalled: bool,
+    delegating: bool,
+    quiet_for: Option<Option<u64>>,
+    tool_for: Option<Option<u64>>,
+}
+impl PaceKey {
+    fn of(pc: &Pace, card: bool) -> Self {
+        let Pace {
+            tool_ms,
+            quiet_ms,
+            delegating,
+            quiet,
+            stalled,
+        } = *pc;
+        Self {
+            quiet,
+            stalled,
+            delegating,
+            quiet_for: (card && quiet).then(|| duration_key(quiet_ms / 1000.)),
+            tool_for: (card && !quiet && tool_ms >= 30_000.).then(|| duration_key(tool_ms / 1000.)),
+        }
+    }
+}
+
+/// Everything [`draw_row`] reads for a row that is not an earlier row and has no name shimmer
+/// running, apart from the line it is drawn on. The clock enters only through what the row
+/// displays: the age to the second it rounds to, the pace durations as above, the mark's glyph
+/// (or an overlay, see [`ListRows::draw`]) and the lane's columns. A row with a shimmer, and an
+/// earlier row (its span reads every folded agent), are always drawn.
+///
+/// The construction in `ListRows::draw` and the destructuring in `matches_but_age` name every
+/// field (`age` is compared by the caller), so a new field cannot be left out of either without
+/// a compile error.
+struct RowKey<'a> {
+    canvas_w: usize,
+    xx: i32,
+    ww: i32,
+    card: bool,
+    bar_w: i32,
+    name_w: i32,
+    lane_x: i32,
+    lane_w: i32,
+    lane_max: usize,
+    palette: &'a Palette,
+    calm: bool,
+    home: &'a str,
+    row: &'a model::Row,
+    /// By pointer; the entry keeps the Arc, so the allocation cannot be reused under it.
+    agent: &'a std::sync::Arc<Agent>,
+    selected: bool,
+    linked: bool,
+    descendants_waiting: bool,
+    pace: Option<PaceKey>,
+    age: SpanKey,
+    frac: u64,
+    lane: &'a model::Lane,
+    mark: (char, u32),
+}
+#[derive(Clone, Debug)]
+struct OwnedRowKey {
+    canvas_w: usize,
+    xx: i32,
+    ww: i32,
+    card: bool,
+    bar_w: i32,
+    name_w: i32,
+    lane_x: i32,
+    lane_w: i32,
+    lane_max: usize,
+    palette: Palette,
+    calm: bool,
+    home: String,
+    row: model::Row,
+    agent: std::sync::Arc<Agent>,
+    selected: bool,
+    linked: bool,
+    descendants_waiting: bool,
+    pace: Option<PaceKey>,
+    age: SpanKey,
+    frac: u64,
+    lane: model::Lane,
+    mark: (char, u32),
+}
+impl RowKey<'_> {
+    fn to_owned(&self) -> OwnedRowKey {
+        OwnedRowKey {
+            canvas_w: self.canvas_w,
+            xx: self.xx,
+            ww: self.ww,
+            card: self.card,
+            bar_w: self.bar_w,
+            name_w: self.name_w,
+            lane_x: self.lane_x,
+            lane_w: self.lane_w,
+            lane_max: self.lane_max,
+            palette: *self.palette,
+            calm: self.calm,
+            home: self.home.to_owned(),
+            row: self.row.clone(),
+            agent: self.agent.clone(),
+            selected: self.selected,
+            linked: self.linked,
+            descendants_waiting: self.descendants_waiting,
+            pace: self.pace,
+            age: self.age,
+            frac: self.frac,
+            lane: self.lane.clone(),
+            mark: self.mark,
+        }
+    }
+    /// Every field but `age`, which the caller compares (see [`ListRows::draw`]). `with_mark` is
+    /// false for an entry whose mark is drawn over the copy.
+    fn matches_but_age(&self, o: &OwnedRowKey, with_mark: bool) -> bool {
+        let RowKey {
+            canvas_w,
+            xx,
+            ww,
+            card,
+            bar_w,
+            name_w,
+            lane_x,
+            lane_w,
+            lane_max,
+            palette,
+            calm,
+            home,
+            row,
+            agent,
+            selected,
+            linked,
+            descendants_waiting,
+            pace,
+            age: _,
+            frac,
+            lane,
+            mark,
+        } = self;
+        *canvas_w == o.canvas_w
+            && *xx == o.xx
+            && *ww == o.ww
+            && *card == o.card
+            && *bar_w == o.bar_w
+            && *name_w == o.name_w
+            && *lane_x == o.lane_x
+            && *lane_w == o.lane_w
+            && *lane_max == o.lane_max
+            && palette_bits_eq(palette, &o.palette)
+            && *calm == o.calm
+            && **home == o.home
+            && row_eq(row, &o.row)
+            && std::sync::Arc::ptr_eq(agent, &o.agent)
+            && *selected == o.selected
+            && *linked == o.linked
+            && *descendants_waiting == o.descendants_waiting
+            && *pace == o.pace
+            && *frac == o.frac
+            && lane_eq(lane, &o.lane)
+            && (!with_mark || *mark == o.mark)
+    }
+}
+fn row_eq(a: &model::Row, b: &model::Row) -> bool {
+    let model::Row {
+        id,
+        agent,
+        depth,
+        has_children,
+        stage,
+        kept,
+        tucked,
+        earlier,
+        guides,
+        last,
+    } = a;
+    *id == b.id
+        && *agent == b.agent
+        && *depth == b.depth
+        && *has_children == b.has_children
+        && *stage == b.stage
+        && *kept == b.kept
+        && *tucked == b.tucked
+        && *earlier == b.earlier
+        && *guides == b.guides
+        && *last == b.last
+}
+fn lane_eq(a: &model::Lane, b: &model::Lane) -> bool {
+    let model::Lane {
+        counts,
+        fails,
+        you,
+        busy,
+    } = a;
+    *counts == b.counts && *fails == b.fails && *you == b.you && *busy == b.busy
+}
+
+impl ListRows {
+    /// Draws one row that is not an earlier row, from the previous frame's cells when its key
+    /// matches. A fresh drawing is stored only when it is known to be a pure function of the
+    /// key and of nothing under it:
+    ///
+    /// - the row's lines are inside the canvas, and before drawing, the row's rectangle holds
+    ///   only cleared cells (`Canvas::cleared` with this palette), as it does on a hit;
+    /// - drawing changed no cell of those lines outside the row's rectangle.
+    ///
+    /// The mark of a running or waiting row changes with the clock (spinner, blink). For those
+    /// rows the row is drawn twice on a miss, once with a sentinel glyph, and the mark is left
+    /// out of the key only if the two drawings differ in the mark's cell alone and each holds
+    /// its own glyph there. Drawing never reads a cell back except for `Canvas::set`'s wide
+    /// character test, which no mark glyph meets, so that shows the mark's cell is written last
+    /// and nothing else depends on it; a hit then copies the cells and sets the current mark
+    /// with the same `Canvas::set` the row uses.
+    #[allow(clippy::too_many_arguments)]
+    fn draw<'a>(
+        &mut self,
+        c: &mut Canvas,
+        f: &RowFrame<'a>,
+        r: &'a model::Row,
+        y: i32,
+        pc: Option<&Pace>,
+        glyph: (char, u32),
+        row_lane: &model::Lane,
+        families: &mut terminal::FamilyMemo<'a>,
+    ) {
+        let RowFrame {
+            s,
+            p,
+            prepared,
+            xx,
+            ww,
+            card,
+            per,
+            bar_w,
+            name_w,
+            lane_x,
+            lane_w,
+            max,
+        } = *f;
+        let a = &s.snap.agents[r.agent];
+        let attention = model::needs_you(a);
+        let quiet = pc.is_some_and(|pc| pc.quiet);
+        let moving = matches!(a.status.as_str(), "running" | "active") && !attention && !quiet;
+        // `name`'s shimmer: drawn every frame while it runs.
+        if !s.calm && moving {
+            let t = s
+                .shimmer
+                .get(&a.id)
+                .map(|at| (s.now - at) / 450.)
+                .unwrap_or(1.);
+            if (0.0..1.0).contains(&t) {
+                self.counts[2] += 1;
+                draw_row(c, f, r, y, pc, glyph, row_lane, families);
+                return;
+            }
+        }
+        let fits = xx >= 0 && ww > 0 && xx + ww <= c.w as i32 && y >= 0 && y + per as i32 <= c.h as i32;
+        if !fits {
+            self.counts[2] += 1;
+            draw_row(c, f, r, y, pc, glyph, row_lane, families);
+            return;
+        }
+        let entry = self.entries.get(&r.agent);
+        let (started, ended) = match entry {
+            Some(e) if std::sync::Arc::ptr_eq(&e.key.agent, a) => (e.started, e.ended),
+            _ => (model::ms(a.started.as_deref()), model::ms(a.ended.as_deref())),
+        };
+        // `run_length(a, s.now, live || attention)` as `draw_row` calls it.
+        let counting = model::live(a) || attention;
+        let age_end = if counting { Some(s.now) } else { ended };
+        let age = span_key(match (started, age_end) {
+            (Some(start), Some(end)) => Some((end - start) / 1000.),
+            _ => None,
+        });
+        let frac = s
+            .tween
+            .get(&a.id)
+            .copied()
+            .unwrap_or(if s.calm { ratio(a).unwrap_or(0.) } else { 0. });
+        let key = RowKey {
+            canvas_w: c.w,
+            xx,
+            ww,
+            card,
+            bar_w,
+            name_w,
+            lane_x,
+            lane_w,
+            lane_max: max,
+            palette: p,
+            calm: s.calm,
+            home: &s.home,
+            row: r,
+            agent: a,
+            selected: s.selected.as_deref() == Some(&r.id),
+            linked: prepared.linked[r.agent],
+            descendants_waiting: prepared.descendants_waiting[r.agent],
+            pace: pc.map(|pc| PaceKey::of(pc, card)),
+            age,
+            frac: frac.to_bits(),
+            lane: row_lane,
+            mark: glyph,
+        };
+        let w = c.w;
+        let lines = y as usize * w..(y as usize + per) * w;
+        let cleared = terminal::Cell {
+            ch: ' ',
+            fg: p.fg,
+            bg: p.bg,
+            bold: false,
+        };
+        let rect = |line: usize| {
+            let start = lines.start + line * w + xx as usize;
+            start..start + ww as usize
+        };
+        let rect_cleared =
+            |c: &Canvas| (0..per).all(|line| c.cells[rect(line)].iter().all(|cell| *cell == cleared));
+        if let Some(e) = self.entries.get_mut(&r.agent) {
+            // The second the age rounds to is a cheap key; a long run prints only minutes, hours
+            // or days, so when only that second moved, compare the text the row would print.
+            let same = key.matches_but_age(&e.key, e.overlay.is_none())
+                && (key.age == e.key.age || {
+                    let same_text = run_length_from(started, age_end) == e.age_text;
+                    if same_text {
+                        e.key.age = key.age;
+                    }
+                    same_text
+                });
+            if same && rect_cleared(c) {
+                for line in 0..per {
+                    c.cells[rect(line)].copy_from_slice(&e.cells[line * ww as usize..][..ww as usize]);
+                }
+                if let Some((mx, bg)) = e.overlay {
+                    c.set(mx, y, glyph.0, glyph.1, Some(bg), true);
+                }
+                self.counts[if e.overlay.is_some() { 1 } else { 0 }] += 1;
+                e.stamp = self.stamp;
+                return;
+            }
+        }
+        self.counts[2] += 1;
+        let storable = rect_cleared(c);
+        let before = c.cells[lines.clone()].to_vec();
+        let animated = !s.calm && (attention || matches!(a.status.as_str(), "running" | "active"));
+        let sentinel = if storable && animated {
+            const SENTINEL: char = '\u{10FFFD}';
+            let mx = draw_row(c, f, r, y, pc, (SENTINEL, glyph.1), row_lane, families);
+            let drawn = c.cells[lines.clone()].to_vec();
+            c.cells[lines.clone()].copy_from_slice(&before);
+            mx.map(|mx| (mx, drawn, SENTINEL))
+        } else {
+            None
+        };
+        let mx = draw_row(c, f, r, y, pc, glyph, row_lane, families);
+        if !storable {
+            return;
+        }
+        let after = &c.cells[lines.clone()];
+        let outside_unchanged = (0..per).all(|line| {
+            let row = line * w;
+            let inside = xx as usize..(xx + ww) as usize;
+            (0..w)
+                .filter(|x| !inside.contains(x))
+                .all(|x| after[row + x] == before[row + x])
+        });
+        if !outside_unchanged || mx.is_none() {
+            return;
+        }
+        let overlay = sentinel.and_then(|(smx, drawn, sentinel)| {
+            let mx = mx?;
+            if smx != mx || mx < xx || mx >= xx + ww {
+                return None;
+            }
+            let m = mx as usize;
+            let real = after[m];
+            let marked = drawn[m];
+            let only_mark_differs = drawn
+                .iter()
+                .zip(after)
+                .enumerate()
+                .all(|(i, (d, a))| i == m || d == a);
+            (only_mark_differs
+                && real.ch == glyph.0
+                && real.fg == glyph.1
+                && real.bold
+                && marked.ch == sentinel
+                && marked.fg == glyph.1
+                && marked.bold
+                && marked.bg == real.bg)
+                .then_some((mx, real.bg))
+        });
+        let mut cells = Vec::with_capacity(per * ww as usize);
+        for line in 0..per {
+            let start = line * w + xx as usize;
+            cells.extend_from_slice(&after[start..start + ww as usize]);
+        }
+        self.entries.insert(
+            r.agent,
+            RowEntry {
+                key: key.to_owned(),
+                started,
+                ended,
+                age_text: run_length_from(started, age_end),
+                cells,
+                overlay,
+                stamp: self.stamp,
+            },
+        );
+    }
+}
+/// What every list row of one frame shares: the state, the palette and the list's geometry.
+#[derive(Clone, Copy)]
+struct RowFrame<'a> {
+    s: &'a State,
+    p: &'a Palette,
+    prepared: &'a Prepared,
+    xx: i32,
+    ww: i32,
+    card: bool,
+    per: usize,
+    bar_w: i32,
+    name_w: i32,
+    lane_x: i32,
+    lane_w: i32,
+    max: usize,
+}
+/// One list row at line `y`, exactly as the loop in [`draw_list`] drew it. `current_pace` is
+/// `prepared.pace(r.agent, s)` and `(g, gcolor)` the row's mark, both computed by the caller.
+/// Returns the column of the mark, or `None` for an earlier row (which draws no mark).
+#[allow(clippy::too_many_arguments)]
+fn draw_row<'a>(
+    c: &mut Canvas,
+    f: &RowFrame<'a>,
+    r: &'a model::Row,
+    y: i32,
+    current_pace: Option<&Pace>,
+    (g, gcolor): (char, u32),
+    row_lane: &model::Lane,
+    families: &mut terminal::FamilyMemo<'a>,
+) -> Option<i32> {
+    let RowFrame {
+        s,
+        p,
+        prepared,
+        xx,
+        ww,
+        card,
+        per,
+        bar_w,
+        name_w,
+        lane_x,
+        lane_w,
+        max,
+    } = *f;
+    let a = &s.snap.agents[r.agent];
+    let selected = s.selected.as_deref() == Some(&r.id);
+    let linked = prepared.linked[r.agent];
+    let bg = if selected {
+        p.sel
+    } else if linked {
+        terminal::mix(p.bg, p.sel, 0.5)
+    } else {
+        p.bg
+    };
+    if selected || linked {
+        c.fill(xx, y, ww, per as i32, bg);
+    }
+    let ink = |color| {
+        if !selected && !linked {
+            color
+        } else if color == p.dim {
+            p.text2
+        } else if color == p.text2 {
+            p.fg
+        } else if color == p.hot || color == p.warn {
+            reach(color, if p.dark { 0xffffff } else { 0 }, p.sel)
+        } else {
+            color
+        }
+    };
+    let pc = current_pace;
+    let attention = !r.is_earlier() && model::needs_you(a);
+    let edge = if selected || attention {
+        '▌'
+    } else if linked {
+        '▎'
+    } else {
+        ' '
+    };
+    let ec = if attention {
+        p.hot
+    } else if selected {
+        p.bright
+    } else {
+        p.dim
+    };
+    for line in 0..per {
+        c.set(xx, y + line as i32, edge, ec, Some(bg), false);
+    }
+    let mut x = xx + 2;
+    for guide in &r.guides {
+        c.set(
+            x,
+            y,
+            if *guide { '│' } else { ' ' },
+            p.rule,
+            Some(bg),
+            false,
+        );
+        if per == 2 {
+            c.set(
+                x,
+                y + 1,
+                if *guide { '│' } else { ' ' },
+                p.rule,
+                Some(bg),
+                false,
+            );
+        }
+        x += 2;
+    }
+    if r.depth > 0 {
+        c.text_bg(x, y, if r.last { "└─" } else { "├─" }, p.rule, bg, false);
+        if per == 2 && !r.last {
+            c.set(x, y + 1, '│', p.rule, Some(bg), false);
+        }
+        x += 2;
+    }
+    if r.is_earlier() {
+        let right = xx + ww - 1;
+        let hint = if selected && per == 2 {
+            "⏎ show all"
+        } else {
+            ""
+        };
+        if !hint.is_empty() {
+            c.right(right, y, hint, ink(p.dim));
+        }
+        let end = if per == 2 || lane_w < 8 {
+            right - if hint.is_empty() { 0 } else { width(hint) + 2 }
+        } else {
+            lane_x - 2
+        };
+        let span = earlier_span(&r.earlier, s);
+        let failed = r
+            .earlier
+            .iter()
+            .filter(|i| matches!(s.snap.agents[**i].status.as_str(), "failed" | "error"))
+            .count();
+        let mut parts = vec![(format!("{} earlier ▸", r.earlier.len()), ink(p.text2))];
+        if !span.is_empty() {
+            parts.push((span, ink(p.dim)));
+        }
+        if failed > 0 {
+            parts.push((format!("{failed} ✗"), ink(p.hot)));
+        }
+        c.set(x, y, '┄', ink(p.dim), Some(bg), false);
+        let mut col = 2;
+        for (i, (part, color)) in parts.iter().enumerate() {
+            if i > 0 {
+                col += c.text(x + col, y, &fit(" · ", end - x - col), ink(p.dim));
+            }
+            col += c.text(x + col, y, &fit(part, end - x - col), *color);
+        }
+        if lane_w >= 8 {
+            lane(
+                c,
+                lane_x,
+                y + per as i32 - 1,
+                row_lane,
+                max,
+                p,
+                bg,
+                earlier_tint(&r.earlier, s, p),
+            );
+        }
+        return None;
+    }
+    c.set(x, y, g, gcolor, Some(bg), true);
+    let mark_x = x;
+    let fold = if r.has_children && r.stage == "folded" {
+        " ▸"
+    } else {
+        ""
+    };
+    let folded = if !fold.is_empty() && prepared.descendants_waiting[r.agent] {
+        2
+    } else {
+        0
+    };
+    let live = model::live(a) && !attention;
+    let moving = matches!(a.status.as_str(), "running" | "active")
+        && !attention
+        && !pc.is_some_and(|pc| pc.quiet);
+    let namecolor = ink(if attention || live { p.fg } else { p.text2 });
+    let bold = live || attention || selected;
+    let age = run_length(a, s.now, live || attention);
+    let age_color = ink(if live || attention { p.fg } else { p.dim });
+    let rati = ratio(a);
+    let frac =
+        s.tween
+            .get(&a.id)
+            .copied()
+            .unwrap_or(if s.calm { rati.unwrap_or(0.) } else { 0. });
+    let pct = rati
+        .map(|r| format!("{:>4}", format!("{}%", terminal::js_number(terminal::js_round(r * 100.)))))
+        .unwrap_or("  --".into());
+    let pctcolor = ink(match rati {
+        None => p.dim,
+        Some(r) if r >= 0.9 => p.hot,
+        Some(r) if r >= 0.75 => p.warn,
+        _ => p.text2,
+    });
+    if card {
+        let right = xx + ww - 1;
+        let meta = format!("● {}  {}", terminal::short_model(&a.model), age);
+        let meta_w = width(&meta);
+        let namemax = (right - meta_w - 2 - (x + 2)).max(6);
+        let chip_room = right - meta_w - 2 - (x + 2) - folded - width(fold);
+        let wide_room = (a.open_asks.total() > 0 || a.estimated_asks > 0)
+            .then(|| chip_room - width(&a.title) - 2);
+        let chips = Chips::fit(a, wide_room, chip_room - 8);
+        let chip_w = chips.width();
+        let name_room = if chip_w > 0 {
+            chip_room - chip_w - 2
+        } else {
+            namemax - folded
+        };
+        let title = fit(&a.title, name_room) + fold;
+        let used = name(c, x + 2, y, &title, namecolor, bg, bold, a, s, p, moving) + folded;
+        if folded > 0 {
+            c.set(x + 1 + used, y, '◆', p.hot, Some(bg), true);
+        }
+        let mut ax = x + 2 + used + 2;
+        if chip_w > 0 && ax + chip_w <= right - meta_w - 2 {
+            chips.draw(c, ax, y, bg, ink, p);
+            ax += chip_w + 2;
+        }
+        let aw = right - meta_w - 2 - ax;
+        if aw > 8 && (live || attention) {
+            if let Some((doing, warn)) = doing(a, pc, s, aw) {
+                c.text(
+                    ax,
+                    y,
+                    &doing,
+                    ink(if warn {
+                        p.warn
+                    } else if pc.is_some_and(|pc| pc.quiet) {
+                        p.text2
+                    } else {
+                        p.dim
+                    }),
+                );
+            }
+        }
+        c.right(right, y, &meta, ink(p.dim));
+        c.right(right, y, &age, age_color);
+        c.set(right - meta_w, y, '●', p.family_color(families.family(&a.model, a.provider_id.as_deref())), Some(bg), false);
+        let shift = (r.depth as i32 - 2).max(0) * 2;
+        let bx = xx + 6 + shift;
+        let bw = (bar_w - shift).max(4);
+        if r.has_children && r.stage != "folded" && x < bx {
+            c.set(x, y + 1, '│', p.rule, Some(bg), false);
+        }
+        if rati.is_none() {
+            c.text(
+                bx,
+                y + 1,
+                &fit(
+                    if a.remote.is_some() {
+                        "remote · stats on other machine"
+                    } else {
+                        "context not reported"
+                    },
+                    bw + 5,
+                ),
+                ink(p.dim),
+            );
+        } else {
+            bar(
+                c,
+                bx,
+                y + 1,
+                bw,
+                frac,
+                p,
+                if selected {
+                    terminal::mix(p.track, p.sel, 0.4)
+                } else {
+                    p.track
+                },
+            );
+            c.text_bg(bx + bw + 1, y + 1, &pct, pctcolor, bg, true);
+        }
+    } else {
+        let end = xx + 4 + name_w;
+        let room = end - (x + 2) - folded;
+        let chips = Chips::fit(a, None, room - width(fold) - 5);
+        let chip_w = chips.width();
+        let show_chips = chip_w > 0 && chip_w < room - width(fold);
+        let title_room = if show_chips {
+            room - width(fold) - chip_w - 1
+        } else {
+            room.max(4)
+        };
+        let title = fit(&a.title, title_room) + fold;
+        let used = name(c, x + 2, y, &title, namecolor, bg, bold, a, s, p, moving);
+        if folded > 0 {
+            c.set(x + 3 + used, y, '◆', p.hot, Some(bg), true);
+        }
+        if show_chips {
+            chips.draw(c, end - chip_w, y, bg, ink, p);
+        }
+        let bx = xx + 4 + name_w + 2;
+        if rati.is_none() {
+            c.text(bx, y, "--", ink(p.dim));
+        } else {
+            bar(
+                c,
+                bx,
+                y,
+                bar_w,
+                frac,
+                p,
+                if selected {
+                    terminal::mix(p.track, p.sel, 0.4)
+                } else {
+                    p.track
+                },
+            );
+            c.text_bg(bx + bar_w + 1, y, &pct, pctcolor, bg, true);
+        }
+        c.right(xx + ww - 1, y, &age, age_color);
+        c.set(
+            xx + ww - 3 - width(&age),
+            y,
+            '●',
+            p.family_color(families.family(&a.model, a.provider_id.as_deref())),
+            Some(bg),
+            false,
+        );
+    }
+    if lane_w >= 8 {
+        let tint = if families.family(&a.model, a.provider_id.as_deref())
+            == terminal::ProviderFamily::Other
+        {
+            None
+        } else {
+            Some(p.family_color(families.family(&a.model, a.provider_id.as_deref())))
+        };
+        lane(c, lane_x, y + per as i32 - 1, row_lane, max, p, bg, tint);
+    }
+    Some(mark_x)
 }
 /// Decimal size, one decimal under 10. `short` is the warning line's tight form (`1.2G`).
 fn format_bytes(bytes: u64, short: bool) -> String {
@@ -1830,21 +2508,16 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
     if profiling {
         eprintln!("pace_refresh_us {}", pace_start.elapsed().as_micros());
     }
-    let prepared_key = format!(
-        "{:?}",
-        (
-            s.generation,
-            s.render_cache.borrow().rows_revision,
-            s.render_cache.borrow().pace_revision,
-            &s.linked
-        )
-    );
+    let (rows_revision, pace_revision) = {
+        let cache = s.render_cache.borrow();
+        (cache.rows_revision, cache.pace_revision)
+    };
     let cached = if s.cache_enabled {
         s.render_cache
             .borrow()
             .prepared
             .as_ref()
-            .filter(|(key, _)| key == &prepared_key)
+            .filter(|(key, _)| key.matches(s.generation, rows_revision, pace_revision, &s.linked))
             .map(|(_, p)| p.clone())
     } else {
         None
@@ -1853,7 +2526,13 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
         let p = std::sync::Arc::new(Prepared::new(s, paces));
         if s.cache_enabled {
             let mut cache = s.render_cache.borrow_mut();
-            cache.prepared = Some((prepared_key, p.clone()));
+            let key = PreparedKey {
+                generation: s.generation,
+                rows_revision,
+                pace_revision,
+                linked: s.linked.clone(),
+            };
+            cache.prepared = Some((key, p.clone()));
         }
         p
     });
@@ -1863,37 +2542,12 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
         .as_ref()
         .and_then(|id| prepared.row_by_id.get(id))
         .map(|i| prepared.rows[*i].agent);
-    let top_key = format!(
-        "{:?}",
-        (
-            (
-                s.generation,
-                s.now.to_bits(),
-                w,
-                h,
-                p,
-                s.calm,
-                s.paused,
-                &s.error
-            ),
-            (
-                s.interval,
-                s.demo,
-                &s.linked,
-                s.follow,
-                &s.scope,
-                s.window_index,
-                &s.usage,
-                &s.acked
-            )
-        )
-    );
     let cached_top = if s.cache_enabled {
         s.render_cache
             .borrow()
             .top
             .as_ref()
-            .filter(|(k, _, _)| k == &top_key)
+            .filter(|(k, _, _)| k.matches(s, w, h, p))
             .map(|(_, cells, top)| (cells.clone(), *top))
     } else {
         None
@@ -1905,7 +2559,7 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
         let top = overview::draw_header_kpis_limits(&mut c, s, p, &prepared);
         if s.cache_enabled {
             s.render_cache.borrow_mut().top = Some((
-                top_key,
+                TopKey::of(s, w, h, p),
                 c.cells[..(top.main_top.max(0) as usize * w).min(c.cells.len())].to_vec(),
                 top,
             ));
@@ -2121,6 +2775,8 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
             (list_time - overview_time).as_micros(),
             (phase_start.elapsed() - list_time).as_micros()
         );
+        let [copied, marked, drawn] = s.render_cache.borrow().list_rows.counts;
+        eprintln!("list_rows copied={copied} marked={marked} drawn={drawn}");
     }
     (c, frame)
 }
@@ -2226,14 +2882,18 @@ mod prepared_tests {
 }
 
 pub fn run_length(a: &Agent, now: f64, counting: bool) -> String {
-    match (
+    run_length_from(
         model::ms(a.started.as_deref()),
         if counting {
             Some(now)
         } else {
             model::ms(a.ended.as_deref())
         },
-    ) {
+    )
+}
+/// [`run_length`] from the parsed start and end.
+fn run_length_from(start: Option<f64>, end: Option<f64>) -> String {
+    match (start, end) {
         (Some(start), Some(end)) => terminal::span(Some((end - start) / 1000.)),
         _ => String::new(),
     }

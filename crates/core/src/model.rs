@@ -165,6 +165,1107 @@ pub struct AskCards {
     pub link: u64,
 }
 
+/// Canonical 24-byte UTC timestamp parser (`YYYY-MM-DDTHH:MM:SS.mmmZ`), accepting only
+/// text that `source::iso` prints back byte-for-byte.
+pub(crate) fn parse_canonical_utc_ms(text: &str) -> Option<i64> {
+    let b = text.as_bytes();
+    if b.len() != 24
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || b[10] != b'T'
+        || b[13] != b':'
+        || b[16] != b':'
+        || b[19] != b'.'
+        || b[23] != b'Z'
+    {
+        return None;
+    }
+    let digits = |start: usize, len: usize| -> Option<i64> {
+        let mut val = 0i64;
+        for &ch in &b[start..start + len] {
+            if !ch.is_ascii_digit() {
+                return None;
+            }
+            val = val * 10 + i64::from(ch - b'0');
+        }
+        Some(val)
+    };
+    let year = digits(0, 4)?;
+    let month = digits(5, 2)?;
+    let day = digits(8, 2)?;
+    let hour = digits(11, 2)?;
+    let minute = digits(14, 2)?;
+    let second = digits(17, 2)?;
+    let ms = digits(20, 3)?;
+    if !(1..=12).contains(&month) || hour > 23 || minute > 59 || second > 59 {
+        return None;
+    }
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => {
+            if leap {
+                29
+            } else {
+                28
+            }
+        }
+        _ => return None,
+    };
+    if !(1..=max_day).contains(&day) {
+        return None;
+    }
+    let y = year - i64::from(month <= 2);
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let doy = (153 * (month + if month > 2 { -3 } else { 9 }) + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146097 + doe - 719468;
+    Some(days * 86_400_000 + hour * 3_600_000 + minute * 60_000 + second * 1_000 + ms)
+}
+
+/// Compact 16-byte timestamp representation: canonical UTC timestamps store only `i64`
+/// milliseconds (zero heap allocation); any other string stays verbatim in an `Arc<String>`.
+#[derive(Clone, Debug)]
+pub enum IsoStamp {
+    Ms(i64),
+    Raw(std::sync::Arc<String>),
+}
+
+impl IsoStamp {
+    pub fn parse(text: &str) -> Self {
+        match parse_canonical_utc_ms(text) {
+            Some(ms) => Self::Ms(ms),
+            None => Self::Raw(std::sync::Arc::new(text.to_owned())),
+        }
+    }
+
+    pub fn text(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Self::Ms(ms) => std::borrow::Cow::Owned(crate::source::iso(*ms as f64)),
+            Self::Raw(s) => std::borrow::Cow::Borrowed(s.as_str()),
+        }
+    }
+}
+
+impl PartialEq for IsoStamp {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Ms(a), Self::Ms(b)) => a == b,
+            (Self::Raw(a), Self::Raw(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for IsoStamp {}
+
+impl Serialize for IsoStamp {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Ms(ms) => s.serialize_str(&crate::source::iso(*ms as f64)),
+            Self::Raw(raw) => s.serialize_str(raw.as_str()),
+        }
+    }
+}
+
+/// Exact JSON numeric scalar, keeping integer vs float serialization parity with `serde_json`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum JsonNum {
+    Uint(u64),
+    Int(i64),
+    Float(f64),
+}
+
+impl JsonNum {
+    pub fn from_number(n: &serde_json::Number) -> Self {
+        if let Some(u) = n.as_u64() {
+            Self::Uint(u)
+        } else if let Some(i) = n.as_i64() {
+            Self::Int(i)
+        } else {
+            Self::Float(n.as_f64().unwrap_or(0.0))
+        }
+    }
+
+    pub fn as_f64(self) -> f64 {
+        match self {
+            Self::Uint(u) => u as f64,
+            Self::Int(i) => i as f64,
+            Self::Float(f) => f,
+        }
+    }
+}
+
+impl Serialize for JsonNum {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match *self {
+            Self::Uint(u) => s.serialize_u64(u),
+            Self::Int(i) => s.serialize_i64(i),
+            Self::Float(f) => s.serialize_f64(f),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum OptionValue {
+    Null,
+    Bool(bool),
+    Num(JsonNum),
+    Str(std::sync::Arc<str>),
+}
+
+impl OptionValue {
+    pub fn from_value(v: &Value) -> Option<Self> {
+        Self::from_value_interned(v, &mut |s: &str| std::sync::Arc::from(s))
+    }
+
+    pub fn from_value_interned(
+        v: &Value,
+        intern: &mut impl FnMut(&str) -> std::sync::Arc<str>,
+    ) -> Option<Self> {
+        match v {
+            Value::Null => Some(Self::Null),
+            Value::Bool(b) => Some(Self::Bool(*b)),
+            Value::Number(n) => Some(Self::Num(JsonNum::from_number(n))),
+            Value::String(s) => Some(Self::Str(intern(s.as_str()))),
+            Value::Array(_) | Value::Object(_) => None,
+        }
+    }
+
+    pub fn from_value_owned(v: Value) -> Result<Self, Value> {
+        match v {
+            Value::Null => Ok(Self::Null),
+            Value::Bool(b) => Ok(Self::Bool(b)),
+            Value::Number(n) => Ok(Self::Num(JsonNum::from_number(&n))),
+            Value::String(s) => Ok(Self::Str(std::sync::Arc::from(s))),
+            other => Err(other),
+        }
+    }
+
+    pub fn display(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Self::Str(s) => std::borrow::Cow::Borrowed(s),
+            Self::Null => std::borrow::Cow::Borrowed("null"),
+            Self::Bool(true) => std::borrow::Cow::Borrowed("true"),
+            Self::Bool(false) => std::borrow::Cow::Borrowed("false"),
+            Self::Num(JsonNum::Uint(u)) => std::borrow::Cow::Owned(u.to_string()),
+            Self::Num(JsonNum::Int(i)) => std::borrow::Cow::Owned(i.to_string()),
+            Self::Num(JsonNum::Float(f)) => std::borrow::Cow::Owned(
+                serde_json::Number::from_f64(*f)
+                    .map(|n| n.to_string())
+                    .unwrap_or_else(|| "null".into()),
+            ),
+        }
+    }
+}
+
+impl Serialize for OptionValue {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Null => s.serialize_unit(),
+            Self::Bool(b) => s.serialize_bool(*b),
+            Self::Num(n) => n.serialize(s),
+            Self::Str(st) => s.serialize_str(st),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum AgentOption {
+    Typed {
+        id: std::sync::Arc<str>,
+        value: OptionValue,
+    },
+    Raw(Box<Value>),
+}
+
+impl AgentOption {
+    pub fn from_value(v: &Value) -> Self {
+        Self::from_value_interned(v, &mut |s: &str| std::sync::Arc::from(s))
+    }
+
+    pub fn from_value_interned(
+        v: &Value,
+        intern: &mut impl FnMut(&str) -> std::sync::Arc<str>,
+    ) -> Self {
+        if let Value::Object(map) = v {
+            if map.len() == 2 {
+                if let (Some(Value::String(id)), Some(val)) = (map.get("id"), map.get("value")) {
+                    if let Some(value) = OptionValue::from_value_interned(val, intern) {
+                        return Self::Typed {
+                            id: intern(id.as_str()),
+                            value,
+                        };
+                    }
+                }
+            }
+        }
+        Self::Raw(Box::new(v.clone()))
+    }
+
+    pub fn from_value_owned(v: Value) -> Self {
+        if let Value::Object(mut map) = v {
+            if map.len() == 2
+                && map.get("id").is_some_and(Value::is_string)
+                && map.contains_key("value")
+            {
+                let id = match map.remove("id").unwrap() {
+                    Value::String(s) => s,
+                    _ => unreachable!(),
+                };
+                let val = map.remove("value").unwrap();
+                match OptionValue::from_value_owned(val) {
+                    Ok(value) => {
+                        return Self::Typed {
+                            id: std::sync::Arc::from(id),
+                            value,
+                        };
+                    }
+                    Err(val) => {
+                        map.insert("id".into(), Value::String(id));
+                        map.insert("value".into(), val);
+                        return Self::Raw(Box::new(Value::Object(map)));
+                    }
+                }
+            }
+            return Self::Raw(Box::new(Value::Object(map)));
+        }
+        Self::Raw(Box::new(v))
+    }
+
+    pub fn id_and_display(&self) -> Option<(&str, std::borrow::Cow<'_, str>)> {
+        match self {
+            Self::Typed { id, value } => Some((id, value.display())),
+            Self::Raw(v) => {
+                let id = v.get("id").and_then(Value::as_str)?;
+                let val = v.get("value")?;
+                let shown = match val.as_str() {
+                    Some(s) => std::borrow::Cow::Borrowed(s),
+                    None => std::borrow::Cow::Owned(val.to_string()),
+                };
+                Some((id, shown))
+            }
+        }
+    }
+}
+
+impl Serialize for AgentOption {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Typed { id, value } => {
+                use serde::ser::SerializeMap;
+                let mut map = s.serialize_map(Some(2))?;
+                map.serialize_entry("id", id.as_ref())?;
+                map.serialize_entry("value", value)?;
+                map.end()
+            }
+            Self::Raw(v) => v.serialize(s),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentOption {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_value_owned(Value::deserialize(d)?))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProjectedRemote {
+    pub environment_id: Option<std::sync::Arc<str>>,
+    pub thread_id: Option<std::sync::Arc<str>>,
+    pub label: Option<std::sync::Arc<str>>,
+    pub has_label: bool,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum AgentRemote {
+    Projected(Box<ProjectedRemote>),
+    Raw(Box<Value>),
+}
+
+impl AgentRemote {
+    pub fn from_ref(env: &str, thread_id: &str) -> Self {
+        Self::Projected(Box::new(ProjectedRemote {
+            environment_id: Some(std::sync::Arc::from(env)),
+            thread_id: Some(std::sync::Arc::from(thread_id)),
+            label: None,
+            has_label: false,
+        }))
+    }
+
+    pub fn from_value(v: &Value) -> Self {
+        Self::from_value_interned(v, &mut |s: &str| std::sync::Arc::from(s))
+    }
+
+    pub fn from_value_interned(
+        v: &Value,
+        intern: &mut impl FnMut(&str) -> std::sync::Arc<str>,
+    ) -> Self {
+        if let Value::Object(map) = v {
+            let mut opt_str = |k: &str| -> Option<Option<std::sync::Arc<str>>> {
+                match map.get(k)? {
+                    Value::Null => Some(None),
+                    Value::String(s) => Some(Some(intern(s.as_str()))),
+                    _ => None,
+                }
+            };
+            if map.len() == 2 {
+                if let (Some(environment_id), Some(thread_id)) =
+                    (opt_str("environmentId"), opt_str("threadId"))
+                {
+                    return Self::Projected(Box::new(ProjectedRemote {
+                        environment_id,
+                        thread_id,
+                        label: None,
+                        has_label: false,
+                    }));
+                }
+            } else if map.len() == 3 {
+                if let (Some(environment_id), Some(thread_id), Some(label)) = (
+                    opt_str("environmentId"),
+                    opt_str("threadId"),
+                    opt_str("label"),
+                ) {
+                    return Self::Projected(Box::new(ProjectedRemote {
+                        environment_id,
+                        thread_id,
+                        label,
+                        has_label: true,
+                    }));
+                }
+            }
+        }
+        Self::Raw(Box::new(v.clone()))
+    }
+
+    pub fn from_value_owned(v: Value) -> Self {
+        match Self::from_value(&v) {
+            Self::Raw(_) => Self::Raw(Box::new(v)),
+            typed => typed,
+        }
+    }
+
+    pub fn thread_ref(&self) -> Option<(&str, &str)> {
+        match self {
+            Self::Projected(p) => crate::integration::thread_ref_parts(
+                p.environment_id.as_deref()?,
+                p.thread_id.as_deref()?,
+            ),
+            Self::Raw(v) => crate::integration::thread_ref(v),
+        }
+    }
+
+    pub fn label(&self) -> Option<&str> {
+        match self {
+            Self::Projected(p) => p.label.as_deref(),
+            Self::Raw(v) => v.get("label").and_then(Value::as_str),
+        }
+    }
+}
+
+impl Serialize for AgentRemote {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Projected(p) => {
+                use serde::ser::SerializeMap;
+                let mut map = s.serialize_map(Some(if p.has_label { 3 } else { 2 }))?;
+                map.serialize_entry("environmentId", &p.environment_id.as_deref())?;
+                if p.has_label {
+                    map.serialize_entry("label", &p.label.as_deref())?;
+                }
+                map.serialize_entry("threadId", &p.thread_id.as_deref())?;
+                map.end()
+            }
+            Self::Raw(v) => v.serialize(s),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentRemote {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_value_owned(Value::deserialize(d)?))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ModelSelection {
+    pub model: Option<std::sync::Arc<str>>,
+    pub options: Option<Box<[AgentOption]>>,
+}
+
+impl ModelSelection {
+    pub fn from_value(v: &Value) -> Option<Self> {
+        Self::from_value_interned(v, &mut |s: &str| std::sync::Arc::from(s))
+    }
+
+    pub fn from_value_interned(
+        v: &Value,
+        intern: &mut impl FnMut(&str) -> std::sync::Arc<str>,
+    ) -> Option<Self> {
+        let map = v.as_object()?;
+        if map.len() != 2 {
+            return None;
+        }
+        let model = match map.get("model")? {
+            Value::Null => None,
+            Value::String(s) => Some(intern(s.as_str())),
+            _ => return None,
+        };
+        let options = match map.get("options")? {
+            Value::Null => None,
+            Value::Array(arr) => Some(
+                arr.iter()
+                    .map(|item| AgentOption::from_value_interned(item, intern))
+                    .collect::<Vec<_>>()
+                    .into_boxed_slice(),
+            ),
+            _ => return None,
+        };
+        Some(Self { model, options })
+    }
+}
+
+impl Serialize for ModelSelection {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let mut map = s.serialize_map(Some(2))?;
+        map.serialize_entry("model", &self.model.as_deref())?;
+        map.serialize_entry("options", &self.options.as_deref())?;
+        map.end()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProjectedRun {
+    pub id: Option<std::sync::Arc<str>>,
+    pub thread_id: Option<std::sync::Arc<str>>,
+    pub status: Option<std::sync::Arc<str>>,
+    pub provider_thread_id: Option<std::sync::Arc<str>>,
+    pub started_at: Option<IsoStamp>,
+    pub requested_at: Option<IsoStamp>,
+    pub completed_at: Option<IsoStamp>,
+    pub model_selection: Option<ModelSelection>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum AgentRun {
+    #[default]
+    Null,
+    Empty,
+    IdOnly(Option<std::sync::Arc<str>>),
+    ProviderOnly(std::sync::Arc<str>),
+    Projected(Box<ProjectedRun>),
+    Raw(Box<Value>),
+}
+
+impl AgentRun {
+    pub fn from_id_value(v: Option<&Value>) -> Self {
+        match v {
+            None | Some(Value::Null) => Self::IdOnly(None),
+            Some(Value::String(s)) => Self::IdOnly(Some(std::sync::Arc::from(s.as_str()))),
+            Some(other) => Self::Raw(Box::new(json!({ "id": other }))),
+        }
+    }
+
+    pub fn from_value(v: &Value) -> Self {
+        Self::from_value_interned(v, &mut |s: &str| std::sync::Arc::from(s))
+    }
+
+    pub fn from_value_interned(
+        v: &Value,
+        intern: &mut impl FnMut(&str) -> std::sync::Arc<str>,
+    ) -> Self {
+        match v {
+            Value::Null => Self::Null,
+            Value::Object(map) => {
+                if map.is_empty() {
+                    return Self::Empty;
+                }
+                if map.len() == 1 {
+                    if let Some(id) = map.get("id") {
+                        return match id {
+                            Value::Null => Self::IdOnly(None),
+                            Value::String(s) => Self::IdOnly(Some(intern(s.as_str()))),
+                            _ => Self::Raw(Box::new(v.clone())),
+                        };
+                    }
+                    if let Some(Value::String(p)) = map.get("provider") {
+                        return Self::ProviderOnly(intern(p.as_str()));
+                    }
+                } else if map.len() == 8 {
+                    let opt_str =
+                        |k: &str, intern: &mut dyn FnMut(&str) -> std::sync::Arc<str>| -> Option<Option<std::sync::Arc<str>>> {
+                            match map.get(k)? {
+                                Value::Null => Some(None),
+                                Value::String(s) => Some(Some(intern(s.as_str()))),
+                                _ => None,
+                            }
+                        };
+                    let opt_stamp = |k: &str| -> Option<Option<IsoStamp>> {
+                        match map.get(k)? {
+                            Value::Null => Some(None),
+                            Value::String(s) => Some(Some(IsoStamp::parse(s.as_str()))),
+                            _ => None,
+                        }
+                    };
+                    if let (
+                        Some(id),
+                        Some(thread_id),
+                        Some(status),
+                        Some(provider_thread_id),
+                        Some(started_at),
+                        Some(requested_at),
+                        Some(completed_at),
+                        Some(ms_val),
+                    ) = (
+                        opt_str("id", intern),
+                        opt_str("threadId", intern),
+                        opt_str("status", intern),
+                        opt_str("providerThreadId", intern),
+                        opt_stamp("startedAt"),
+                        opt_stamp("requestedAt"),
+                        opt_stamp("completedAt"),
+                        map.get("modelSelection"),
+                    ) {
+                        let model_selection = match ms_val {
+                            Value::Null => Some(None),
+                            _ => ModelSelection::from_value_interned(ms_val, intern).map(Some),
+                        };
+                        if let Some(model_selection) = model_selection {
+                            return Self::Projected(Box::new(ProjectedRun {
+                                id,
+                                thread_id,
+                                status,
+                                provider_thread_id,
+                                started_at,
+                                requested_at,
+                                completed_at,
+                                model_selection,
+                            }));
+                        }
+                    }
+                }
+                Self::Raw(Box::new(v.clone()))
+            }
+            _ => Self::Raw(Box::new(v.clone())),
+        }
+    }
+
+    pub fn from_value_owned(v: Value) -> Self {
+        match Self::from_value(&v) {
+            Self::Raw(_) => Self::Raw(Box::new(v)),
+            typed => typed,
+        }
+    }
+
+    pub fn from_value_owned_interned(
+        v: Value,
+        intern: &mut impl FnMut(&str) -> std::sync::Arc<str>,
+    ) -> Self {
+        match Self::from_value_interned(&v, intern) {
+            Self::Raw(_) => Self::Raw(Box::new(v)),
+            typed => typed,
+        }
+    }
+
+    pub fn id(&self) -> Option<&str> {
+        match self {
+            Self::IdOnly(id) => id.as_deref(),
+            Self::Projected(r) => r.id.as_deref(),
+            Self::Raw(v) => v.get("id").and_then(Value::as_str),
+            Self::Null | Self::Empty | Self::ProviderOnly(_) => None,
+        }
+    }
+
+    pub fn thread_id(&self) -> Option<&str> {
+        match self {
+            Self::Projected(r) => r.thread_id.as_deref(),
+            Self::Raw(v) => v.get("threadId").and_then(Value::as_str),
+            Self::Null | Self::Empty | Self::IdOnly(_) | Self::ProviderOnly(_) => None,
+        }
+    }
+
+    pub fn started_at(&self) -> Option<std::borrow::Cow<'_, str>> {
+        match self {
+            Self::Projected(r) => r.started_at.as_ref().map(IsoStamp::text),
+            Self::Raw(v) => v
+                .get("startedAt")
+                .and_then(Value::as_str)
+                .map(std::borrow::Cow::Borrowed),
+            Self::Null | Self::Empty | Self::IdOnly(_) | Self::ProviderOnly(_) => None,
+        }
+    }
+
+    pub fn provider(&self) -> Option<&str> {
+        match self {
+            Self::ProviderOnly(p) => Some(p.as_ref()),
+            Self::Raw(v) => v.get("provider").and_then(Value::as_str),
+            Self::Null | Self::Empty | Self::IdOnly(_) | Self::Projected(_) => None,
+        }
+    }
+
+    /// `{"provider": run.provider}` when the run has that key, else `{}`, as
+    /// `live::status_view` built it from the JSON run.
+    pub fn into_status_view(&self) -> Self {
+        match self {
+            Self::ProviderOnly(p) => Self::ProviderOnly(std::sync::Arc::clone(p)),
+            Self::Raw(v) => match v.get("provider") {
+                Some(Value::String(p)) => Self::ProviderOnly(std::sync::Arc::from(p.as_str())),
+                Some(other) => Self::Raw(Box::new(json!({ "provider": other }))),
+                None => Self::Empty,
+            },
+            Self::Null | Self::Empty | Self::IdOnly(_) | Self::Projected(_) => Self::Empty,
+        }
+    }
+
+    pub fn to_value(&self) -> Value {
+        serde_json::to_value(self).expect("AgentRun serializes")
+    }
+}
+
+impl Serialize for AgentRun {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match self {
+            Self::Null => s.serialize_unit(),
+            Self::Empty => s.serialize_map(Some(0))?.end(),
+            Self::IdOnly(id) => {
+                let mut map = s.serialize_map(Some(1))?;
+                map.serialize_entry("id", &id.as_deref())?;
+                map.end()
+            }
+            Self::ProviderOnly(provider) => {
+                let mut map = s.serialize_map(Some(1))?;
+                map.serialize_entry("provider", provider.as_ref())?;
+                map.end()
+            }
+            Self::Projected(r) => {
+                let mut map = s.serialize_map(Some(8))?;
+                map.serialize_entry("completedAt", &r.completed_at)?;
+                map.serialize_entry("id", &r.id.as_deref())?;
+                map.serialize_entry("modelSelection", &r.model_selection)?;
+                map.serialize_entry("providerThreadId", &r.provider_thread_id.as_deref())?;
+                map.serialize_entry("requestedAt", &r.requested_at)?;
+                map.serialize_entry("startedAt", &r.started_at)?;
+                map.serialize_entry("status", &r.status.as_deref())?;
+                map.serialize_entry("threadId", &r.thread_id.as_deref())?;
+                map.end()
+            }
+            Self::Raw(v) => v.serialize(s),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentRun {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_value_owned(Value::deserialize(d)?))
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct TypedTokenUsage {
+    pub cached_input_tokens: Option<JsonNum>,
+    pub has_subagents: Option<bool>,
+    pub input_tokens: Option<JsonNum>,
+    pub max_tokens: Option<JsonNum>,
+    pub output_tokens: Option<JsonNum>,
+    pub prompt_cache_expires_at: Option<std::sync::Arc<str>>,
+    pub prompt_cache_ttl_ms: Option<JsonNum>,
+    pub reasoning_output_tokens: Option<JsonNum>,
+    pub reasoning_tokens: Option<JsonNum>,
+    pub updated_at: Option<std::sync::Arc<str>>,
+    pub usage_status: Option<std::sync::Arc<str>>,
+    pub used_tokens: Option<JsonNum>,
+    /// Bitmask of the 12 known keys above that were explicitly present with JSON `null`.
+    pub null_mask: u16,
+    /// Additional scalar keys (sorted lexicographically) preserved without `Value`.
+    pub extras: Option<Box<[(std::sync::Arc<str>, OptionValue)]>>,
+}
+
+impl TypedTokenUsage {
+    pub fn from_map(map: &serde_json::Map<String, Value>) -> Option<Self> {
+        Self::from_map_interned(map, &mut |s: &str| std::sync::Arc::from(s))
+    }
+
+    pub fn from_map_interned(
+        map: &serde_json::Map<String, Value>,
+        intern: &mut impl FnMut(&str) -> std::sync::Arc<str>,
+    ) -> Option<Self> {
+        let mut out = Self::default();
+        let mut extras: Vec<(std::sync::Arc<str>, OptionValue)> = Vec::new();
+        for (k, v) in map {
+            match k.as_str() {
+                "cachedInputTokens" => match v {
+                    Value::Null => out.null_mask |= 1 << 0,
+                    Value::Number(n) => out.cached_input_tokens = Some(JsonNum::from_number(n)),
+                    _ => return None,
+                },
+                "hasSubagents" => match v {
+                    Value::Null => out.null_mask |= 1 << 1,
+                    Value::Bool(b) => out.has_subagents = Some(*b),
+                    _ => return None,
+                },
+                "inputTokens" => match v {
+                    Value::Null => out.null_mask |= 1 << 2,
+                    Value::Number(n) => out.input_tokens = Some(JsonNum::from_number(n)),
+                    _ => return None,
+                },
+                "maxTokens" => match v {
+                    Value::Null => out.null_mask |= 1 << 3,
+                    Value::Number(n) => out.max_tokens = Some(JsonNum::from_number(n)),
+                    _ => return None,
+                },
+                "outputTokens" => match v {
+                    Value::Null => out.null_mask |= 1 << 4,
+                    Value::Number(n) => out.output_tokens = Some(JsonNum::from_number(n)),
+                    _ => return None,
+                },
+                "promptCacheExpiresAt" => match v {
+                    Value::Null => out.null_mask |= 1 << 5,
+                    Value::String(s) => {
+                        out.prompt_cache_expires_at = Some(std::sync::Arc::from(s.as_str()))
+                    }
+                    _ => return None,
+                },
+                "promptCacheTtlMs" => match v {
+                    Value::Null => out.null_mask |= 1 << 6,
+                    Value::Number(n) => out.prompt_cache_ttl_ms = Some(JsonNum::from_number(n)),
+                    _ => return None,
+                },
+                "reasoningOutputTokens" => match v {
+                    Value::Null => out.null_mask |= 1 << 7,
+                    Value::Number(n) => {
+                        out.reasoning_output_tokens = Some(JsonNum::from_number(n))
+                    }
+                    _ => return None,
+                },
+                "reasoningTokens" => match v {
+                    Value::Null => out.null_mask |= 1 << 8,
+                    Value::Number(n) => out.reasoning_tokens = Some(JsonNum::from_number(n)),
+                    _ => return None,
+                },
+                "updatedAt" => match v {
+                    Value::Null => out.null_mask |= 1 << 9,
+                    Value::String(s) => out.updated_at = Some(std::sync::Arc::from(s.as_str())),
+                    _ => return None,
+                },
+                "usageStatus" => match v {
+                    Value::Null => out.null_mask |= 1 << 10,
+                    Value::String(s) => out.usage_status = Some(intern(s.as_str())),
+                    _ => return None,
+                },
+                "usedTokens" => match v {
+                    Value::Null => out.null_mask |= 1 << 11,
+                    Value::Number(n) => out.used_tokens = Some(JsonNum::from_number(n)),
+                    _ => return None,
+                },
+                other => {
+                    extras.push((intern(other), OptionValue::from_value(v)?));
+                }
+            }
+        }
+        if !extras.is_empty() {
+            extras.sort_by(|a, b| a.0.cmp(&b.0));
+            out.extras = Some(extras.into_boxed_slice());
+        }
+        Some(out)
+    }
+}
+
+impl Serialize for TypedTokenUsage {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        let extras = self.extras.as_deref().unwrap_or(&[]);
+        let mut map = s.serialize_map(None)?;
+        let mut ei = 0usize;
+        let mut flush_before = |map: &mut S::SerializeMap, key: &str| -> Result<(), S::Error> {
+            while ei < extras.len() && extras[ei].0.as_ref() < key {
+                map.serialize_entry(extras[ei].0.as_ref(), &extras[ei].1)?;
+                ei += 1;
+            }
+            Ok(())
+        };
+        macro_rules! emit_opt {
+            ($name:literal, $bit:expr, $val:expr) => {
+                if $val.is_some() || (self.null_mask & (1 << $bit)) != 0 {
+                    flush_before(&mut map, $name)?;
+                    map.serialize_entry($name, &$val)?;
+                }
+            };
+        }
+        emit_opt!("cachedInputTokens", 0, self.cached_input_tokens);
+        emit_opt!("hasSubagents", 1, self.has_subagents);
+        emit_opt!("inputTokens", 2, self.input_tokens);
+        emit_opt!("maxTokens", 3, self.max_tokens);
+        emit_opt!("outputTokens", 4, self.output_tokens);
+        emit_opt!(
+            "promptCacheExpiresAt",
+            5,
+            self.prompt_cache_expires_at.as_deref()
+        );
+        emit_opt!("promptCacheTtlMs", 6, self.prompt_cache_ttl_ms);
+        emit_opt!("reasoningOutputTokens", 7, self.reasoning_output_tokens);
+        emit_opt!("reasoningTokens", 8, self.reasoning_tokens);
+        emit_opt!("updatedAt", 9, self.updated_at.as_deref());
+        emit_opt!("usageStatus", 10, self.usage_status.as_deref());
+        emit_opt!("usedTokens", 11, self.used_tokens);
+        while ei < extras.len() {
+            map.serialize_entry(extras[ei].0.as_ref(), &extras[ei].1)?;
+            ei += 1;
+        }
+        map.end()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum TurnUsage {
+    Null,
+    Typed(Box<TypedTokenUsage>),
+    Raw(Box<Value>),
+}
+
+impl TurnUsage {
+    pub fn from_value(v: &Value) -> Self {
+        Self::from_value_interned(v, &mut |s: &str| std::sync::Arc::from(s))
+    }
+
+    pub fn from_value_interned(
+        v: &Value,
+        intern: &mut impl FnMut(&str) -> std::sync::Arc<str>,
+    ) -> Self {
+        match v {
+            Value::Null => Self::Null,
+            Value::Object(map) => match TypedTokenUsage::from_map_interned(map, intern) {
+                Some(typed) => Self::Typed(Box::new(typed)),
+                None => Self::Raw(Box::new(v.clone())),
+            },
+            _ => Self::Raw(Box::new(v.clone())),
+        }
+    }
+
+    pub fn as_obj(&self) -> Option<TurnUsageRef<'_>> {
+        match self {
+            Self::Typed(u) => Some(TurnUsageRef::Typed(u)),
+            Self::Raw(v) if v.is_object() => Some(TurnUsageRef::Raw(v)),
+            _ => None,
+        }
+    }
+}
+
+impl Serialize for TurnUsage {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        match self {
+            Self::Null => s.serialize_unit(),
+            Self::Typed(u) => u.serialize(s),
+            Self::Raw(v) => v.serialize(s),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum TurnUsageRef<'a> {
+    Typed(&'a TypedTokenUsage),
+    Raw(&'a Value),
+}
+
+impl<'a> TurnUsageRef<'a> {
+    pub fn input_tokens(self) -> f64 {
+        match self {
+            Self::Typed(u) => u.input_tokens.map(JsonNum::as_f64).unwrap_or(0.0),
+            Self::Raw(v) => v.get("inputTokens").and_then(Value::as_f64).unwrap_or(0.0),
+        }
+    }
+
+    pub fn cached_input_tokens(self) -> f64 {
+        match self {
+            Self::Typed(u) => u.cached_input_tokens.map(JsonNum::as_f64).unwrap_or(0.0),
+            Self::Raw(v) => v
+                .get("cachedInputTokens")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+        }
+    }
+
+    pub fn output_tokens(self) -> f64 {
+        match self {
+            Self::Typed(u) => u.output_tokens.map(JsonNum::as_f64).unwrap_or(0.0),
+            Self::Raw(v) => v.get("outputTokens").and_then(Value::as_f64).unwrap_or(0.0),
+        }
+    }
+
+    pub fn reasoning_tokens(self) -> Option<f64> {
+        match self {
+            Self::Typed(u) => u.reasoning_tokens.map(JsonNum::as_f64),
+            Self::Raw(v) => v.get("reasoningTokens").and_then(Value::as_f64),
+        }
+    }
+
+    pub fn reasoning_output_tokens(self) -> f64 {
+        match self {
+            Self::Typed(u) => u
+                .reasoning_output_tokens
+                .map(JsonNum::as_f64)
+                .unwrap_or(0.0),
+            Self::Raw(v) => v
+                .get("reasoningOutputTokens")
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0),
+        }
+    }
+
+    pub fn usage_status(self) -> Option<&'a str> {
+        match self {
+            Self::Typed(u) => u.usage_status.as_deref(),
+            Self::Raw(v) => v.get("usageStatus").and_then(Value::as_str),
+        }
+    }
+
+    pub fn has_subagents(self) -> bool {
+        match self {
+            Self::Typed(u) => u.has_subagents == Some(true),
+            Self::Raw(v) => v.get("hasSubagents").and_then(Value::as_bool) == Some(true),
+        }
+    }
+
+    pub fn prompt_cache_expires_at(self) -> Option<&'a str> {
+        match self {
+            Self::Typed(u) => u.prompt_cache_expires_at.as_deref(),
+            Self::Raw(v) => v.get("promptCacheExpiresAt").and_then(Value::as_str),
+        }
+    }
+
+    pub fn prompt_cache_ttl_ms(self) -> Option<f64> {
+        match self {
+            Self::Typed(u) => u.prompt_cache_ttl_ms.map(JsonNum::as_f64),
+            Self::Raw(v) => v.get("promptCacheTtlMs").and_then(Value::as_f64),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProjectedTurn {
+    pub provider_thread_id: Option<std::sync::Arc<str>>,
+    pub model: Option<std::sync::Arc<str>>,
+    pub token_usage: TurnUsage,
+    pub turn_token_usage: TurnUsage,
+}
+
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum AgentTurn {
+    #[default]
+    Null,
+    Empty,
+    Projected(Box<ProjectedTurn>),
+    Raw(Box<Value>),
+}
+
+impl AgentTurn {
+    pub fn from_value(v: &Value) -> Self {
+        match v {
+            Value::Null => Self::Null,
+            Value::Object(map) => {
+                if map.is_empty() {
+                    return Self::Empty;
+                }
+                if map.len() == 4 {
+                    let opt_str = |k: &str| -> Option<Option<std::sync::Arc<str>>> {
+                        match map.get(k)? {
+                            Value::Null => Some(None),
+                            Value::String(s) => Some(Some(std::sync::Arc::from(s.as_str()))),
+                            _ => None,
+                        }
+                    };
+                    if let (
+                        Some(provider_thread_id),
+                        Some(model),
+                        Some(token_usage),
+                        Some(turn_token_usage),
+                    ) = (
+                        opt_str("providerThreadId"),
+                        opt_str("model"),
+                        map.get("tokenUsage"),
+                        map.get("turnTokenUsage"),
+                    ) {
+                        return Self::Projected(Box::new(ProjectedTurn {
+                            provider_thread_id,
+                            model,
+                            token_usage: TurnUsage::from_value(token_usage),
+                            turn_token_usage: TurnUsage::from_value(turn_token_usage),
+                        }));
+                    }
+                }
+                Self::Raw(Box::new(v.clone()))
+            }
+            _ => Self::Raw(Box::new(v.clone())),
+        }
+    }
+
+    pub fn from_value_owned(v: Value) -> Self {
+        match Self::from_value(&v) {
+            Self::Raw(_) => Self::Raw(Box::new(v)),
+            typed => typed,
+        }
+    }
+
+    pub fn model(&self) -> Option<&str> {
+        match self {
+            Self::Projected(t) => t.model.as_deref(),
+            Self::Raw(v) => v.get("model").and_then(Value::as_str),
+            Self::Null | Self::Empty => None,
+        }
+    }
+
+    pub fn token_usage_obj(&self) -> Option<TurnUsageRef<'_>> {
+        match self {
+            Self::Projected(t) => t.token_usage.as_obj(),
+            Self::Raw(v) => v
+                .get("tokenUsage")
+                .filter(|u| u.is_object())
+                .map(TurnUsageRef::Raw),
+            Self::Null | Self::Empty => None,
+        }
+    }
+
+    pub fn turn_token_usage_obj(&self) -> Option<TurnUsageRef<'_>> {
+        match self {
+            Self::Projected(t) => t.turn_token_usage.as_obj(),
+            Self::Raw(v) => v
+                .get("turnTokenUsage")
+                .filter(|u| u.is_object())
+                .map(TurnUsageRef::Raw),
+            Self::Null | Self::Empty => None,
+        }
+    }
+}
+
+impl Serialize for AgentTurn {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeMap;
+        match self {
+            Self::Null => s.serialize_unit(),
+            Self::Empty => s.serialize_map(Some(0))?.end(),
+            Self::Projected(t) => {
+                let mut map = s.serialize_map(Some(4))?;
+                map.serialize_entry("model", &t.model.as_deref())?;
+                map.serialize_entry("providerThreadId", &t.provider_thread_id.as_deref())?;
+                map.serialize_entry("tokenUsage", &t.token_usage)?;
+                map.serialize_entry("turnTokenUsage", &t.turn_token_usage)?;
+                map.end()
+            }
+            Self::Raw(v) => v.serialize(s),
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for AgentTurn {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        Ok(Self::from_value_owned(Value::deserialize(d)?))
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(default)]
 pub struct Agent {
@@ -176,14 +1277,14 @@ pub struct Agent {
     pub cwd: String,
     pub model: String,
     pub status: String,
-    pub run: Value,
+    pub run: AgentRun,
     pub provider_id: Option<String>,
     pub context: Context,
-    pub turn: Value,
+    pub turn: AgentTurn,
     pub updated: Option<String>,
     pub started: Option<String>,
     pub ended: Option<String>,
-    pub remote: Option<Value>,
+    pub remote: Option<AgentRemote>,
     #[serde(rename = "referenceOnly", skip_serializing_if = "Option::is_none")]
     pub reference_only: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -205,7 +1306,7 @@ pub struct Agent {
     pub asked: Option<String>,
     pub thread_id: String,
     pub branch: Option<String>,
-    pub options: Vec<Value>,
+    pub options: Vec<AgentOption>,
     pub history: Vec<Point>,
     pub events: Vec<Event>,
     pub spans: Vec<(f64, Option<f64>)>,
@@ -1058,45 +2159,44 @@ impl State {
             });
             edges.partition_point(|t| *t <= self.now)
         };
-        let key = format!(
-            "{:?}|{:?}|{:?}|{:?}|{:?}|{:?}",
-            self.generation,
-            phase,
-            self.scope,
-            self.collapsed,
-            self.expanded,
-            (self.tree_selection(), &self.linked)
-        );
-        if let Some((_, rows)) = self
-            .render_cache
-            .borrow()
-            .rows
-            .as_ref()
-            .filter(|(k, _)| k == &key)
-        {
+        let selection = self.tree_selection();
+        if let Some((_, rows)) = self.render_cache.borrow().rows.as_ref().filter(|(k, _)| {
+            k.matches(
+                self.generation,
+                phase,
+                &self.scope,
+                &self.collapsed,
+                &self.expanded,
+                selection,
+                self.linked.as_deref(),
+            )
+        }) {
             return rows.clone();
         }
+        let context = TreeContextKey {
+            phase,
+            scope: self.scope.clone(),
+            collapsed: self.collapsed.clone(),
+            expanded: self.expanded.clone(),
+            selection: selection.map(str::to_owned),
+            linked: self.linked.clone(),
+        };
         let rows = if self.scope == "all" {
-            let selection = self.tree_selection();
             let mut cache = self.render_cache.borrow_mut();
             let index = cache
                 .tree_index
                 .get_or_insert_with(|| TreeIndex::new(&self.snap));
-            let context = format!(
-                "{:?}|{:?}|{:?}|{:?}|{:?}",
-                phase,
-                self.scope,
-                self.collapsed,
-                self.expanded,
-                (selection, &self.linked)
-            );
-            if index.context != context {
+            if index.context.as_ref() != Some(&context) {
                 index.blocks.clear();
-                index.context = context;
+                index.context = Some(context.clone());
             }
             std::sync::Arc::new(tree_indexed(self, Some(index)))
         } else {
             std::sync::Arc::new(Rows::flat(tree(self)))
+        };
+        let key = RowsKey {
+            generation: self.generation,
+            context,
         };
         let mut cache = self.render_cache.borrow_mut();
         cache.rows_revision = cache.rows_revision.wrapping_add(1);
@@ -1212,7 +2312,7 @@ impl State {
         if selected
             .remote
             .as_ref()
-            .and_then(crate::integration::thread_ref)
+            .and_then(AgentRemote::thread_ref)
             .is_some()
         {
             return Some(selected);
@@ -1830,6 +2930,59 @@ impl State {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TreeContextKey {
+    phase: usize,
+    scope: String,
+    collapsed: HashSet<String>,
+    expanded: HashSet<String>,
+    selection: Option<String>,
+    linked: Option<String>,
+}
+
+impl TreeContextKey {
+    fn matches(
+        &self,
+        phase: usize,
+        scope: &str,
+        collapsed: &HashSet<String>,
+        expanded: &HashSet<String>,
+        selection: Option<&str>,
+        linked: Option<&str>,
+    ) -> bool {
+        self.phase == phase
+            && self.scope == scope
+            && self.selection.as_deref() == selection
+            && self.linked.as_deref() == linked
+            && self.collapsed == *collapsed
+            && self.expanded == *expanded
+    }
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RowsKey {
+    generation: u64,
+    context: TreeContextKey,
+}
+
+impl RowsKey {
+    fn matches(
+        &self,
+        generation: u64,
+        phase: usize,
+        scope: &str,
+        collapsed: &HashSet<String>,
+        expanded: &HashSet<String>,
+        selection: Option<&str>,
+        linked: Option<&str>,
+    ) -> bool {
+        self.generation == generation
+            && self
+                .context
+                .matches(phase, scope, collapsed, expanded, selection, linked)
+    }
+}
+
 /// Owned adjacency and parsed sort keys. Only the all scope uses this index;
 /// filtered scopes keep their independent from-scratch construction.
 #[derive(Clone, Debug, Default)]
@@ -1838,7 +2991,7 @@ pub(crate) struct TreeIndex {
     updated: Vec<f64>,
     roots: Option<Vec<usize>>,
     blocks: HashMap<usize, std::sync::Arc<Vec<Row>>>,
-    context: String,
+    context: Option<TreeContextKey>,
 }
 impl TreeIndex {
     pub(crate) fn new(snap: &Snapshot) -> Self {
@@ -2682,6 +3835,126 @@ mod label_tests {
         assert_eq!(replace_first("aXbXc", "X", "~"), "a~bXc");
         assert_eq!(replace_first("abc", "z", "~"), "abc");
         assert_eq!(js_trim("\u{feff} x \u{85}"), "x \u{85}");
+    }
+    #[test]
+    fn typed_agent_fields_preserve_exact_json_wire_parity() {
+        let samples = [
+            json!(null),
+            json!({}),
+            json!({"id": "run-1"}),
+            json!({"id": null}),
+            json!({"provider": "anthropic"}),
+            json!({
+                "id": "r1",
+                "threadId": "t1",
+                "status": "running",
+                "providerThreadId": "pt1",
+                "startedAt": "2026-11-12T10:00:00Z",
+                "requestedAt": "2026-11-12T09:59:59Z",
+                "completedAt": null,
+                "modelSelection": {
+                    "model": "claude-opus-4-6",
+                    "options": [
+                        {"id": "reasoningEffort", "value": "high"},
+                        {"id": "thinking", "value": true},
+                        {"id": "budget", "value": 16000},
+                        {"id": "ratio", "value": 0.5},
+                        {"id": "nested", "value": {"a": 1}}
+                    ]
+                }
+            }),
+            json!({
+                "id": "r2",
+                "threadId": 5,
+                "status": "completed",
+                "providerThreadId": null,
+                "startedAt": null,
+                "requestedAt": null,
+                "completedAt": null,
+                "modelSelection": null
+            }),
+        ];
+        for sample in &samples {
+            let typed = AgentRun::from_value(sample);
+            let round = serde_json::to_value(&typed).unwrap();
+            assert_eq!(&round, sample, "AgentRun roundtrip mismatch for {sample}");
+            let de: AgentRun = serde_json::from_value(sample.clone()).unwrap();
+            assert_eq!(de, typed);
+            assert_eq!(serde_json::to_string(&typed).unwrap(), serde_json::to_string(sample).unwrap());
+        }
+        assert!(matches!(AgentRun::from_value(&samples[5]), AgentRun::Projected(_)));
+        assert_eq!(AgentRun::from_value(&samples[5]).id(), Some("r1"));
+        assert!(matches!(AgentRun::from_value(&samples[6]), AgentRun::Raw(_)));
+        assert_eq!(AgentRun::from_value(&samples[4]).into_status_view(), AgentRun::ProviderOnly("anthropic".into()));
+        assert_eq!(AgentRun::from_value(&samples[5]).into_status_view(), AgentRun::Empty);
+
+        let turn_samples = [
+            json!(null),
+            json!({}),
+            json!({
+                "providerThreadId": "pt1",
+                "model": "gpt-5",
+                "tokenUsage": {
+                    "usedTokens": 12000,
+                    "maxTokens": 200000,
+                    "inputTokens": 9000,
+                    "cachedInputTokens": 4000,
+                    "outputTokens": 1200,
+                    "reasoningOutputTokens": 300,
+                    "promptCacheExpiresAt": "2026-11-12T12:05:00Z",
+                    "promptCacheTtlMs": 300000,
+                    "totalTokens": 10200,
+                    "cacheCreationInputTokens": 500,
+                    "updatedAt": null
+                },
+                "turnTokenUsage": {
+                    "inputTokens": 1000,
+                    "cachedInputTokens": 200,
+                    "outputTokens": 100,
+                    "reasoningTokens": 50,
+                    "usageStatus": "final",
+                    "hasSubagents": true
+                }
+            }),
+            json!({
+                "providerThreadId": "pt2",
+                "model": null,
+                "tokenUsage": {"usedTokens": 1, "weird": [1, 2]},
+                "turnTokenUsage": null
+            }),
+        ];
+        for sample in &turn_samples {
+            let typed = AgentTurn::from_value(sample);
+            let round = serde_json::to_value(&typed).unwrap();
+            assert_eq!(&round, sample, "AgentTurn roundtrip mismatch for {sample}");
+            let de: AgentTurn = serde_json::from_value(sample.clone()).unwrap();
+            assert_eq!(de, typed);
+            assert_eq!(serde_json::to_string(&typed).unwrap(), serde_json::to_string(sample).unwrap());
+        }
+        let proj_turn = AgentTurn::from_value(&turn_samples[2]);
+        assert!(matches!(proj_turn, AgentTurn::Projected(_)));
+        let u = proj_turn.turn_token_usage_obj().unwrap();
+        assert_eq!(u.input_tokens(), 1000.0);
+        assert_eq!(u.cached_input_tokens(), 200.0);
+        assert_eq!(u.output_tokens(), 100.0);
+        assert_eq!(u.reasoning_tokens(), Some(50.0));
+        assert_eq!(u.usage_status(), Some("final"));
+        assert!(u.has_subagents());
+
+        let remote_samples = [
+            json!({"environmentId": "machine-b", "threadId": "t1"}),
+            json!({"environmentId": "machine-b", "threadId": "t1", "label": "Remote Box"}),
+            json!({"environmentId": "machine-b", "threadId": "t1", "label": null}),
+            json!({"environmentId": "machine-b", "threadId": "t1", "extra": 1}),
+        ];
+        for sample in &remote_samples {
+            let typed = AgentRemote::from_value(sample);
+            let round = serde_json::to_value(&typed).unwrap();
+            assert_eq!(&round, sample, "AgentRemote roundtrip mismatch for {sample}");
+            assert_eq!(serde_json::to_string(&typed).unwrap(), serde_json::to_string(sample).unwrap());
+        }
+        assert_eq!(AgentRemote::from_value(&remote_samples[0]).thread_ref(), Some(("machine-b", "t1")));
+        assert_eq!(AgentRemote::from_value(&remote_samples[1]).label(), Some("Remote Box"));
     }
 }
 

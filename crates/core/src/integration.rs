@@ -473,7 +473,7 @@ pub fn thread_for_title<A: std::borrow::Borrow<Agent>>(title: &str, agents: &[A]
     for a in agents
         .iter()
         .map(|a| a.borrow())
-        .filter(|a| a.id == a.thread_id || a.remote.as_ref().and_then(thread_ref).is_some())
+        .filter(|a| a.id == a.thread_id || a.remote.as_ref().and_then(crate::model::AgentRemote::thread_ref).is_some())
     {
         let name = norm(&a.title);
         let rank = if title == format!("{} / {}", norm(&a.project), name) {
@@ -524,10 +524,8 @@ pub(crate) fn encode_segment(s: &str) -> String {
     }
     out
 }
-/// Validated cross-machine identity, matching identity.ts.
-pub fn thread_ref(value: &serde_json::Value) -> Option<(&str, &str)> {
-    let env = value.get("environmentId")?.as_str()?;
-    let id = value.get("threadId")?.as_str()?;
+/// Validated cross-machine identity from raw string parts, matching identity.ts.
+pub fn thread_ref_parts<'a>(env: &'a str, id: &'a str) -> Option<(&'a str, &'a str)> {
     if !environment_id_valid(env)
         || js_trim(id).is_empty()
         || id.encode_utf16().count() > 1024
@@ -537,12 +535,18 @@ pub fn thread_ref(value: &serde_json::Value) -> Option<(&str, &str)> {
     }
     Some((env, id))
 }
+/// Validated cross-machine identity, matching identity.ts.
+pub fn thread_ref(value: &serde_json::Value) -> Option<(&str, &str)> {
+    let env = value.get("environmentId")?.as_str()?;
+    let id = value.get("threadId")?.as_str()?;
+    thread_ref_parts(env, id)
+}
 /// `JSON.stringify([environmentId, threadId])` from identity.ts.
 pub fn thread_key(environment: &str, thread_id: &str) -> String {
     serde_json::to_string(&[environment, thread_id]).expect("strings serialize")
 }
 pub fn agent_thread_link(a: &Agent, local: Option<&str>) -> Option<String> {
-    if let Some((env, id)) = a.remote.as_ref().and_then(thread_ref) {
+    if let Some((env, id)) = a.remote.as_ref().and_then(crate::model::AgentRemote::thread_ref) {
         thread_link(env, id)
     } else {
         local.and_then(|env| thread_link(env, &a.thread_id))
@@ -1091,7 +1095,7 @@ mod tests {
             id: "node".into(),
             thread_id: "local".into(),
             title: "Remote".into(),
-            remote: Some(serde_json::json!({"environmentId":"machine-b","threadId":"parent"})),
+            remote: Some(crate::model::AgentRemote::from_ref("machine-b", "parent")),
             ..Agent::default()
         };
         assert_eq!(

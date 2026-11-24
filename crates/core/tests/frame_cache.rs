@@ -521,3 +521,448 @@ fn asks_keep_exact_and_estimated_counts_separate_across_refreshes() {
     state.action("n");
     assert_eq!(state.notice.as_deref(), Some("Nobody is waiting on you"));
 }
+
+/// The header rows are reused while their key matches (`ui::TopKey`). Hold the clock still so
+/// only the field under test changes, change each key field in turn (floats by a single bit,
+/// including the sign of zero), and require the cached frame to equal the uncached one after
+/// every change, at two sizes and after a resize.
+#[test]
+fn header_cache_follows_every_key_field() {
+    let demo: Snapshot =
+        serde_json::from_str(include_str!("../../../checks/fixtures/demo.json")).unwrap();
+    let mut a = State::new(demo);
+    a.follow = false;
+    let mut b = a.clone();
+    b.cache_enabled = false;
+    let nudge = |x: f64| f64::from_bits(x.to_bits() ^ 1);
+    let edits: Vec<(&str, Box<dyn Fn(&mut State)>)> = vec![
+        ("nothing", Box::new(|_| {})),
+        ("palette color", Box::new(|s| s.palette.accent ^= 0x010101)),
+        ("palette floor", Box::new(move |s| s.palette.floor = nudge(s.palette.floor))),
+        ("palette dark", Box::new(|s| s.palette.dark = !s.palette.dark)),
+        ("calm", Box::new(|s| s.calm = !s.calm)),
+        ("paused", Box::new(|s| s.paused = !s.paused)),
+        ("error", Box::new(|s| s.error = Some("synthetic error".into()))),
+        ("error cleared", Box::new(|s| s.error = None)),
+        ("interval", Box::new(|s| s.interval = 5.)),
+        ("demo", Box::new(|s| s.demo = !s.demo)),
+        ("linked", Box::new(|s| s.linked = s.snap.agents.first().map(|a| a.id.clone()))),
+        ("follow", Box::new(|s| s.follow = !s.follow)),
+        ("scope", Box::new(|s| s.scope = "active".into())),
+        ("scope back", Box::new(|s| s.scope = "all".into())),
+        ("window", Box::new(|s| s.window_index += 1)),
+        ("acked", Box::new(|s| {
+            let id = s.snap.agents.iter().find(|a| t3_agents_core::model::needs_you(a)).or(s.snap.agents.first()).map(|a| a.id.clone()).unwrap();
+            s.acked.insert(id);
+        })),
+        ("usage percent", Box::new(|s| {
+            if let Some(l) = s.usage.iter_mut().flat_map(|p| p.limits.iter_mut()).next() {
+                l.percent += 17.;
+            }
+        })),
+        ("usage percent one bit", Box::new(move |s| {
+            if let Some(l) = s.usage.iter_mut().flat_map(|p| p.limits.iter_mut()).next() {
+                l.percent = nudge(l.percent);
+            }
+        })),
+        ("usage today zero", Box::new(|s| {
+            if let Some(p) = s.usage.first_mut() {
+                p.today = 0.;
+            }
+        })),
+        ("usage today negative zero", Box::new(|s| {
+            if let Some(p) = s.usage.first_mut() {
+                p.today = -0.;
+            }
+        })),
+        ("usage stale", Box::new(|s| {
+            if let Some(p) = s.usage.first_mut() {
+                p.stale = !p.stale;
+            }
+        })),
+        ("usage tier", Box::new(|s| {
+            if let Some(p) = s.usage.first_mut() {
+                p.tier = "synthetic tier".into();
+            }
+        })),
+        ("usage model tokens", Box::new(|s| {
+            if let Some(m) = s.usage.iter_mut().flat_map(|p| p.models.iter_mut()).next() {
+                m.tokens += 1000.;
+            }
+        })),
+        ("usage dropped", Box::new(|s| {
+            s.usage.pop();
+        })),
+        ("now", Box::new(|s| s.now += 1000.)),
+    ];
+    let mut step = 0;
+    for (w, h) in [(120, 40), (180, 55), (120, 40)] {
+        for (name, edit) in &edits {
+            edit(&mut a);
+            edit(&mut b);
+            // Twice: the second frame is drawn from whatever the first one cached.
+            for _ in 0..2 {
+                let (ca, sa) = ui::draw_grid(&a, w, h, &a.palette);
+                let (cb, sb) = ui::draw_grid(&b, w, h, &b.palette);
+                assert_eq!(ca.cells, cb.cells, "{name} at {w}x{h}, step {step}");
+                assert_eq!(sa, sb, "{name} at {w}x{h}, step {step}");
+                *a.surface.borrow_mut() = sa;
+                *b.surface.borrow_mut() = sb;
+                step += 1;
+            }
+        }
+    }
+}
+
+/// The agent list's rows are copied from the previous frame while their key matches
+/// (`ui::RowKey`). With motion on (spinner, blink, shimmer, tweens), run a scripted sequence:
+/// the clock across every second, minute, hour and day boundary of each agent's age (each
+/// boundary, the instant before and the instant after), spinner and blink beats, selection
+/// moves, folding, scope and window changes, the help overlay, motion off and on, an acked
+/// ask, a linked thread, a theme change and single-bit palette changes, snapshot changes, and
+/// resizes between list and card layouts. Every frame must equal the uncached one, twice (the
+/// second frame is drawn from whatever the first cached).
+#[test]
+fn list_row_cache_follows_the_clock_and_every_input() {
+    use t3_agents_core::{integration, model::ms, theme};
+    let demo: Snapshot =
+        serde_json::from_str(include_str!("../../../checks/fixtures/demo.json")).unwrap();
+    // Few enough rows for card layout (two lines a row) at the larger sizes.
+    let mut small = demo.clone();
+    small.agents.truncate(7);
+    let sizes = [(120, 40), (180, 55), (233, 55), (100, 30), (71, 37), (160, 44)];
+    let mut step = 0;
+    for snap in [demo, small] {
+        let mut a = State::new(snap);
+        a.follow = false;
+        a.calm = false;
+        let mut b = a.clone();
+        b.cache_enabled = false;
+        let epoch = a.now;
+        let mut size = 0;
+        let frame = |a: &State, b: &State, size: usize, step: &mut usize| {
+            let (w, h) = sizes[size % sizes.len()];
+            compare(a, b, w, h, *step);
+            compare(a, b, w, h, *step);
+            *step += 1;
+        };
+        let both = |a: &mut State, b: &mut State, f: &dyn Fn(&mut State)| {
+            f(a);
+            f(b);
+        };
+        // Motion: 37 ms apart for 2.2 s crosses spinner beats (100 ms) and blink edges (550 ms).
+        for i in 0..60 {
+            let at = epoch + i as f64 * 37.;
+            both(&mut a, &mut b, &|s| {
+                s.advance_frame(at, false);
+            });
+            frame(&a, &b, size, &mut step);
+        }
+        // Every age boundary of every agent, in time order, at three sizes.
+        let mut instants = Vec::new();
+        for agent in &a.snap.agents {
+            let Some(start) = ms(agent.started.as_deref()) else { continue };
+            for secs in [1., 59., 60., 61., 599., 600., 601., 3599., 3600., 3601., 86399., 86400.] {
+                let t = start + secs * 1000.;
+                if t > epoch {
+                    instants.push(t);
+                }
+            }
+            // The two pace thresholds (quiet and stalled) after the agent's last event.
+            if let Some(last) = agent.events.iter().map(|e| e.t).reduce(f64::max) {
+                instants.extend([last + 120_000., last + 480_000.]);
+            }
+        }
+        instants.sort_by(f64::total_cmp);
+        instants.dedup();
+        for (k, t) in instants.into_iter().enumerate() {
+            for at in [t.next_down(), t, t.next_up()] {
+                both(&mut a, &mut b, &|s| {
+                    s.advance_frame(at, false);
+                });
+                frame(&a, &b, k / 7 % 3, &mut step);
+            }
+        }
+        let now = a.now;
+        let paper = integration::derive_themed(theme::builtin("paper").unwrap().text);
+        let nudge = |x: f64| f64::from_bits(x.to_bits() ^ 1);
+        let first_id = a.snap.agents[0].id.clone();
+        let waiting_id = a
+            .snap
+            .agents
+            .iter()
+            .find(|x| t3_agents_core::model::needs_you(x))
+            .map(|x| x.id.clone());
+        let edits: Vec<(&str, Box<dyn Fn(&mut State)>)> = vec![
+            ("down", Box::new(|s| s.action("down"))),
+            ("down", Box::new(|s| s.action("down"))),
+            ("up", Box::new(|s| s.action("up"))),
+            ("end", Box::new(|s| s.action("end"))),
+            ("home", Box::new(|s| s.action("home"))),
+            ("pick", Box::new(move |s| s.pick_at(&first_id, now))),
+            ("fold", Box::new(|s| s.action("left"))),
+            ("unfold", Box::new(|s| s.action("right"))),
+            ("space", Box::new(|s| s.action("space"))),
+            ("scope", Box::new(|s| s.action("a"))),
+            ("scope", Box::new(|s| s.action("a"))),
+            ("scope", Box::new(|s| s.action("a"))),
+            ("window", Box::new(|s| s.action("t"))),
+            ("help", Box::new(|s| s.action("?"))),
+            ("help scroll", Box::new(|s| s.action("down"))),
+            ("help off", Box::new(|s| s.action("?"))),
+            ("motion off", Box::new(|s| s.action("m"))),
+            ("motion on", Box::new(|s| s.action("m"))),
+            ("acked", Box::new(move |s| {
+                if let Some(id) = &waiting_id {
+                    s.acked.insert(id.clone());
+                }
+            })),
+            ("linked", Box::new(|s| s.linked = s.snap.agents.get(1).map(|x| x.id.clone()))),
+            ("home folder", Box::new(|s| s.home = "/home/synthetic".into())),
+            ("theme", Box::new(move |s| s.palette = paper)),
+            ("palette color", Box::new(|s| s.palette.sel ^= 0x010101)),
+            ("palette floor", Box::new(move |s| s.palette.floor = nudge(s.palette.floor))),
+            ("palette dark", Box::new(|s| s.palette.dark = !s.palette.dark)),
+            ("tween", Box::new(|s| {
+                if let Some((_, v)) = s.tween.iter_mut().next() {
+                    *v = nudge(*v);
+                }
+            })),
+        ];
+        // Each edit is drawn at one size before and after, so the frame after it can reuse rows
+        // cached before it; the size moves on between edits.
+        for (i, (name, edit)) in edits.iter().enumerate() {
+            let (w, h) = sizes[i % sizes.len()];
+            compare(&a, &b, w, h, step);
+            edit(&mut a);
+            edit(&mut b);
+            for _ in 0..3 {
+                compare(&a, &b, w, h, step);
+                let at = a.now + 41.;
+                both(&mut a, &mut b, &|s| {
+                    s.advance_frame(at, false);
+                });
+                step += 1;
+            }
+            let _ = name;
+        }
+        // Snapshot changes: status (starts a shimmer), context (starts a tween), a burst of
+        // events (moves a lane and the lane maximum), a waiting request and a title; drawn across the animations they start.
+        for i in 0..24 {
+            let mut snap = a.snap.clone();
+            // The burst goes to the first agent, a root that every scope shows.
+            let n = if i % 5 == 2 { 0 } else { (i * 5) % snap.agents.len() };
+            let at = a.now;
+            let agent = snap.agent_mut(n);
+            match i % 5 {
+                0 => agent.status = if agent.status == "running" { "completed" } else { "running" }.into(),
+                1 => {
+                    agent.context.used_tokens = Some(91_000. + i as f64);
+                    agent.context.max_tokens = Some(100_000.);
+                }
+                // A burst raises the busiest lane column, which rescales every other row's lane.
+                2 => agent.events.extend((0..40).map(|k| Event {
+                    t: at - k as f64,
+                    cat: "shell".into(),
+                    failed: i % 2 == 0 && k == 0,
+                })),
+                3 => agent.requests = vec!["synthetic".into()],
+                _ => agent.title = format!("renamed {i}"),
+            }
+            snap.at = at;
+            a.apply(snap.clone(), &Changed::Agents(vec![]));
+            b.replace(snap);
+            for k in 0..12 {
+                let at = a.now + 53.;
+                both(&mut a, &mut b, &|s| {
+                    s.advance_frame(at, false);
+                });
+                size += usize::from(k == 11);
+                frame(&a, &b, size, &mut step);
+            }
+        }
+    }
+}
+
+/// Rows the sequence above does not reach, cached against uncached as there:
+///
+/// - a burst of events that raises the lane maximum every other row is scaled by;
+/// - a chain deep enough that the context bar, age and lane draw over a running row's mark,
+///   where the mark must stay in the key (the overlay check refuses those rows);
+/// - a new tool call, which starts a name shimmer that must be drawn every frame;
+/// - a folded parent whose child starts and stops waiting (the folded ◆);
+/// - a home folder that occurs in the activity labels of card rows.
+#[test]
+fn list_row_cache_edge_rows() {
+    use std::sync::Arc;
+    use t3_agents_core::model::Agent;
+    let demo: Snapshot =
+        serde_json::from_str(include_str!("../../../checks/fixtures/demo.json")).unwrap();
+    let epoch = demo.at;
+    let run = |a: &mut State, b: &mut State, frames: usize, sizes: &[(usize, usize)], step: &mut usize| {
+        for k in 0..frames {
+            let at = a.now + 37.;
+            a.advance_frame(at, false);
+            b.advance_frame(at, false);
+            let (w, h) = sizes[k % sizes.len()];
+            compare(a, b, w, h, *step);
+            compare(a, b, w, h, *step);
+            *step += 1;
+        }
+    };
+    let mut step = 0;
+
+    // A chain of running agents, each the parent of the next.
+    let deep = Snapshot {
+        agents: (0..30)
+            .map(|i| {
+                Arc::new(Agent {
+                    id: format!("deep-{i}"),
+                    title: format!("deep {i}"),
+                    parent: (i > 0).then(|| format!("deep-{}", i - 1)),
+                    status: "running".into(),
+                    started: Some("2026-11-12T11:58:00Z".into()),
+                    events: vec![Event {
+                        t: epoch - 1000.,
+                        cat: "shell".into(),
+                        failed: false,
+                    }],
+                    ..(*demo.agents[0]).clone()
+                })
+            })
+            .collect(),
+        ..demo.clone()
+    };
+    let mut a = State::new(deep);
+    a.follow = false;
+    a.calm = false;
+    let mut b = a.clone();
+    b.cache_enabled = false;
+    for size in [(71, 37), (100, 60), (60, 70)] {
+        // Same size for a while: the spinner turns while every other input holds.
+        run(&mut a, &mut b, 30, &[size], &mut step);
+    }
+
+    let mut a = State::new(demo.clone());
+    a.follow = false;
+    a.calm = false;
+    let mut b = a.clone();
+    b.cache_enabled = false;
+    let sizes = [(120, 40), (180, 55)];
+    // Past the meters' tween, so rows are reused from here on.
+    run(&mut a, &mut b, 40, &sizes[..1], &mut step);
+    // A burst of events near the clock raises the busiest lane column: every other row's
+    // lane rescales while its own columns stay the same.
+    let mut snap = a.snap.clone();
+    let at = a.now;
+    snap.agent_mut(0).events.extend((0..40).map(|k| Event {
+        t: at - k as f64,
+        cat: "shell".into(),
+        failed: false,
+    }));
+    snap.at = at;
+    a.apply(snap.clone(), &Changed::Agents(vec![]));
+    b.replace(snap);
+    run(&mut a, &mut b, 6, &sizes[..1], &mut step);
+    // A new tool call on a running agent: its name shimmers for 450 ms.
+    for i in 0..3 {
+        let mut snap = a.snap.clone();
+        let n = snap.agents.iter().position(|x| x.status == "running" && x.requests.is_empty()).unwrap();
+        snap.agent_mut(n).items.insert(
+            0,
+            Item {
+                kind: "command_execution".into(),
+                status: "running".into(),
+                command: format!("make step-{i}"),
+                updated_at: format!("shimmer-{i}"),
+                ..Default::default()
+            },
+        );
+        snap.at = a.now;
+        a.apply(snap.clone(), &Changed::Agents(vec![]));
+        b.replace(snap);
+        run(&mut a, &mut b, 20, &sizes[i % 2..i % 2 + 1], &mut step);
+    }
+    // Fold every parent, then let one child of each wait and stop waiting.
+    let parents: Vec<String> = a
+        .snap
+        .agents
+        .iter()
+        .filter_map(|x| x.parent.clone())
+        .collect();
+    for id in &parents {
+        a.pick_at(id, a.now);
+        b.pick_at(id, b.now);
+        for key in ["space", "left"] {
+            a.action(key);
+            b.action(key);
+            run(&mut a, &mut b, 2, &sizes, &mut step);
+        }
+    }
+    for waiting in [true, false, true] {
+        let mut snap = a.snap.clone();
+        for n in 0..snap.agents.len() {
+            if snap.agents[n].parent.is_some() {
+                snap.agent_mut(n).requests = if waiting { vec!["synthetic".into()] } else { vec![] };
+            }
+        }
+        snap.at = a.now;
+        a.apply(snap.clone(), &Changed::Agents(vec![]));
+        b.replace(snap);
+        run(&mut a, &mut b, 6, &sizes[..1], &mut step);
+    }
+
+    // Card rows (few agents) show activity labels, which shorten the home folder.
+    let mut small = demo;
+    small.agents.truncate(7);
+    let mut a = State::new(small);
+    a.follow = false;
+    a.calm = false;
+    let mut b = a.clone();
+    b.cache_enabled = false;
+    // Let the context meters finish their tween first, or every row redraws anyway.
+    run(&mut a, &mut b, 50, &[(180, 55)], &mut step);
+    // Two commands start with these; `tidy` shortens a leading home folder to `~`.
+    for home in ["", "npm", "cargo", ""] {
+        run(&mut a, &mut b, 3, &[(180, 55)], &mut step);
+        a.home = home.into();
+        b.home = home.into();
+        run(&mut a, &mut b, 3, &[(180, 55)], &mut step);
+    }
+}
+
+/// The header's waiting-request label shortens paths under `State.home`; a home folder changed
+/// in place must redraw it.
+#[test]
+fn header_follows_the_home_folder() {
+    use std::sync::Arc;
+    use t3_agents_core::{model::Agent, terminal::Palette};
+    let agent = Agent {
+        id: "a".into(),
+        status: "waiting".into(),
+        items: vec![Item {
+            kind: "user_input_request".into(),
+            status: "waiting".into(),
+            label: "/home/a/question".into(),
+            ..Item::default()
+        }],
+        ..Agent::default()
+    };
+    let mut state = State::new(Snapshot {
+        at: 1_794_484_800_000.,
+        agents: vec![Arc::new(agent)],
+        ..Snapshot::default()
+    });
+    let theme = Palette::default();
+    let header = |c: &t3_agents_core::terminal::Canvas, text: &str| {
+        (0..10).any(|y| c.row_text(y).contains(text))
+    };
+    state.home = "/home/a".into();
+    let (first, _) = ui::draw_grid(&state, 180, 40, &theme);
+    assert!(header(&first, "~/question"));
+    state.home = "/home/b".into();
+    let (expected, _) = ui::draw_grid_reference(&state, 180, 40, &theme);
+    assert!(header(&expected, "/home/a/question"));
+    let (updated, _) = ui::draw_grid(&state, 180, 40, &theme);
+    assert_eq!(updated.cells, expected.cells);
+}
