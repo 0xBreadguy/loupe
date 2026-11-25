@@ -4244,5 +4244,43 @@ mod tests {
             Read::Unreadable(ref msg) if msg == "not a regular file"
         ));
         let _ = fs::remove_dir_all(&dir);
+
+        // Also test symlinked intermediate `userdata/` directory (parent-component symlink bypass).
+        let dir2 = std::env::temp_dir().join(format!(
+            "loupe-tel-parent-sym-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir2);
+        let outside = dir2.join("outside");
+        let root2 = dir2.join("root");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(&root2).unwrap();
+        fs::write(outside.join("settings.json"), r#"{"shareUsageData": true}"#).unwrap();
+        symlink(&outside, root2.join("userdata")).unwrap();
+        let paths2 = gather::Paths {
+            data_folder: root2,
+            policy: dir2.join("no-policy.json"),
+            macos_managed_prefs: None,
+            hosts: dir2.join("no-hosts"),
+            nsswitch: None,
+            uwsm_dir: None,
+            container_markers: Vec::new(),
+        };
+        let g2 = gather::gather(
+            &paths2,
+            &|_| None,
+            &gather::HostSystem,
+            1_795_532_700_000.0,
+            None,
+        );
+        assert!(matches!(
+            g2.settings,
+            Read::Unreadable(ref msg) if msg == "symlink not followed"
+        ));
+        assert!(gather::is_trusted_system_target(Path::new("/etc/t3code/policy.json")));
+        assert!(gather::is_trusted_system_target(Path::new("/nix/store/abc-etc/hosts")));
+        assert!(!gather::is_trusted_system_target(Path::new("/home/alice/.t3/userdata/secrets/key")));
+        assert!(!gather::is_trusted_system_target(Path::new("/tmp/evil")));
+        let _ = fs::remove_dir_all(&dir2);
     }
 }

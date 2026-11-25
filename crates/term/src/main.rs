@@ -623,7 +623,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                         handoff.char(*ch);
                         true
                     }
-                    Event::Key(name) => match handoff.key(name, &host) {
+                    Event::Key(name) => match handoff.key(name, &host, size) {
                         HandoffKey::Quit => {
                             quit = true;
                             break;

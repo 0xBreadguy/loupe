@@ -21,6 +21,35 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+/// Minimum terminal dimensions required to render the exact payload preview before confirmation.
+pub const MIN_PREVIEW_COLS: usize = 28;
+pub const MIN_PREVIEW_ROWS: usize = 7;
+
+/// Sanitize a handoff thread title so the title displayed in preview and passed to `--title=`
+/// are byte-for-byte identical (single-line, no controls/BiDi, never starts with `-`).
+pub fn sanitize_title(title: &str) -> String {
+    let mut out = String::new();
+    let mut count = 0usize;
+    for ch in title.chars() {
+        if count >= 120 {
+            break;
+        }
+        let mapped = match ch {
+            '\n' | '\r' | '\t' => ' ',
+            c if c.is_control() || terminal::is_hidden(c) => continue,
+            c => c,
+        };
+        out.push(mapped);
+        count += 1;
+    }
+    let trimmed = out.trim().trim_start_matches('-').trim();
+    if trimmed.is_empty() {
+        "Loupe handoff".into()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
 /// Provenance of an inherited model choice so the user always sees where it came from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ModelProvenance {
@@ -83,6 +112,33 @@ impl ModelChoice {
         }
     }
 
+    /// Unabbreviated provider, model, and provenance string shown in the exact payload preview.
+    pub fn exact_preview_label(&self) -> String {
+        match self {
+            Self::Unselected => "unselected (press ↑↓ to choose a provider/model)".into(),
+            Self::ProjectDefault {
+                provider_hint: Some(prov),
+                model_hint: Some(model),
+            } => format!("project default (provider={prov}, model={model})"),
+            Self::ProjectDefault {
+                provider_hint: None,
+                model_hint: Some(model),
+            } => format!("project default (model={model})"),
+            Self::ProjectDefault { .. } => "project default (no --provider/--model flags)".into(),
+            Self::Explicit {
+                provider,
+                model,
+                provenance,
+            } => {
+                let prov_word = match provenance {
+                    ModelProvenance::ProjectRecent => "project recent",
+                    ModelProvenance::GlobalRecent => "other project — explicit selection",
+                };
+                format!("--provider={provider} --model={model} ({prov_word})")
+            }
+        }
+    }
+
     pub fn is_unselected(&self) -> bool {
         matches!(self, Self::Unselected)
     }
@@ -108,7 +164,9 @@ pub enum HandoffState {
         project_id: String,
         project_count: usize,
         model_label: String,
+        model_detail: String,
         model_count: usize,
+        base_dir_display: String,
         needs_model_pick: bool,
         destructive: bool,
         armed: bool,
@@ -1422,7 +1480,9 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
             project_id,
             project_count,
             model_label,
+            model_detail,
             model_count,
+            base_dir_display,
             needs_model_pick,
             destructive,
             armed,
@@ -1431,13 +1491,15 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
             title,
             prompt,
         } => {
-            if *preview && y >= 8 && w >= 44 {
+            let can_preview = c.w >= MIN_PREVIEW_COLS && c.h >= MIN_PREVIEW_ROWS && y >= 5;
+            if *preview && can_preview {
                 draw_preview_modal(
                     c,
                     y,
                     project_name,
                     project_id,
-                    model_label,
+                    model_detail,
+                    base_dir_display,
                     *destructive,
                     *needs_model_pick,
                     title,
@@ -1448,6 +1510,14 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
             }
             c.fill(0, y, w, 1, p.sel);
             let mut x = 1;
+            if !can_preview {
+                x += c.text_bg(x, y, "!", p.hot, p.sel, true) + 1;
+                let msg = format!(
+                    "Terminal too small to preview payload (need {MIN_PREVIEW_COLS}x{MIN_PREVIEW_ROWS}) · Esc cancel"
+                );
+                c.text_bg(x, y, &fit(&msg, w - 1 - x), p.fg, p.sel, true);
+                return;
+            }
             let proj_hint = if *project_count > 1 {
                 " · ←→ proj"
             } else {
@@ -1606,7 +1676,8 @@ fn draw_preview_modal(
     bar_y: i32,
     project_name: &str,
     project_id: &str,
-    model_label: &str,
+    model_detail: &str,
+    base_dir_display: &str,
     destructive: bool,
     needs_model_pick: bool,
     title: &str,
@@ -1615,28 +1686,56 @@ fn draw_preview_modal(
     p: &Palette,
 ) {
     let w = c.w as i32;
-    let margin_x = if w >= 96 { 3 } else { 1 };
-    let box_w = (w - margin_x * 2).max(40);
-    let top_y = (bar_y - 18).max(1);
+    let margin_x = if w >= 96 {
+        3
+    } else if w >= 48 {
+        1
+    } else {
+        0
+    };
+    let box_w = (w - margin_x * 2).max(24);
+    let top_y = if bar_y <= 10 { 0 } else { (bar_y - 18).max(1) };
     let box_h = bar_y - top_y;
-    if box_h < 6 {
+    if box_h < 5 {
         return;
     }
 
-    let inner_w = (box_w - 4).max(20) as usize;
+    let inner_w = (box_w - 4).max(16) as usize;
     let mut lines: Vec<String> = Vec::new();
-    lines.push(format!("Title: {}", terminal::clean(title)));
-    lines.push(format!(
-        "Project: {} ({})",
-        terminal::clean(project_name),
-        terminal::clean(project_id)
-    ));
-    lines.push(format!("Model: {}", terminal::clean(model_label)));
+    wrap_preview_line(&format!("Title (--title=): {}", terminal::clean(title)), inner_w, &mut lines);
+    wrap_preview_line(
+        &format!(
+            "Project arg: {} ({})",
+            terminal::clean(project_id),
+            terminal::clean(project_name)
+        ),
+        inner_w,
+        &mut lines,
+    );
+    wrap_preview_line(
+        &format!("Model: {}", terminal::clean(model_detail)),
+        inner_w,
+        &mut lines,
+    );
+    wrap_preview_line(
+        &format!("Base dir: {}", terminal::clean(base_dir_display)),
+        inner_w,
+        &mut lines,
+    );
+    let meta_lines = lines.len();
     if destructive {
-        lines.push("Caution: this handoff can propose file/config changes — review paths below before confirming.".into());
+        wrap_preview_line(
+            "Caution: this handoff can propose file/config changes — review exact paths below before confirming.",
+            inner_w,
+            &mut lines,
+        );
     }
     if needs_model_pick {
-        lines.push("Model required: press ↑↓ to choose a provider/model for this project.".into());
+        wrap_preview_line(
+            "Model required: press ↑↓ to choose a provider/model for this project.",
+            inner_w,
+            &mut lines,
+        );
     }
     lines.push(String::new());
     for raw_line in prompt.lines() {
@@ -1681,7 +1780,8 @@ fn draw_preview_modal(
 
     for (i, line) in lines[start..end].iter().enumerate() {
         let row_y = top_y + 1 + i as i32;
-        let color = if start + i < 3 {
+        let is_meta = start + i < meta_lines;
+        let color = if is_meta {
             p.fg
         } else if line.starts_with("Caution:") || line.starts_with("Model required:") {
             p.hot
@@ -1689,7 +1789,7 @@ fn draw_preview_modal(
             p.text2
         };
         let fitted = terminal::fit(line, inner_w);
-        c.text_bg(margin_x + 2, row_y, &fitted, color, p.panel, start + i < 3);
+        c.text_bg(margin_x + 2, row_y, &fitted, color, p.panel, is_meta);
     }
 }
 
@@ -2276,7 +2376,9 @@ mod tests {
                 project_id: "proj-loupe".into(),
                 project_count: 3,
                 model_label: "claude/opus-5.5 (project)".into(),
+                model_detail: "--provider=claudeAgent --model=claude-opus-5-5 (project recent)".into(),
                 model_count: 4,
+                base_dir_display: "(default)".into(),
                 needs_model_pick: false,
                 destructive: true,
                 armed: false,
@@ -2291,7 +2393,9 @@ mod tests {
                 project_id: "proj-loupe".into(),
                 project_count: 1,
                 model_label: "pick model (↑↓)".into(),
+                model_detail: "unselected (press ↑↓ to choose a provider/model)".into(),
                 model_count: 2,
+                base_dir_display: "/home/alice/.t3".into(),
                 needs_model_pick: true,
                 destructive: true,
                 armed: false,
@@ -2325,11 +2429,11 @@ mod tests {
             HandoffState::DemoPreview("Demo: would start a T3 thread".into()),
             HandoffState::Error("t3 CLI not found in trusted PATH directories".into()),
         ];
-        for w in [48, 52, 80, 120, 220] {
+        for (w, h) in [(20, 5), (30, 8), (48, 24), (80, 24), (120, 24), (220, 24)] {
             for st in &states {
-                let mut c = Canvas::new(w, 24);
+                let mut c = Canvas::new(w, h);
                 c.clear(p.bg, p.fg);
-                draw_handoff_bar(&mut c, 22, st, &p);
+                draw_handoff_bar(&mut c, h as i32 - 2, st, &p);
             }
         }
     }

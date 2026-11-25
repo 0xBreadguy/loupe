@@ -1,8 +1,8 @@
 //! Unified async T3 Code handoff controller (`t3 thread start` and `t3 thread send`).
 //!
 //! Shared across Telemetry, Storage, Trace, Insights, and Live so every screen uses the same
-//! confirmation flow, payload preview, project/model picker, quick-reply composer, SSH-safe
-//! launch behavior, and `--demo` / `--db` safety guards.
+//! confirmation flow, exact payload preview, project/model picker, quick-reply composer,
+//! SSH-safe launch behavior, and `--demo` / `--db` safety guards.
 
 use crate::platform::Wake;
 use loupe_core::{
@@ -14,7 +14,7 @@ use loupe_core::{
 };
 use std::{
     ffi::OsString,
-    fs,
+    fs::{self, File, OpenOptions},
     io::{self, Read, Write},
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Stdio},
@@ -29,6 +29,8 @@ use std::{
 const MAX_DRAFT_CHARS: usize = 400;
 const MAX_CLI_OUTPUT_BYTES: usize = 64 * 1024;
 const CLI_TIMEOUT: Duration = Duration::from_secs(30);
+const PIPE_JOIN_TIMEOUT: Duration = Duration::from_millis(250);
+const DROP_WAIT_TIMEOUT: Duration = Duration::from_millis(500);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum HandoffSource {
@@ -50,6 +52,7 @@ pub(super) enum HandoffKey {
 enum PendingAction {
     Start {
         action_label: String,
+        /// Exact sanitized `--title=` value (same string previewed and passed to `t3`).
         title: String,
         prompt: String,
         projects: Vec<(String, String)>,
@@ -85,7 +88,7 @@ pub(super) struct T3Handoff {
     pending: Option<PendingAction>,
     rx: Option<mpsc::Receiver<WorkerOutcome>>,
     cancel: Option<Arc<AtomicBool>>,
-    worker: Option<std::thread::JoinHandle<()>>,
+    done_rx: Option<mpsc::Receiver<()>>,
 }
 
 impl Drop for T3Handoff {
@@ -93,8 +96,9 @@ impl Drop for T3Handoff {
         if let Some(flag) = self.cancel.take() {
             flag.store(true, Ordering::Relaxed);
         }
-        if let Some(handle) = self.worker.take() {
-            let _ = handle.join();
+        // Bounded wait so exiting Loupe reaps the child process group promptly without ever hanging.
+        if let Some(done) = self.done_rx.take() {
+            let _ = done.recv_timeout(DROP_WAIT_TIMEOUT);
         }
     }
 }
@@ -108,7 +112,7 @@ impl T3Handoff {
             pending: None,
             rx: None,
             cancel: None,
-            worker: None,
+            done_rx: None,
         }
     }
 
@@ -159,6 +163,7 @@ impl T3Handoff {
             return;
         }
         let action_label = action_label.into();
+        let exact_title = handoff::sanitize_title(&title);
         match self.source {
             HandoffSource::Demo => {
                 self.pending = None;
@@ -176,9 +181,12 @@ impl T3Handoff {
                 let models = db_path
                     .map(|p| handoff::read_model_choices(p, &project_id))
                     .unwrap_or_else(|| vec![ModelChoice::Unselected]);
+                let resolved_base_dir = base_dir
+                    .filter(|p| p.is_absolute())
+                    .or_else(|| db_path.and_then(base_dir_from_db).filter(|p| p.is_absolute()));
                 let pending = PendingAction::Start {
                     action_label,
-                    title,
+                    title: exact_title,
                     prompt,
                     projects,
                     project_idx: 0,
@@ -189,7 +197,7 @@ impl T3Handoff {
                     preview: true,
                     preview_scroll: 0,
                     db_path: db_path.map(Path::to_path_buf),
-                    base_dir,
+                    base_dir: resolved_base_dir,
                 };
                 self.state = state_for_pending(&pending);
                 self.pending = Some(pending);
@@ -272,9 +280,7 @@ impl T3Handoff {
     fn finish_worker(&mut self) {
         self.rx = None;
         self.cancel = None;
-        if let Some(handle) = self.worker.take() {
-            let _ = handle.join();
-        }
+        self.done_rx = None;
     }
 
     /// Handle a typed character while in free-text compose mode.
@@ -301,7 +307,7 @@ impl T3Handoff {
     }
 
     /// Route a key event to the handoff bar when active.
-    pub(super) fn key(&mut self, name: &str, host: &Host) -> HandoffKey {
+    pub(super) fn key(&mut self, name: &str, host: &Host, size: (usize, usize)) -> HandoffKey {
         if self.state.is_idle() {
             return HandoffKey::NotHandled;
         }
@@ -317,6 +323,7 @@ impl T3Handoff {
 
         let mut should_launch = false;
         let mut custom_error: Option<String> = None;
+        let can_preview = size.0 >= handoff::MIN_PREVIEW_COLS && size.1 >= handoff::MIN_PREVIEW_ROWS;
 
         match &mut self.pending {
             Some(PendingAction::Start {
@@ -394,6 +401,10 @@ impl T3Handoff {
                     }
                 }
                 "enter" => {
+                    // Block confirmation whenever the terminal is too small to display the exact payload preview.
+                    if !can_preview {
+                        return HandoffKey::Consumed;
+                    }
                     let chosen = models.get(*model_idx);
                     if chosen.is_none_or(ModelChoice::is_unselected) {
                         if models.len() <= 1 {
@@ -504,10 +515,12 @@ impl T3Handoff {
         let host_base_dir = host.db.as_deref().and_then(base_dir_from_db);
         let wake = self.wake.clone();
         let (tx, rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
         let cancel = Arc::new(AtomicBool::new(false));
         let cancel_worker = Arc::clone(&cancel);
         self.rx = Some(rx);
         self.cancel = Some(cancel);
+        self.done_rx = Some(done_rx);
 
         match action {
             PendingAction::Start {
@@ -529,8 +542,7 @@ impl T3Handoff {
                     .cloned()
                     .unwrap_or(ModelChoice::Unselected);
                 if chosen_model.is_unselected() {
-                    self.rx = None;
-                    self.cancel = None;
+                    self.finish_worker();
                     self.state = HandoffState::Error(
                         "Pick a provider/model with ↑↓ before starting".into(),
                     );
@@ -541,7 +553,7 @@ impl T3Handoff {
                 self.state = HandoffState::Running {
                     label: format!("Starting T3 thread in {project_name} ({model_tag})…"),
                 };
-                self.worker = std::thread::Builder::new()
+                let _ = std::thread::Builder::new()
                     .name("loupe-t3-handoff".into())
                     .spawn(move || {
                         let outcome = run_t3_thread_start(
@@ -555,11 +567,11 @@ impl T3Handoff {
                             &cancel_worker,
                         );
                         let _ = tx.send(outcome);
+                        let _ = done_tx.send(());
                         if let Some(w) = wake {
                             w.waker().wake();
                         }
-                    })
-                    .ok();
+                    });
             }
             PendingAction::Send {
                 thread_id,
@@ -582,15 +594,14 @@ impl T3Handoff {
                         .unwrap_or_else(|| clean_draft.trim().to_owned())
                 };
                 if message.is_empty() {
-                    self.rx = None;
-                    self.cancel = None;
+                    self.finish_worker();
                     self.state = HandoffState::Idle;
                     return;
                 }
                 self.state = HandoffState::Running {
                     label: format!("Sending to \"{thread_title}\"…"),
                 };
-                self.worker = std::thread::Builder::new()
+                let _ = std::thread::Builder::new()
                     .name("loupe-t3-handoff".into())
                     .spawn(move || {
                         let outcome = run_t3_thread_send(
@@ -601,11 +612,11 @@ impl T3Handoff {
                             &cancel_worker,
                         );
                         let _ = tx.send(outcome);
+                        let _ = done_tx.send(());
                         if let Some(w) = wake {
                             w.waker().wake();
                         }
-                    })
-                    .ok();
+                    });
             }
         }
     }
@@ -625,6 +636,7 @@ fn state_for_pending(pending: &PendingAction) -> HandoffState {
             armed,
             preview,
             preview_scroll,
+            base_dir,
             ..
         } => {
             let (project_id, project_name) = projects
@@ -633,14 +645,23 @@ fn state_for_pending(pending: &PendingAction) -> HandoffState {
                 .unwrap_or_else(|| (".".into(), "current folder".into()));
             let chosen = models.get(*model_idx);
             let model_label = chosen.map(ModelChoice::short_label).unwrap_or_default();
+            let model_detail = chosen
+                .map(ModelChoice::exact_preview_label)
+                .unwrap_or_else(|| ModelChoice::Unselected.exact_preview_label());
             let needs_model_pick = chosen.is_none_or(ModelChoice::is_unselected);
+            let base_dir_display = base_dir
+                .as_ref()
+                .map(|p| p.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "(default)".into());
             HandoffState::ConfirmStart {
                 action_label: action_label.clone(),
                 project_name,
                 project_id,
                 project_count: projects.len(),
                 model_label,
+                model_detail,
                 model_count: models.len(),
+                base_dir_display,
                 needs_model_pick,
                 destructive: *destructive,
                 armed: *armed,
@@ -695,7 +716,6 @@ pub(super) fn collect_projects(
             .or_else(|| (!a.cwd.is_empty()).then_some(a.cwd.as_str()))
     }
 
-    // 1. Explicit preferred project (e.g., selected Storage project or traced thread's project).
     if let Some(pref_id) = preferred_project_id.filter(|s| !s.is_empty()) {
         if let Some(a) = state.snap.agents.iter().find(|a| {
             a.remote.is_none()
@@ -709,7 +729,6 @@ pub(super) fn collect_projects(
         }
     }
 
-    // 2. Selected or currently focused T3 thread's project.
     for preferred in [state.selected.as_deref(), state.linked.as_deref()]
         .into_iter()
         .flatten()
@@ -726,7 +745,6 @@ pub(super) fn collect_projects(
         }
     }
 
-    // 3. All other local projects in snapshot order.
     for a in &state.snap.agents {
         if a.remote.is_none() {
             if let Some(key) = agent_project_key(a) {
@@ -741,10 +759,22 @@ pub(super) fn collect_projects(
     out
 }
 
+/// Validated executable with an open read-only descriptor held across `spawn()` (pinning its inode)
+/// plus its `(dev, ino)` identity for immediate pre-exec revalidation.
+struct ValidatedBinary {
+    path: PathBuf,
+    #[cfg(unix)]
+    _guard: File,
+    #[cfg(unix)]
+    dev: u64,
+    #[cfg(unix)]
+    ino: u64,
+}
+
 /// Resolve `t3` only from trusted absolute PATH directories or `$HOME/.local/bin`,
-/// verifying the canonical target is an executable regular file and neither the
-/// candidate's directory nor the resolved target/directory is group/world-writable.
-fn find_t3_binary() -> Result<PathBuf, String> {
+/// verifying ownership (root or effective user) and non-group/world-writability on the
+/// executable AND every ancestor directory component from `/` down.
+fn find_t3_binary() -> Result<ValidatedBinary, String> {
     let path_env = std::env::var_os("PATH");
     let home_env = std::env::var_os("HOME");
     find_t3_binary_in(path_env.as_deref(), home_env.as_deref())
@@ -753,15 +783,15 @@ fn find_t3_binary() -> Result<PathBuf, String> {
 fn find_t3_binary_in(
     path_env: Option<&std::ffi::OsStr>,
     home_env: Option<&std::ffi::OsStr>,
-) -> Result<PathBuf, String> {
+) -> Result<ValidatedBinary, String> {
     if let Some(path_val) = path_env {
         for dir in std::env::split_paths(path_val) {
             if dir.as_os_str().is_empty() || !dir.is_absolute() {
                 continue;
             }
             let cand = dir.join("t3");
-            if let Some(canon) = validate_trusted_executable(&cand) {
-                return Ok(canon);
+            if let Some(valid) = validate_trusted_executable(&cand) {
+                return Ok(valid);
             }
         }
     }
@@ -769,54 +799,113 @@ fn find_t3_binary_in(
         let home_path = Path::new(home);
         if home_path.is_absolute() {
             let local = home_path.join(".local/bin/t3");
-            if let Some(canon) = validate_trusted_executable(&local) {
-                return Ok(canon);
+            if let Some(valid) = validate_trusted_executable(&local) {
+                return Ok(valid);
             }
         }
     }
     Err("t3 CLI not found in trusted PATH directories".into())
 }
 
-fn validate_trusted_executable(candidate: &Path) -> Option<PathBuf> {
+/// Filter `PATH` down to strictly trusted absolute, owner-verified, non-writable directories
+/// so wrapper scripts (`#!/usr/bin/env ...`) cannot resolve helpers from untrusted directories.
+fn trusted_child_path() -> Option<OsString> {
+    let path_env = std::env::var_os("PATH")?;
+    let safe_dirs: Vec<PathBuf> = std::env::split_paths(&path_env)
+        .filter(|dir| !dir.as_os_str().is_empty() && is_safe_dir_tree(dir))
+        .collect();
+    if safe_dirs.is_empty() {
+        return None;
+    }
+    std::env::join_paths(safe_dirs).ok()
+}
+
+fn validate_trusted_executable(candidate: &Path) -> Option<ValidatedBinary> {
     if !candidate.is_absolute() {
         return None;
     }
     let parent = candidate.parent()?;
-    if !is_safe_dir(parent) {
+    if !is_safe_dir_tree(parent) {
         return None;
     }
     let canon = fs::canonicalize(candidate).ok()?;
     let canon_parent = canon.parent()?;
-    if !is_safe_dir(canon_parent) {
+    if !is_safe_dir_tree(canon_parent) {
         return None;
     }
-    let meta = fs::metadata(&canon).ok()?;
-    if !meta.is_file() {
-        return None;
-    }
+
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let mode = meta.permissions().mode();
-        if (mode & 0o111) == 0 || (mode & 0o022) != 0 {
+        use std::os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt};
+        let euid = unsafe { libc::geteuid() };
+        // Open without following symlinks and keep the descriptor open until after spawn().
+        let guard = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+            .open(&canon)
+            .ok()?;
+        let meta = guard.metadata().ok()?;
+        if !meta.is_file() {
             return None;
         }
+        let uid = meta.uid();
+        let mode = meta.permissions().mode();
+        if (uid != 0 && uid != euid) || (mode & 0o111) == 0 || (mode & 0o022) != 0 {
+            return None;
+        }
+        Some(ValidatedBinary {
+            path: canon,
+            _guard: guard,
+            dev: meta.dev(),
+            ino: meta.ino(),
+        })
     }
-    Some(canon)
+    #[cfg(not(unix))]
+    {
+        let meta = fs::metadata(&canon).ok()?;
+        if !meta.is_file() {
+            return None;
+        }
+        Some(ValidatedBinary { path: canon })
+    }
 }
 
-fn is_safe_dir(dir: &Path) -> bool {
-    let Ok(meta) = fs::metadata(dir) else {
-        return false;
-    };
-    if !meta.is_dir() {
+/// Verify `dir` and EVERY ancestor directory up to `/` is a directory owned by root or the
+/// effective user and is neither group-writable nor world-writable (`mode & 0o022 == 0`).
+fn is_safe_dir_tree(dir: &Path) -> bool {
+    if !dir.is_absolute() {
         return false;
     }
     #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        if (meta.permissions().mode() & 0o022) != 0 {
+    let euid = unsafe { libc::geteuid() };
+
+    for anc in dir.ancestors() {
+        if anc.as_os_str().is_empty() {
+            continue;
+        }
+        let Ok(meta) = fs::metadata(anc) else {
             return false;
+        };
+        if !meta.is_dir() {
+            return false;
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::{MetadataExt, PermissionsExt};
+            let uid = meta.uid();
+            let mode = meta.permissions().mode();
+            if (uid != 0 && uid != euid) || (mode & 0o022) != 0 {
+                return false;
+            }
+            // If this ancestor path itself is a symlink, verify the symlink's owner as well.
+            if let Ok(lmeta) = fs::symlink_metadata(anc) {
+                if lmeta.file_type().is_symlink() {
+                    let luid = lmeta.uid();
+                    if luid != 0 && luid != euid {
+                        return false;
+                    }
+                }
+            }
         }
     }
     true
@@ -875,29 +964,6 @@ fn validate_cli_token(kind: &str, value: &str) -> Result<(), String> {
     }
 }
 
-fn sanitize_title(title: &str) -> String {
-    let mut out = String::new();
-    let mut count = 0usize;
-    for ch in title.chars() {
-        if count >= 120 {
-            break;
-        }
-        let mapped = match ch {
-            '\n' | '\r' | '\t' => ' ',
-            c if c.is_control() || terminal::is_hidden(c) => continue,
-            c => c,
-        };
-        out.push(mapped);
-        count += 1;
-    }
-    let trimmed = out.trim().trim_start_matches('-').trim();
-    if trimmed.is_empty() {
-        "Loupe handoff".into()
-    } else {
-        trimmed.to_owned()
-    }
-}
-
 struct BoundedOutput {
     status: ExitStatus,
     stdout: Vec<u8>,
@@ -929,8 +995,25 @@ fn read_stream_capped<R: Read>(
     out
 }
 
+fn kill_and_reap_group(child: &mut std::process::Child) {
+    #[cfg(unix)]
+    {
+        let pid = child.id() as libc::pid_t;
+        if pid > 0 {
+            // Child was launched in its own dedicated session/process group via setsid();
+            // signalling -pid terminates the direct child and every descendant in that group.
+            unsafe {
+                libc::kill(-pid, libc::SIGKILL);
+            }
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+}
+
 fn run_bounded_command(
     mut cmd: Command,
+    validated: Option<&ValidatedBinary>,
     stdin_bytes: Vec<u8>,
     timeout: Duration,
     cancel: &AtomicBool,
@@ -938,6 +1021,47 @@ fn run_bounded_command(
     cmd.stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    #[cfg(unix)]
+    {
+        use std::ffi::CString;
+        use std::os::unix::ffi::OsStrExt;
+        use std::os::unix::process::CommandExt;
+
+        let recheck = validated.and_then(|v| {
+            let c_path = CString::new(v.path.as_os_str().as_bytes()).ok()?;
+            Some((c_path, v.dev, v.ino))
+        });
+        // SAFETY: `pre_exec` uses only async-signal-safe syscalls (`setsid`, `geteuid`, `lstat`).
+        unsafe {
+            cmd.pre_exec(move || {
+                // Start a dedicated session & process group so timeout/cancel kills descendants too.
+                if libc::setsid() == -1 {
+                    let _ = libc::setpgid(0, 0);
+                }
+                // Revalidate binary identity immediately before execve to close check-to-exec races.
+                if let Some((ref c_path, expected_dev, expected_ino)) = recheck {
+                    let mut st: libc::stat = std::mem::zeroed();
+                    if libc::lstat(c_path.as_ptr(), &mut st) != 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                    let euid = libc::geteuid();
+                    let is_reg = (st.st_mode & libc::S_IFMT) == libc::S_IFREG;
+                    let owner_ok = st.st_uid == 0 || st.st_uid == euid;
+                    let perms_ok = (st.st_mode & 0o111) != 0 && (st.st_mode & 0o022) == 0;
+                    if !is_reg
+                        || !owner_ok
+                        || !perms_ok
+                        || (st.st_dev as u64) != expected_dev
+                        || (st.st_ino as u64) != expected_ino
+                    {
+                        return Err(io::Error::from_raw_os_error(libc::EACCES));
+                    }
+                }
+                Ok(())
+            });
+        }
+    }
 
     let mut child = match cmd.spawn() {
         Ok(c) => c,
@@ -955,22 +1079,29 @@ fn run_bounded_command(
     let out_ov = Arc::clone(&overflow);
     let err_ov = Arc::clone(&overflow);
 
-    let stdout_handle = std::thread::spawn(move || {
-        stdout_pipe
+    let (out_tx, out_rx) = mpsc::channel();
+    let (err_tx, err_rx) = mpsc::channel();
+    let (in_tx, in_rx) = mpsc::channel();
+
+    std::thread::spawn(move || {
+        let data = stdout_pipe
             .map(|p| read_stream_capped(p, MAX_CLI_OUTPUT_BYTES, out_ov))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let _ = out_tx.send(data);
     });
-    let stderr_handle = std::thread::spawn(move || {
-        stderr_pipe
+    std::thread::spawn(move || {
+        let data = stderr_pipe
             .map(|p| read_stream_capped(p, MAX_CLI_OUTPUT_BYTES, err_ov))
-            .unwrap_or_default()
+            .unwrap_or_default();
+        let _ = err_tx.send(data);
     });
-    let stdin_handle = std::thread::spawn(move || -> io::Result<()> {
-        if let Some(mut stdin) = stdin_pipe {
-            stdin.write_all(&stdin_bytes)?;
-            stdin.flush()?;
-        }
-        Ok(())
+    std::thread::spawn(move || {
+        let res = if let Some(mut stdin) = stdin_pipe {
+            stdin.write_all(&stdin_bytes).and_then(|()| stdin.flush())
+        } else {
+            Ok(())
+        };
+        let _ = in_tx.send(res);
     });
 
     let started = Instant::now();
@@ -979,45 +1110,42 @@ fn run_bounded_command(
             Ok(Some(st)) => break st,
             Ok(None) => {
                 if cancel.load(Ordering::Relaxed) {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = stdout_handle.join();
-                    let _ = stderr_handle.join();
-                    let _ = stdin_handle.join();
+                    kill_and_reap_group(&mut child);
+                    let _ = out_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
+                    let _ = err_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
+                    let _ = in_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
                     return Err("t3 CLI cancelled".into());
                 }
                 if overflow.load(Ordering::Relaxed) {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = stdout_handle.join();
-                    let _ = stderr_handle.join();
-                    let _ = stdin_handle.join();
+                    kill_and_reap_group(&mut child);
+                    let _ = out_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
+                    let _ = err_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
+                    let _ = in_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
                     return Err("t3 CLI output exceeded 64 KiB limit".into());
                 }
                 if started.elapsed() >= timeout {
-                    let _ = child.kill();
-                    let _ = child.wait();
-                    let _ = stdout_handle.join();
-                    let _ = stderr_handle.join();
-                    let _ = stdin_handle.join();
+                    kill_and_reap_group(&mut child);
+                    let _ = out_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
+                    let _ = err_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
+                    let _ = in_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
                     return Err("t3 CLI timed out".into());
                 }
                 std::thread::sleep(Duration::from_millis(20));
             }
             Err(e) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                let _ = stdout_handle.join();
-                let _ = stderr_handle.join();
-                let _ = stdin_handle.join();
+                kill_and_reap_group(&mut child);
+                let _ = out_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
+                let _ = err_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
+                let _ = in_rx.recv_timeout(PIPE_JOIN_TIMEOUT);
                 return Err(format!("t3 CLI failed: {e}"));
             }
         }
     };
 
-    let stdout = stdout_handle.join().unwrap_or_default();
-    let stderr = stderr_handle.join().unwrap_or_default();
-    let stdin_res = stdin_handle.join().unwrap_or(Ok(()));
+    // Bounded pipe collection so even a detached descendant holding a pipe cannot hang Loupe.
+    let stdout = out_rx.recv_timeout(PIPE_JOIN_TIMEOUT).unwrap_or_default();
+    let stderr = err_rx.recv_timeout(PIPE_JOIN_TIMEOUT).unwrap_or_default();
+    let stdin_res = in_rx.recv_timeout(PIPE_JOIN_TIMEOUT).unwrap_or(Ok(()));
 
     if overflow.load(Ordering::Relaxed) {
         return Err("t3 CLI output exceeded 64 KiB limit".into());
@@ -1112,14 +1240,17 @@ fn invoke_t3_thread_start(
     cancel: &AtomicBool,
 ) -> Result<BoundedOutput, String> {
     validate_project_arg(project_id)?;
-    let safe_title = sanitize_title(title);
+    let safe_title = handoff::sanitize_title(title);
     if let Some((provider, model)) = explicit_model {
         validate_cli_token("provider", provider)?;
         validate_cli_token("model", model)?;
     }
 
-    let bin = find_t3_binary()?;
-    let mut cmd = Command::new(&bin);
+    let validated = find_t3_binary()?;
+    let mut cmd = Command::new(&validated.path);
+    if let Some(safe_path) = trusted_child_path() {
+        cmd.env("PATH", safe_path);
+    }
     cmd.arg("thread")
         .arg("start")
         .arg(format!("--title={safe_title}"))
@@ -1135,7 +1266,13 @@ fn invoke_t3_thread_start(
     }
     cmd.arg("--").arg(project_id).arg("-");
 
-    run_bounded_command(cmd, prompt.as_bytes().to_vec(), CLI_TIMEOUT, cancel)
+    run_bounded_command(
+        cmd,
+        Some(&validated),
+        prompt.as_bytes().to_vec(),
+        CLI_TIMEOUT,
+        cancel,
+    )
 }
 
 fn run_t3_thread_send(
@@ -1148,11 +1285,14 @@ fn run_t3_thread_send(
     if let Err(e) = validate_thread_id(thread_id) {
         return WorkerOutcome::Error(e);
     }
-    let bin = match find_t3_binary() {
+    let validated = match find_t3_binary() {
         Ok(b) => b,
         Err(e) => return WorkerOutcome::Error(e),
     };
-    let mut cmd = Command::new(&bin);
+    let mut cmd = Command::new(&validated.path);
+    if let Some(safe_path) = trusted_child_path() {
+        cmd.env("PATH", safe_path);
+    }
     cmd.arg("thread").arg("send").arg("--json");
     if let Some(dir) = base_dir.filter(|p| p.is_absolute()) {
         let mut arg = OsString::from("--base-dir=");
@@ -1161,7 +1301,13 @@ fn run_t3_thread_send(
     }
     cmd.arg("--").arg(thread_id).arg("-");
 
-    let output = match run_bounded_command(cmd, message.as_bytes().to_vec(), CLI_TIMEOUT, cancel) {
+    let output = match run_bounded_command(
+        cmd,
+        Some(&validated),
+        message.as_bytes().to_vec(),
+        CLI_TIMEOUT,
+        cancel,
+    ) {
         Ok(o) => o,
         Err(e) => return WorkerOutcome::Error(e),
     };
@@ -1241,8 +1387,8 @@ mod tests {
         assert!(validate_cli_token("provider", "--evil").is_err());
         assert!(validate_cli_token("model", "-x").is_err());
 
-        assert_eq!(sanitize_title("--evil\n\u{202E}title"), "evil title");
-        assert_eq!(sanitize_title("---"), "Loupe handoff");
+        assert_eq!(handoff::sanitize_title("--evil\n\u{202E}title"), "evil title");
+        assert_eq!(handoff::sanitize_title("---"), "Loupe handoff");
     }
 
     #[test]
@@ -1270,23 +1416,30 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn find_t3_binary_rejects_relative_and_writable_dirs_and_accepts_trusted_symlink() {
+    fn find_t3_binary_rejects_relative_and_writable_ancestors_and_accepts_trusted_symlink() {
         use std::os::unix::fs::{PermissionsExt, symlink};
 
-        let root = std::env::temp_dir().join(format!("loupe-bin-sec-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&root);
-        let safe_dir = root.join("safe");
-        let real_dir = root.join("real");
-        let writable_dir = root.join("writable");
+        // Place test tree under Cargo's target dir so every real ancestor from `/` down is
+        // root- or euid-owned and non-writable (unlike `/tmp` which is 01777 and MUST be rejected).
+        let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../target/tmp")
+            .join(format!("loupe-bin-sec-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let safe_dir = base.join("safe");
+        let real_dir = base.join("real");
+        let writable_ancestor = base.join("writable-parent");
+        let nested_under_writable = writable_ancestor.join("0755-child");
         fs::create_dir_all(&safe_dir).unwrap();
         fs::create_dir_all(&real_dir).unwrap();
-        fs::create_dir_all(&writable_dir).unwrap();
+        fs::create_dir_all(&nested_under_writable).unwrap();
 
+        fs::set_permissions(&base, fs::Permissions::from_mode(0o755)).unwrap();
         fs::set_permissions(&safe_dir, fs::Permissions::from_mode(0o755)).unwrap();
         fs::set_permissions(&real_dir, fs::Permissions::from_mode(0o755)).unwrap();
-        fs::set_permissions(&writable_dir, fs::Permissions::from_mode(0o777)).unwrap();
+        fs::set_permissions(&writable_ancestor, fs::Permissions::from_mode(0o777)).unwrap();
+        fs::set_permissions(&nested_under_writable, fs::Permissions::from_mode(0o755)).unwrap();
 
-        let bad_bin = writable_dir.join("t3");
+        let bad_bin = nested_under_writable.join("t3");
         fs::write(&bad_bin, "#!/bin/sh\n").unwrap();
         fs::set_permissions(&bad_bin, fs::Permissions::from_mode(0o755)).unwrap();
 
@@ -1295,45 +1448,67 @@ mod tests {
         fs::set_permissions(&good_target, fs::Permissions::from_mode(0o755)).unwrap();
         symlink(&good_target, safe_dir.join("t3")).unwrap();
 
-        // Relative `.` and world-writable dir must be skipped; trusted symlink is accepted and canonicalized.
-        let path_val = std::env::join_paths([
+        // A 0755 dir beneath a 0777 ancestor MUST be rejected, as must `/tmp` and relative `.`.
+        let bad_path = std::env::join_paths([
             Path::new("."),
             Path::new(""),
-            writable_dir.as_path(),
+            nested_under_writable.as_path(),
+        ])
+        .unwrap();
+        assert!(find_t3_binary_in(Some(bad_path.as_os_str()), None).is_err());
+
+        // Trusted symlink with safe ancestors all the way to `/` is accepted and canonicalized.
+        let good_path = std::env::join_paths([
+            nested_under_writable.as_path(),
             safe_dir.as_path(),
         ])
         .unwrap();
-        let resolved = find_t3_binary_in(Some(path_val.as_os_str()), None).unwrap();
-        assert_eq!(resolved, fs::canonicalize(&good_target).unwrap());
+        let resolved = find_t3_binary_in(Some(good_path.as_os_str()), None).unwrap();
+        assert_eq!(resolved.path, fs::canonicalize(&good_target).unwrap());
 
-        // Only writable dir -> error (no bare "t3" fallback).
-        let bad_path = std::env::join_paths([writable_dir.as_path()]).unwrap();
-        assert!(find_t3_binary_in(Some(bad_path.as_os_str()), None).is_err());
-
-        let _ = fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&base);
     }
 
     #[cfg(unix)]
     #[test]
-    fn run_bounded_command_enforces_timeout_and_output_cap() {
+    fn run_bounded_command_kills_descendants_promptly_and_enforces_output_cap() {
         let cancel = AtomicBool::new(false);
 
-        // 1. Timeout kills and reaps a hung child cleanly.
+        // 1. Timeout kills the entire process group (including a background descendant holding
+        //    stdout/stderr pipes) and returns promptly instead of blocking for 10s.
         let mut sleep_cmd = Command::new("/bin/sh");
-        sleep_cmd.arg("-c").arg("sleep 10");
-        let err = run_bounded_command(sleep_cmd, Vec::new(), Duration::from_millis(120), &cancel)
-            .err()
-            .expect("expected timeout error");
+        sleep_cmd.arg("-c").arg("sleep 10 & sleep 10; wait");
+        let t0 = Instant::now();
+        let err = run_bounded_command(
+            sleep_cmd,
+            None,
+            Vec::new(),
+            Duration::from_millis(120),
+            &cancel,
+        )
+        .err()
+        .expect("expected timeout error");
+        let elapsed = t0.elapsed();
         assert!(err.contains("timed out"), "unexpected error: {err}");
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "timeout hung waiting on descendant pipes: elapsed={elapsed:?}"
+        );
 
         // 2. Output cap kills a noisy child before unbounded memory growth.
         let mut noisy_cmd = Command::new("/bin/sh");
         noisy_cmd
             .arg("-c")
             .arg("dd if=/dev/zero bs=4096 count=64 2>/dev/null");
-        let err = run_bounded_command(noisy_cmd, Vec::new(), Duration::from_secs(5), &cancel)
-            .err()
-            .expect("expected output cap error");
+        let err = run_bounded_command(
+            noisy_cmd,
+            None,
+            Vec::new(),
+            Duration::from_secs(5),
+            &cancel,
+        )
+        .err()
+        .expect("expected output cap error");
         assert!(err.contains("64 KiB"), "unexpected error: {err}");
     }
 
@@ -1344,9 +1519,8 @@ mod tests {
         agent.thread_id = "t-1".into();
         agent.title = "demo".into();
         h.begin_send(&agent, None);
-        // Enter editing mode via Tab.
         let host = Host::demo(0.0);
-        h.key("tab", &host);
+        h.key("tab", &host, (80, 24));
         h.char('a');
         h.char('\u{202E}'); // RLO BiDi override
         h.char('\u{200B}'); // ZWSP
@@ -1355,5 +1529,32 @@ mod tests {
             HandoffState::ComposeSend { draft, .. } => assert_eq!(draft, "ab"),
             other => panic!("unexpected state: {other:?}"),
         }
+    }
+
+    #[test]
+    fn confirm_start_blocks_enter_when_terminal_too_small_for_preview() {
+        let mut h = T3Handoff::new(HandoffSource::Machine, None);
+        let host = Host::demo(0.0);
+        let state = State::new(loupe_core::model::Snapshot::default());
+        h.begin_start(
+            "diagnose trace",
+            "--leading-dash\ntitle".into(),
+            "exact prompt body".into(),
+            Some("proj-1"),
+            None,
+            None,
+            false,
+            &state,
+        );
+        // Stored/previewed title must already match the exact sanitized CLI title.
+        match h.state() {
+            HandoffState::ConfirmStart { title, .. } => {
+                assert_eq!(title, "leading-dash title");
+            }
+            other => panic!("unexpected state: {other:?}"),
+        }
+        // Pressing Enter on a tiny terminal must NOT launch or error out; it stays blocked.
+        h.key("enter", &host, (20, 5));
+        assert!(matches!(h.state(), HandoffState::ConfirmStart { .. }));
     }
 }
