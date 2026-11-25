@@ -182,8 +182,12 @@ impl T3Handoff {
                     .map(|p| handoff::read_model_choices(p, &project_id))
                     .unwrap_or_else(|| vec![ModelChoice::Unselected]);
                 let resolved_base_dir = base_dir
-                    .filter(|p| p.is_absolute())
-                    .or_else(|| db_path.and_then(base_dir_from_db).filter(|p| p.is_absolute()));
+                    .filter(|p| validate_base_dir(p).is_ok())
+                    .or_else(|| {
+                        db_path
+                            .and_then(base_dir_from_db)
+                            .filter(|p| validate_base_dir(p).is_ok())
+                    });
                 let pending = PendingAction::Start {
                     action_label,
                     title: exact_title,
@@ -650,8 +654,9 @@ fn state_for_pending(pending: &PendingAction) -> HandoffState {
                 .unwrap_or_else(|| ModelChoice::Unselected.exact_preview_label());
             let needs_model_pick = chosen.is_none_or(ModelChoice::is_unselected);
             let base_dir_display = base_dir
-                .as_ref()
-                .map(|p| p.to_string_lossy().into_owned())
+                .as_deref()
+                .and_then(|p| validate_base_dir(p).ok())
+                .map(str::to_owned)
                 .unwrap_or_else(|| "(default)".into());
             HandoffState::ConfirmStart {
                 action_label: action_label.clone(),
@@ -760,7 +765,7 @@ pub(super) fn collect_projects(
 }
 
 /// Validated executable with an open read-only descriptor held across `spawn()` (pinning its inode)
-/// plus its `(dev, ino)` identity for immediate pre-exec revalidation.
+/// plus its exact `(dev, ino, uid, mode)` identity for immediate pre-exec revalidation.
 struct ValidatedBinary {
     path: PathBuf,
     #[cfg(unix)]
@@ -769,6 +774,10 @@ struct ValidatedBinary {
     dev: u64,
     #[cfg(unix)]
     ino: u64,
+    #[cfg(unix)]
+    uid: u32,
+    #[cfg(unix)]
+    mode: u32,
 }
 
 /// Resolve `t3` only from trusted absolute PATH directories or `$HOME/.local/bin`,
@@ -807,17 +816,38 @@ fn find_t3_binary_in(
     Err("t3 CLI not found in trusted PATH directories".into())
 }
 
-/// Filter `PATH` down to strictly trusted absolute, owner-verified, non-writable directories
-/// so wrapper scripts (`#!/usr/bin/env ...`) cannot resolve helpers from untrusted directories.
-fn trusted_child_path() -> Option<OsString> {
-    let path_env = std::env::var_os("PATH")?;
-    let safe_dirs: Vec<PathBuf> = std::env::split_paths(&path_env)
-        .filter(|dir| !dir.as_os_str().is_empty() && is_safe_dir_tree(dir))
-        .collect();
-    if safe_dirs.is_empty() {
-        return None;
+/// Filter `PATH` down to strictly trusted, canonicalized directories whose lexical AND
+/// canonical ancestry are both verified safe. Fails closed (`Err`) if no trusted directory
+/// exists so the child process can NEVER inherit an untrusted `PATH`.
+fn trusted_child_path() -> Result<OsString, String> {
+    let path_env = std::env::var_os("PATH");
+    trusted_child_path_from(path_env.as_deref())
+}
+
+fn trusted_child_path_from(path_env: Option<&std::ffi::OsStr>) -> Result<OsString, String> {
+    let Some(path_val) = path_env else {
+        return Err("no trusted directories in PATH for t3 CLI".into());
+    };
+    let mut safe_dirs: Vec<PathBuf> = Vec::new();
+    for dir in std::env::split_paths(path_val) {
+        if dir.as_os_str().is_empty() || !is_safe_dir_tree(&dir) {
+            continue;
+        }
+        let Ok(canon) = fs::canonicalize(&dir) else {
+            continue;
+        };
+        if !is_safe_dir_tree(&canon) {
+            continue;
+        }
+        if !safe_dirs.contains(&canon) {
+            safe_dirs.push(canon);
+        }
     }
-    std::env::join_paths(safe_dirs).ok()
+    if safe_dirs.is_empty() {
+        return Err("no trusted directories in PATH for t3 CLI".into());
+    }
+    std::env::join_paths(safe_dirs)
+        .map_err(|_| "failed to construct trusted PATH for t3 CLI".into())
 }
 
 fn validate_trusted_executable(candidate: &Path) -> Option<ValidatedBinary> {
@@ -858,6 +888,8 @@ fn validate_trusted_executable(candidate: &Path) -> Option<ValidatedBinary> {
             _guard: guard,
             dev: meta.dev(),
             ino: meta.ino(),
+            uid,
+            mode,
         })
     }
     #[cfg(not(unix))]
@@ -937,10 +969,31 @@ fn validate_project_arg(project_id: &str) -> Result<(), String> {
     if project_id.starts_with('-') {
         return Err("project identifier must not start with '-'".into());
     }
-    if project_id.chars().any(|c| c == '\0' || c.is_control()) {
-        return Err("project identifier contains control characters".into());
+    if project_id
+        .chars()
+        .any(|c| c == '\0' || c.is_control() || terminal::is_hidden(c))
+    {
+        return Err("project identifier contains control or hidden characters".into());
     }
     Ok(())
+}
+
+fn validate_base_dir(dir: &Path) -> Result<&str, String> {
+    if !dir.is_absolute() {
+        return Err("base directory must be absolute".into());
+    }
+    let s = dir
+        .to_str()
+        .ok_or_else(|| "base directory path must be valid UTF-8".to_owned())?;
+    if s.is_empty() || s.len() > 1024 {
+        return Err("invalid base directory length".into());
+    }
+    if s.chars()
+        .any(|c| c == '\0' || c.is_control() || terminal::is_hidden(c))
+    {
+        return Err("base directory contains control or hidden characters".into());
+    }
+    Ok(s)
 }
 
 fn validate_thread_id(thread_id: &str) -> Result<(), String> {
@@ -1030,7 +1083,7 @@ fn run_bounded_command(
 
         let recheck = validated.and_then(|v| {
             let c_path = CString::new(v.path.as_os_str().as_bytes()).ok()?;
-            Some((c_path, v.dev, v.ino))
+            Some((c_path, v.dev, v.ino, v.uid, v.mode))
         });
         // SAFETY: `pre_exec` uses only async-signal-safe syscalls (`setsid`, `geteuid`, `lstat`).
         unsafe {
@@ -1039,8 +1092,10 @@ fn run_bounded_command(
                 if libc::setsid() == -1 {
                     let _ = libc::setpgid(0, 0);
                 }
-                // Revalidate binary identity immediately before execve to close check-to-exec races.
-                if let Some((ref c_path, expected_dev, expected_ino)) = recheck {
+                // Revalidate exact binary identity immediately before execve to close check-to-exec races.
+                if let Some((ref c_path, expected_dev, expected_ino, expected_uid, expected_mode)) =
+                    recheck
+                {
                     let mut st: libc::stat = std::mem::zeroed();
                     if libc::lstat(c_path.as_ptr(), &mut st) != 0 {
                         return Err(io::Error::last_os_error());
@@ -1054,6 +1109,8 @@ fn run_bounded_command(
                         || !perms_ok
                         || (st.st_dev as u64) != expected_dev
                         || (st.st_ino as u64) != expected_ino
+                        || st.st_uid != expected_uid
+                        || (st.st_mode as u32) != expected_mode
                     {
                         return Err(io::Error::from_raw_os_error(libc::EACCES));
                     }
@@ -1247,18 +1304,16 @@ fn invoke_t3_thread_start(
     }
 
     let validated = find_t3_binary()?;
+    let safe_path = trusted_child_path()?;
     let mut cmd = Command::new(&validated.path);
-    if let Some(safe_path) = trusted_child_path() {
-        cmd.env("PATH", safe_path);
-    }
+    cmd.env("PATH", safe_path);
     cmd.arg("thread")
         .arg("start")
         .arg(format!("--title={safe_title}"))
         .arg("--json");
-    if let Some(dir) = base_dir.filter(|p| p.is_absolute()) {
-        let mut arg = OsString::from("--base-dir=");
-        arg.push(dir.as_os_str());
-        cmd.arg(arg);
+    if let Some(dir) = base_dir {
+        let dir_str = validate_base_dir(dir)?;
+        cmd.arg(format!("--base-dir={dir_str}"));
     }
     if let Some((provider, model)) = explicit_model {
         cmd.arg(format!("--provider={provider}"))
@@ -1289,15 +1344,20 @@ fn run_t3_thread_send(
         Ok(b) => b,
         Err(e) => return WorkerOutcome::Error(e),
     };
+    let safe_path = match trusted_child_path() {
+        Ok(p) => p,
+        Err(e) => return WorkerOutcome::Error(e),
+    };
     let mut cmd = Command::new(&validated.path);
-    if let Some(safe_path) = trusted_child_path() {
-        cmd.env("PATH", safe_path);
-    }
+    cmd.env("PATH", safe_path);
     cmd.arg("thread").arg("send").arg("--json");
-    if let Some(dir) = base_dir.filter(|p| p.is_absolute()) {
-        let mut arg = OsString::from("--base-dir=");
-        arg.push(dir.as_os_str());
-        cmd.arg(arg);
+    if let Some(dir) = base_dir {
+        match validate_base_dir(dir) {
+            Ok(dir_str) => {
+                cmd.arg(format!("--base-dir={dir_str}"));
+            }
+            Err(e) => return WorkerOutcome::Error(e),
+        }
     }
     cmd.arg("--").arg(thread_id).arg("-");
 
@@ -1376,6 +1436,12 @@ mod tests {
         assert!(validate_project_arg("-p").is_err());
         assert!(validate_project_arg("bad\0id").is_err());
         assert!(validate_project_arg("bad\nid").is_err());
+        assert!(validate_project_arg("bad\u{202E}id").is_err());
+
+        assert!(validate_base_dir(Path::new("/home/alice/.t3")).is_ok());
+        assert!(validate_base_dir(Path::new("relative/dir")).is_err());
+        assert!(validate_base_dir(Path::new("/home/alice/\u{202E}t3")).is_err());
+        assert!(validate_base_dir(Path::new("/home/alice/\nt3")).is_err());
 
         assert!(validate_thread_id("mcp:7832a1ed-7053-47c3-b183-a3ef46cccc85").is_ok());
         assert!(validate_thread_id("--base-dir=/evil").is_err());
@@ -1465,6 +1531,30 @@ mod tests {
         .unwrap();
         let resolved = find_t3_binary_in(Some(good_path.as_os_str()), None).unwrap();
         assert_eq!(resolved.path, fs::canonicalize(&good_target).unwrap());
+
+        // trusted_child_path_from MUST fail closed when only untrusted/relative/symlink-to-writable dirs exist.
+        let symlink_to_writable = base.join("link-to-bad");
+        symlink(&nested_under_writable, &symlink_to_writable).unwrap();
+        let all_bad = std::env::join_paths([
+            Path::new("."),
+            nested_under_writable.as_path(),
+            symlink_to_writable.as_path(),
+        ])
+        .unwrap();
+        assert!(trusted_child_path_from(Some(all_bad.as_os_str())).is_err());
+        assert!(trusted_child_path_from(None).is_err());
+
+        // Valid symlink dir under safe ancestors resolves to canonical safe target in child PATH.
+        let symlink_to_safe = base.join("link-to-safe");
+        symlink(&real_dir, &symlink_to_safe).unwrap();
+        let mixed = std::env::join_paths([
+            symlink_to_writable.as_path(),
+            symlink_to_safe.as_path(),
+        ])
+        .unwrap();
+        let filtered = trusted_child_path_from(Some(mixed.as_os_str())).unwrap();
+        let kept: Vec<PathBuf> = std::env::split_paths(&filtered).collect();
+        assert_eq!(kept, vec![fs::canonicalize(&real_dir).unwrap()]);
 
         let _ = fs::remove_dir_all(&base);
     }
