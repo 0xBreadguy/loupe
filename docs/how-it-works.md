@@ -158,10 +158,14 @@ writes to it, and it makes no network connections.
   link to `xdg-open` on Linux or `open` on macOS. Local links use the
   environment ID T3 keeps beside the database; remote links use the recorded
   destination. Pressing `f` in Telemetry, Storage, Trace or Insights (Tools and
-  Recap) shows a confirmation bar with a project picker and, only after you
-  confirm with `Enter`, invokes `t3 thread start` with a prompt built strictly
-  from the non-secret findings, timings, program names or paths already shown on
-  screen (never secrets, auth files, message bodies or command arguments).
+  Recap) shows a confirmation bar with a project picker (`←`/`→`) and model
+  picker (`↑`/`↓`) and, only after you confirm with `Enter`, invokes
+  `t3 thread start` with a prompt built strictly from the non-secret findings,
+  timings, program names or paths already shown on screen (never secrets, auth
+  files, message bodies or command arguments). When a project has no default
+  model set in T3, Loupe inherits your most recent local
+  `(providerInstanceId, model)` for that project (or across local T3) read-only
+  so starting a thread doesn't hard-stop.
   Pressing `M` on a local thread in Live shows contextual nudge presets and a
   single-line reply box and, after you confirm with `Enter`, invokes
   `t3 thread send` (which queues safely on busy threads without interrupting).

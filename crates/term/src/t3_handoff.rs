@@ -6,7 +6,7 @@
 
 use crate::platform::Wake;
 use loupe_core::{
-    handoff::{self, HandoffState, SendPreset},
+    handoff::{self, HandoffState, ModelChoice, SendPreset},
     host::Host,
     integration,
     model::{Agent, Pace, State},
@@ -45,6 +45,9 @@ enum PendingAction {
         prompt: String,
         projects: Vec<(String, String)>,
         project_idx: usize,
+        models: Vec<ModelChoice>,
+        model_idx: usize,
+        db_path: Option<PathBuf>,
         base_dir: Option<PathBuf>,
     },
     Send {
@@ -112,6 +115,7 @@ impl T3Handoff {
     }
 
     /// Start the confirmation flow for `t3 thread start`.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn begin_start(
         &mut self,
         action_label: impl Into<String>,
@@ -119,6 +123,7 @@ impl T3Handoff {
         prompt: String,
         preferred_project_id: Option<&str>,
         base_dir: Option<PathBuf>,
+        db_path: Option<&Path>,
         dashboard: &State,
     ) {
         if self.state.is_running() {
@@ -138,12 +143,23 @@ impl T3Handoff {
             }
             HandoffSource::Machine => {
                 let projects = collect_projects(dashboard, preferred_project_id);
+                let project_id = projects[0].0.clone();
                 let project_name = projects[0].1.clone();
                 let project_count = projects.len();
+                let models = db_path
+                    .map(|p| handoff::read_model_choices(p, &project_id))
+                    .unwrap_or_else(|| vec![ModelChoice::ProjectDefault { model_hint: None }]);
+                let model_label = models
+                    .first()
+                    .map(ModelChoice::short_label)
+                    .unwrap_or_default();
+                let model_count = models.len();
                 self.state = HandoffState::ConfirmStart {
                     action_label: action_label.clone(),
                     project_name,
                     project_count,
+                    model_label,
+                    model_count,
                 };
                 self.pending = Some(PendingAction::Start {
                     action_label,
@@ -151,6 +167,9 @@ impl T3Handoff {
                     prompt,
                     projects,
                     project_idx: 0,
+                    models,
+                    model_idx: 0,
+                    db_path: db_path.map(Path::to_path_buf),
                     base_dir,
                 });
             }
@@ -284,6 +303,9 @@ impl T3Handoff {
                 action_label,
                 projects,
                 project_idx,
+                models,
+                model_idx,
+                db_path,
                 ..
             }) => match name {
                 "q" => return HandoffKey::Quit,
@@ -291,28 +313,57 @@ impl T3Handoff {
                     self.dismiss();
                     return HandoffKey::Consumed;
                 }
-                "left" => {
+                "left" | "right" | "tab" => {
                     if !projects.is_empty() {
-                        *project_idx = if *project_idx == 0 {
-                            projects.len() - 1
+                        *project_idx = if name == "left" {
+                            if *project_idx == 0 {
+                                projects.len() - 1
+                            } else {
+                                *project_idx - 1
+                            }
                         } else {
-                            *project_idx - 1
+                            (*project_idx + 1) % projects.len()
                         };
+                        let project_id = &projects[*project_idx].0;
+                        *models = db_path
+                            .as_deref()
+                            .map(|p| handoff::read_model_choices(p, project_id))
+                            .unwrap_or_else(|| {
+                                vec![ModelChoice::ProjectDefault { model_hint: None }]
+                            });
+                        *model_idx = 0;
+                        let model_label = models
+                            .first()
+                            .map(ModelChoice::short_label)
+                            .unwrap_or_default();
                         self.state = HandoffState::ConfirmStart {
                             action_label: action_label.clone(),
                             project_name: projects[*project_idx].1.clone(),
                             project_count: projects.len(),
+                            model_label,
+                            model_count: models.len(),
                         };
                     }
                     return HandoffKey::Consumed;
                 }
-                "right" | "tab" => {
-                    if !projects.is_empty() {
-                        *project_idx = (*project_idx + 1) % projects.len();
+                "up" | "k" | "down" | "j" => {
+                    if !models.is_empty() {
+                        *model_idx = if matches!(name, "up" | "k") {
+                            if *model_idx == 0 {
+                                models.len() - 1
+                            } else {
+                                *model_idx - 1
+                            }
+                        } else {
+                            (*model_idx + 1) % models.len()
+                        };
+                        let model_label = models[*model_idx].short_label();
                         self.state = HandoffState::ConfirmStart {
                             action_label: action_label.clone(),
                             project_name: projects[*project_idx].1.clone(),
                             project_count: projects.len(),
+                            model_label,
+                            model_count: models.len(),
                         };
                     }
                     return HandoffKey::Consumed;
@@ -480,6 +531,8 @@ impl T3Handoff {
                 prompt,
                 projects,
                 project_idx,
+                models,
+                model_idx,
                 base_dir,
                 ..
             } => {
@@ -487,9 +540,20 @@ impl T3Handoff {
                     .get(project_idx)
                     .cloned()
                     .unwrap_or_else(|| (".".into(), "current folder".into()));
+                let chosen_model = models
+                    .get(model_idx)
+                    .cloned()
+                    .unwrap_or(ModelChoice::ProjectDefault { model_hint: None });
+                let fallback_explicit = models.iter().find_map(|m| match m {
+                    ModelChoice::Explicit { provider, model } => {
+                        Some((provider.clone(), model.clone()))
+                    }
+                    ModelChoice::ProjectDefault { .. } => None,
+                });
                 let dir = base_dir.or(host_base_dir);
+                let model_tag = chosen_model.short_label();
                 self.state = HandoffState::Running {
-                    label: format!("Starting T3 thread in {project_name}…"),
+                    label: format!("Starting T3 thread in {project_name} ({model_tag})…"),
                 };
                 let _ = std::thread::Builder::new()
                     .name("loupe-t3-handoff".into())
@@ -499,6 +563,8 @@ impl T3Handoff {
                             &project_name,
                             &title,
                             &prompt,
+                            &chosen_model,
+                            fallback_explicit.as_ref(),
                             dir.as_deref(),
                             env_id.as_deref(),
                         );
@@ -645,51 +711,74 @@ fn has_gui_display() -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_t3_thread_start(
     project_id: &str,
     project_name: &str,
     title: &str,
     prompt: &str,
+    chosen_model: &ModelChoice,
+    fallback_explicit: Option<&(String, String)>,
     base_dir: Option<&Path>,
     env_id: Option<&str>,
 ) -> WorkerOutcome {
-    let bin = find_t3_binary();
-    let mut cmd = Command::new(&bin);
-    cmd.arg("thread")
-        .arg("start")
-        .arg("--title")
-        .arg(title)
-        .arg("--json");
-    if let Some(dir) = base_dir.filter(|p| p.is_absolute()) {
-        cmd.arg("--base-dir").arg(dir);
-    }
-    cmd.arg(project_id)
-        .arg("-")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-
-    let mut child = match cmd.spawn() {
-        Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return WorkerOutcome::Error("t3 CLI not found on PATH".into());
-        }
-        Err(e) => {
-            return WorkerOutcome::Error(format!("failed to run t3: {e}"));
-        }
+    let explicit = match chosen_model {
+        ModelChoice::Explicit { provider, model } => Some((provider.as_str(), model.as_str())),
+        ModelChoice::ProjectDefault { .. } => None,
     };
 
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(prompt.as_bytes());
-    }
-
-    let output = match child.wait_with_output() {
-        Ok(o) => o,
-        Err(e) => return WorkerOutcome::Error(format!("t3 CLI failed: {e}")),
+    let (output, used_model_label) = match invoke_t3_thread_start(
+        project_id, title, prompt, explicit, base_dir,
+    ) {
+        Ok(out) => {
+            if !out.status.success() && explicit.is_none() {
+                let err_line =
+                    first_error_line(&out.stderr, &out.stdout, "t3 thread start failed");
+                if err_line.to_ascii_lowercase().contains("no default model") {
+                    if let Some((fb_provider, fb_model)) = fallback_explicit {
+                        match invoke_t3_thread_start(
+                            project_id,
+                            title,
+                            prompt,
+                            Some((fb_provider.as_str(), fb_model.as_str())),
+                            base_dir,
+                        ) {
+                            Ok(retry_out) => (
+                                retry_out,
+                                Some(loupe_core::terminal::short_model(fb_model)),
+                            ),
+                            Err(e) => return WorkerOutcome::Error(e),
+                        }
+                    } else {
+                        return WorkerOutcome::Error(format!(
+                            "No default model for {project_name} — start one thread in T3 or set a project default"
+                        ));
+                    }
+                } else {
+                    (out, None)
+                }
+            } else {
+                let label = match chosen_model {
+                    ModelChoice::Explicit { model, .. } => {
+                        Some(loupe_core::terminal::short_model(model))
+                    }
+                    ModelChoice::ProjectDefault {
+                        model_hint: Some(m),
+                    } => Some(loupe_core::terminal::short_model(m)),
+                    ModelChoice::ProjectDefault { model_hint: None } => None,
+                };
+                (out, label)
+            }
+        }
+        Err(e) => return WorkerOutcome::Error(e),
     };
 
     if !output.status.success() {
-        return WorkerOutcome::Error(first_error_line(&output.stderr, &output.stdout, "t3 thread start failed"));
+        return WorkerOutcome::Error(first_error_line(
+            &output.stderr,
+            &output.stdout,
+            "t3 thread start failed",
+        ));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -714,7 +803,57 @@ fn run_t3_thread_start(
     } else {
         "open in T3 Code"
     };
-    WorkerOutcome::Done(format!("Started in {project_name} · {short_id} · {tail}"))
+    let model_suffix = used_model_label
+        .map(|m| format!(" ({m})"))
+        .unwrap_or_default();
+    WorkerOutcome::Done(format!(
+        "Started in {project_name}{model_suffix} · {short_id} · {tail}"
+    ))
+}
+
+fn invoke_t3_thread_start(
+    project_id: &str,
+    title: &str,
+    prompt: &str,
+    explicit_model: Option<(&str, &str)>,
+    base_dir: Option<&Path>,
+) -> Result<std::process::Output, String> {
+    let bin = find_t3_binary();
+    let mut cmd = Command::new(&bin);
+    cmd.arg("thread")
+        .arg("start")
+        .arg("--title")
+        .arg(title)
+        .arg("--json");
+    if let Some(dir) = base_dir.filter(|p| p.is_absolute()) {
+        cmd.arg("--base-dir").arg(dir);
+    }
+    if let Some((provider, model)) = explicit_model {
+        cmd.arg("--provider").arg(provider).arg("--model").arg(model);
+    }
+    cmd.arg(project_id)
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    let mut child = match cmd.spawn() {
+        Ok(c) => c,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err("t3 CLI not found on PATH".into());
+        }
+        Err(e) => {
+            return Err(format!("failed to run t3: {e}"));
+        }
+    };
+
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(prompt.as_bytes());
+    }
+
+    child
+        .wait_with_output()
+        .map_err(|e| format!("t3 CLI failed: {e}"))
 }
 
 fn run_t3_thread_send(

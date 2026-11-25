@@ -169,7 +169,15 @@ impl TelemetryScreen {
                 }
                 let (title, prompt) = handoff::telemetry_prompt(&report);
                 let base_dir = report.inputs.data_folder.is_absolute().then_some(report.inputs.data_folder);
-                handoff.begin_start("turn off telemetry", title, prompt, None, base_dir, state);
+                handoff.begin_start(
+                    "turn off telemetry",
+                    title,
+                    prompt,
+                    None,
+                    base_dir,
+                    host.db.as_deref(),
+                    state,
+                );
             }
             "tab" | "shift-tab" => {
                 view.toggle_tab();

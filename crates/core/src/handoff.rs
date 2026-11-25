@@ -11,7 +11,32 @@ use crate::telemetry;
 use crate::terminal::{self, Canvas, Palette};
 use crate::tools::{self, Kind as ToolKind, Tools};
 use crate::trace::{self, Kind as TraceKind, Trace};
-use std::path::PathBuf;
+use rusqlite::{Connection, params};
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+/// One selectable model option for `t3 thread start`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ModelChoice {
+    /// Let T3 Code use the project's configured default model (no `--provider`/`--model` flags).
+    ProjectDefault { model_hint: Option<String> },
+    /// Inherit a specific `(providerInstanceId, model)` from recent local T3 runs/threads.
+    Explicit { provider: String, model: String },
+}
+
+impl ModelChoice {
+    pub fn short_label(&self) -> String {
+        match self {
+            Self::ProjectDefault {
+                model_hint: Some(model),
+            } => {
+                format!("default ({})", terminal::short_model(model))
+            }
+            Self::ProjectDefault { model_hint: None } => "project default".into(),
+            Self::Explicit { model, .. } => terminal::short_model(model),
+        }
+    }
+}
 
 /// Interactive T3 Code handoff bar state shared across Telemetry, Storage, Trace, Insights, and Live.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -23,6 +48,8 @@ pub enum HandoffState {
         action_label: String,
         project_name: String,
         project_count: usize,
+        model_label: String,
+        model_count: usize,
     },
     /// Confirm or compose a message to an existing local T3 thread (`t3 thread send`).
     ComposeSend {
@@ -118,6 +145,146 @@ pub struct StorageItem {
 /// Parse a `threadId` from `t3 thread start --json` output.
 pub fn parse_t3_thread_id(stdout: &str) -> Option<String> {
     telemetry::parse_t3_thread_id(stdout)
+}
+
+/// Resolve ordered model choices for `t3 thread start` on `project_id` from T3's local SQLite
+/// database, strictly read-only (`PRAGMA query_only=ON`).
+///
+/// Priority order:
+/// 1. The project's own configured `default_model_selection_json` (if set in `projection_projects`)
+/// 2. Most recent `(providerInstanceId, model)` used in runs/threads of that same project
+/// 3. Most recent `(providerInstanceId, model)` used in any local T3 project
+///
+/// Never opens secrets, auth tables, prompts, or message text.
+pub fn read_model_choices(db_path: &Path, project_id: &str) -> Vec<ModelChoice> {
+    let Ok(db) = crate::source::open_read_only(db_path) else {
+        return vec![ModelChoice::ProjectDefault { model_hint: None }];
+    };
+    let _ = db.busy_timeout(Duration::from_millis(250));
+    if db.execute_batch("PRAGMA query_only=ON").is_err() {
+        return vec![ModelChoice::ProjectDefault { model_hint: None }];
+    }
+    read_model_choices_from(&db, project_id)
+}
+
+fn read_model_choices_from(db: &Connection, project_id: &str) -> Vec<ModelChoice> {
+    let mut choices: Vec<ModelChoice> = Vec::new();
+    let mut seen_explicit: Vec<(String, String)> = Vec::new();
+
+    // 1. Check whether the project has an explicit default model in T3.
+    let mut resolved_project_id = project_id.to_owned();
+    let project_default: Option<(String, Option<String>)> = db
+        .query_row(
+            "SELECT project_id, json_extract(default_model_selection_json, '$.model')
+             FROM projection_projects
+             WHERE (project_id = ?1 OR workspace_root = ?1) AND deleted_at IS NULL
+             LIMIT 1",
+            params![project_id],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        )
+        .ok();
+    if let Some((pid, model_hint)) = project_default {
+        resolved_project_id = pid;
+        if let Some(model) = model_hint.filter(|m| !m.trim().is_empty()) {
+            choices.push(ModelChoice::ProjectDefault {
+                model_hint: Some(model),
+            });
+        }
+    }
+
+    let mut push_explicit = |provider: Option<String>, model: Option<String>| {
+        if seen_explicit.len() >= 10 {
+            return;
+        }
+        let Some(p) = provider.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty()) else {
+            return;
+        };
+        let Some(m) = model
+            .map(|s| s.trim().to_owned())
+            .filter(|s| !s.is_empty() && s != "--")
+        else {
+            return;
+        };
+        if seen_explicit.iter().any(|(ep, em)| ep == &p && em == &m) {
+            return;
+        }
+        seen_explicit.push((p.clone(), m.clone()));
+        choices.push(ModelChoice::Explicit {
+            provider: p,
+            model: m,
+        });
+    };
+
+    // 2. Most recent runs in the target project.
+    if let Ok(mut stmt) = db.prepare(
+        "SELECT json_extract(r.payload_json, '$.providerInstanceId'),
+                json_extract(r.payload_json, '$.modelSelection.model')
+         FROM orchestration_v2_projection_runs r
+         JOIN orchestration_v2_projection_threads t ON t.thread_id = r.thread_id
+         WHERE t.project_id = ?1 AND t.deleted_at IS NULL
+         ORDER BY r.requested_at DESC, r.rowid DESC
+         LIMIT 30",
+    ) {
+        if let Ok(mut rows) = stmt.query(params![resolved_project_id]) {
+            while let Ok(Some(row)) = rows.next() {
+                push_explicit(row.get(0).ok().flatten(), row.get(1).ok().flatten());
+            }
+        }
+    }
+
+    // 2b. Most recent threads in the target project (covers configured threads without runs yet).
+    if let Ok(mut stmt) = db.prepare(
+        "SELECT COALESCE(json_extract(payload_json, '$.providerInstanceId'), default_provider),
+                json_extract(payload_json, '$.modelSelection.model')
+         FROM orchestration_v2_projection_threads
+         WHERE project_id = ?1 AND deleted_at IS NULL
+         ORDER BY updated_at DESC, rowid DESC
+         LIMIT 20",
+    ) {
+        if let Ok(mut rows) = stmt.query(params![resolved_project_id]) {
+            while let Ok(Some(row)) = rows.next() {
+                push_explicit(row.get(0).ok().flatten(), row.get(1).ok().flatten());
+            }
+        }
+    }
+
+    // 3. Most recent runs across all local projects.
+    if let Ok(mut stmt) = db.prepare(
+        "SELECT json_extract(r.payload_json, '$.providerInstanceId'),
+                json_extract(r.payload_json, '$.modelSelection.model')
+         FROM orchestration_v2_projection_runs r
+         JOIN orchestration_v2_projection_threads t ON t.thread_id = r.thread_id
+         WHERE t.deleted_at IS NULL
+         ORDER BY r.requested_at DESC, r.rowid DESC
+         LIMIT 40",
+    ) {
+        if let Ok(mut rows) = stmt.query([]) {
+            while let Ok(Some(row)) = rows.next() {
+                push_explicit(row.get(0).ok().flatten(), row.get(1).ok().flatten());
+            }
+        }
+    }
+
+    // 3b. Most recent threads across all local projects.
+    if let Ok(mut stmt) = db.prepare(
+        "SELECT COALESCE(json_extract(payload_json, '$.providerInstanceId'), default_provider),
+                json_extract(payload_json, '$.modelSelection.model')
+         FROM orchestration_v2_projection_threads
+         WHERE deleted_at IS NULL
+         ORDER BY updated_at DESC, rowid DESC
+         LIMIT 20",
+    ) {
+        if let Ok(mut rows) = stmt.query([]) {
+            while let Ok(Some(row)) = rows.next() {
+                push_explicit(row.get(0).ok().flatten(), row.get(1).ok().flatten());
+            }
+        }
+    }
+
+    if choices.is_empty() {
+        choices.push(ModelChoice::ProjectDefault { model_hint: None });
+    }
+    choices
 }
 
 /// Build the Telemetry Check handoff `(title, prompt)`.
@@ -962,19 +1129,35 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
             action_label,
             project_name,
             project_count,
+            model_label,
+            model_count,
         } => {
             c.fill(0, y, w, 1, p.sel);
             let mut x = 1;
             x += c.text_bg(x, y, "⏎", p.accent, p.sel, true) + 1;
-            let switch = if *project_count > 1 {
+            let proj_hint = if *project_count > 1 {
                 " · ←→ project"
             } else {
                 ""
             };
-            let suffix = format!("{switch} · Esc cancel");
+            let model_hint = if *model_count > 1 {
+                " · ↑↓ model"
+            } else {
+                ""
+            };
+            let suffix = format!("{proj_hint}{model_hint} · Esc cancel");
             let suffix_w = terminal::width(&suffix) as i32;
-            let lead_room = (w - 2 - x - suffix_w).max(8);
-            let lead = format!("start T3 thread in {project_name} ({action_label})");
+            let lead_room = (w - 2 - x - suffix_w).max(12);
+            let model_part = if model_label.is_empty() {
+                String::new()
+            } else {
+                format!(" · {model_label}")
+            };
+            let lead = if w >= 104 {
+                format!("start T3 thread in {project_name}{model_part} ({action_label})")
+            } else {
+                format!("start in {project_name}{model_part} ({action_label})")
+            };
             x += c.text_bg(x, y, &fit(&lead, lead_room), p.fg, p.sel, true);
             if x + 1 < w - 1 {
                 c.text_bg(
@@ -1502,6 +1685,8 @@ mod tests {
                 action_label: "Optimize slow & failing tools".into(),
                 project_name: "loupe".into(),
                 project_count: 3,
+                model_label: "opus-5.5".into(),
+                model_count: 4,
             },
             HandoffState::ComposeSend {
                 thread_title: "Refactor telemetry check and verify CI".into(),
@@ -1535,5 +1720,82 @@ mod tests {
                 draw_handoff_bar(&mut c, 18, st, &p);
             }
         }
+    }
+
+    #[test]
+    fn read_model_choices_follows_project_default_then_project_recent_then_global_recent() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE projection_projects (
+                project_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                workspace_root TEXT NOT NULL,
+                default_model_selection_json TEXT,
+                deleted_at TEXT
+             );
+             CREATE TABLE orchestration_v2_projection_threads (
+                thread_id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                default_provider TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                deleted_at TEXT,
+                payload_json TEXT NOT NULL
+             );
+             CREATE TABLE orchestration_v2_projection_runs (
+                run_id TEXT PRIMARY KEY,
+                thread_id TEXT NOT NULL,
+                requested_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL
+             );
+             INSERT INTO projection_projects VALUES
+               ('p-with-default', 'Alpha', '/w/alpha', '{\"model\":\"claude-opus-5-5\"}', NULL),
+               ('p-no-default',   'Beta',  '/w/beta',  NULL, NULL),
+               ('p-fresh',        'Gamma', '/w/gamma', NULL, NULL);
+             INSERT INTO orchestration_v2_projection_threads VALUES
+               ('t-alpha', 'p-with-default', 'A', 'claudeAgent', '2026-11-24T10:00:00.000Z', NULL, '{\"providerInstanceId\":\"claudeAgent\",\"modelSelection\":{\"model\":\"claude-opus-5-5\"}}'),
+               ('t-beta',  'p-no-default',   'B', 'codex',       '2026-11-24T11:00:00.000Z', NULL, '{\"providerInstanceId\":\"codex\",\"modelSelection\":{\"model\":\"gpt-6.1-sol\"}}');
+             INSERT INTO orchestration_v2_projection_runs VALUES
+               ('r1', 't-alpha', '2026-11-24T10:05:00.000Z', '{\"providerInstanceId\":\"antigravity\",\"modelSelection\":{\"model\":\"gemini-4-neon\"}}'),
+               ('r2', 't-beta',  '2026-11-24T11:05:00.000Z', '{\"providerInstanceId\":\"codex\",\"modelSelection\":{\"model\":\"gpt-6.1-sol\"}}');",
+        )
+        .unwrap();
+
+        // 1. Project WITH default puts ProjectDefault first, followed by recent explicit models.
+        let alpha = read_model_choices_from(&db, "p-with-default");
+        assert_eq!(
+            alpha[0],
+            ModelChoice::ProjectDefault {
+                model_hint: Some("claude-opus-5-5".into()),
+            }
+        );
+        assert_eq!(
+            alpha[1],
+            ModelChoice::Explicit {
+                provider: "antigravity".into(),
+                model: "gemini-4-neon".into(),
+            }
+        );
+
+        // 2. Project WITHOUT default inherits its own most recent run first (no hard stop!).
+        let beta = read_model_choices_from(&db, "p-no-default");
+        assert_eq!(
+            beta[0],
+            ModelChoice::Explicit {
+                provider: "codex".into(),
+                model: "gpt-6.1-sol".into(),
+            }
+        );
+        assert!(beta.iter().any(|c| matches!(c, ModelChoice::Explicit { model, .. } if model == "gemini-4-neon")));
+
+        // 3. Brand-new project with no default and no runs inherits globally most recent run.
+        let gamma = read_model_choices_from(&db, "p-fresh");
+        assert_eq!(
+            gamma[0],
+            ModelChoice::Explicit {
+                provider: "codex".into(),
+                model: "gpt-6.1-sol".into(),
+            }
+        );
     }
 }

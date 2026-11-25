@@ -201,7 +201,15 @@ fn trace_key(
                 });
                 let (title, prompt) =
                     loupe_core::handoff::trace_prompt(tr, t.selected.as_deref(), project_name);
-                handoff.begin_start("diagnose trace", title, prompt, project_id, None, s);
+                handoff.begin_start(
+                    "diagnose trace",
+                    title,
+                    prompt,
+                    project_id,
+                    None,
+                    host.db.as_deref(),
+                    s,
+                );
             }
         }
         trace_live::Outcome::Stay => {}
@@ -661,7 +669,15 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                     }
                     InsightsEffect::OptimizeInT3 => {
                         if let Some((action_label, title, prompt)) = insights.active_handoff_prompt() {
-                            handoff.begin_start(action_label, title, prompt, None, None, &state);
+                            handoff.begin_start(
+                                action_label,
+                                title,
+                                prompt,
+                                None,
+                                None,
+                                host.db.as_deref(),
+                                &state,
+                            );
                             insights.paint(&state, source, size, handoff.state(), &mut encoder, &mut full)?;
                             insights_dirty = false;
                         }
