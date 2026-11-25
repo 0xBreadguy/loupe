@@ -17,7 +17,7 @@ nothing of yours.
 ## Linux, from a release
 
 ```sh
-v=1.6.0 t=$(uname -m)-unknown-linux-gnu
+v=1.7.0 t=$(uname -m)-unknown-linux-gnu
 curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/loupe-$v-$t.tar.gz" &&
   curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/SHA256SUMS" &&
   sha256sum -c --ignore-missing SHA256SUMS &&
@@ -78,7 +78,7 @@ icon stays visible either way.
 ## macOS (preview)
 
 ```sh
-v=1.6.0 f=loupe-$v-universal-apple-darwin
+v=1.7.0 f=loupe-$v-universal-apple-darwin
 curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/$f.tar.gz" &&
   curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/SHA256SUMS" &&
   shasum -a 256 -c --ignore-missing SHA256SUMS &&
