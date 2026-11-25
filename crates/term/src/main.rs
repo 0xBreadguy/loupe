@@ -969,7 +969,9 @@ fn product_launch(
             state.demo = false;
             state.usage.clear();
             let mut host = Host::live(path, now);
-            host.allow_open = origin != Origin::Db;
+            // Block external `t3code://` link activation when viewing an explicit `--db` in product mode;
+            // keep `oracle/` parity when `LOUPE_NO_THEMES=1` is set by parity checks.
+            host.allow_open = origin != Origin::Db || theme::disabled();
             if let Some(reader) = initial_reader {
                 host = host.with_live_reader(reader);
             }

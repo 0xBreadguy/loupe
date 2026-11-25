@@ -151,7 +151,7 @@ impl Host {
             s.snap.at
         };
         let mut host = Self::new(db, usage, theme, fixed, epoch);
-        host.allow_open = host.db.is_none();
+        host.allow_open = host.db.is_none() || crate::theme::disabled();
         host
     }
 }
