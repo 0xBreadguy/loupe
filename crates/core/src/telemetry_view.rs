@@ -36,26 +36,8 @@ pub enum Motion {
     End,
 }
 
-/// Interactive "have a T3 thread turn this off" handoff banner state.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub enum HandoffState {
-    #[default]
-    Idle,
-    Confirm {
-        project_name: String,
-        project_count: usize,
-    },
-    Starting {
-        project_name: String,
-    },
-    Started {
-        thread_id: String,
-        project_name: String,
-        opened_app: bool,
-    },
-    DemoPreview,
-    Error(String),
-}
+/// Interactive T3 handoff banner state (shared across Loupe views).
+pub use crate::handoff::HandoffState;
 
 /// Glyphs chosen to stay 1 terminal column wide across Unicode terminals.
 pub fn restart_glyph() -> char {
@@ -1285,72 +1267,12 @@ impl TelemetryView {
         }
 
         if show_handoff && rows >= 4 {
-            draw_handoff_bar(&mut c, (rows - 2) as i32, handoff, p);
+            crate::handoff::draw_handoff_bar(&mut c, (rows - 2) as i32, handoff, p);
         }
 
         // Footer (row h - 1)
         draw_board_footer(&mut c, state, report, self.tab, self.help, checking, p);
         c
-    }
-}
-
-fn draw_handoff_bar(c: &mut Canvas, y: i32, handoff: &HandoffState, p: &Palette) {
-    let w = c.w as i32;
-    c.fill(0, y, w, 1, p.panel);
-    match handoff {
-        HandoffState::Idle => {}
-        HandoffState::Confirm {
-            project_name,
-            project_count,
-        } => {
-            c.set(1, y, '▌', p.accent, Some(p.panel), false);
-            let prompt = format!("Start a T3 thread in \"{project_name}\" to fix telemetry?");
-            let hint = if *project_count > 1 {
-                "Enter confirm · ←→ project · Esc cancel"
-            } else {
-                "Enter confirm · Esc cancel"
-            };
-            let hint_w = width(hint);
-            let max_prompt = (w - 4 - hint_w - 2).max(10);
-            c.text_bg(3, y, &fit(&prompt, max_prompt), p.fg, p.panel, true);
-            if w - 1 - hint_w > 4 {
-                c.right(w - 1, y, hint, p.accent);
-            }
-        }
-        HandoffState::Starting { project_name } => {
-            c.set(1, y, '▌', p.accent, Some(p.panel), false);
-            let msg = format!("Starting thread in T3 Code ({project_name})…");
-            c.text_bg(3, y, &fit(&msg, w - 4), p.fg, p.panel, false);
-        }
-        HandoffState::Started {
-            thread_id,
-            project_name,
-            opened_app,
-        } => {
-            c.set(1, y, '▌', p.accent, Some(p.panel), false);
-            let short_id = if thread_id.len() > 12 {
-                &thread_id[thread_id.len() - 8..]
-            } else {
-                thread_id.as_str()
-            };
-            let tail = if *opened_app {
-                "opened in T3 Code"
-            } else {
-                "press e to watch on Live"
-            };
-            let msg = format!("✓ Started T3 thread ({short_id}) in {project_name} · {tail}");
-            c.text_bg(3, y, &fit(&msg, w - 4), p.fg, p.panel, false);
-        }
-        HandoffState::DemoPreview => {
-            c.set(1, y, '▌', p.text2, Some(p.panel), false);
-            let msg = "Demo mode: press f on live data to fire a T3 thread with fix instructions.";
-            c.text_bg(3, y, &fit(msg, w - 4), p.text2, p.panel, false);
-        }
-        HandoffState::Error(err) => {
-            c.set(1, y, '▌', p.warn, Some(p.panel), false);
-            let msg = format!("△ Couldn't start T3 thread: {err}");
-            c.text_bg(3, y, &fit(&msg, w - 4), p.warn, p.panel, false);
-        }
     }
 }
 

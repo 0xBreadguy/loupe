@@ -119,6 +119,12 @@ removing are all in [docs/install.md](docs/install.md).
   relay traces, custom OTLP exporters), whether your opt-outs are actually
   working, and the exact fix for how T3 was launched — local files only, never
   opens secrets or auth files.
+- **Hand off straight to T3 Code.** Press `f` in Telemetry, Storage, Trace, or
+  Insights (Tools & Recap) to spin up a T3 thread with Loupe's non-secret
+  findings so an agent can turn telemetry off, clean up heavy worktrees,
+  diagnose a slow trace, or optimize your top failing/slow commands. Press `M`
+  on Live to nudge a stalled thread or queue a quick reply over SSH. Always
+  asks first, never touches `--demo` or `--db`.
 - **A bar widget** on Omarchy: a count in the bar, and a card of who's doing
   what when you click it.
 

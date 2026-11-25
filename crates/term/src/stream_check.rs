@@ -109,6 +109,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let wake = Arc::new(Wake::new()?);
     let mut storage = StorageScreen::new(source, Arc::clone(&wake));
     let mut telemetry = TelemetryScreen::new(telemetry_source);
+    let mut handoff = T3Handoff::new(HandoffSource::Demo, None);
     // `setup` without the threads: the palette, and a mailbox in place of the reader thread.
     if let Some(themes) = &host.themes {
         state.palette = themes.palette();
@@ -218,11 +219,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 full = false;
                 sink(&canvas, &bytes, was_full)?;
             } else {
-                paint_with(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut sink)?;
+                paint_with(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut sink)?;
             }
             for &(_, key) in seg.keys.iter().filter(|(at, _)| *at == i) {
-                dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut telemetry, &mut tracing, key, size);
-                paint_with(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut sink)?;
+                dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut telemetry, &mut handoff, &mut tracing, key, size);
+                paint_with(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut sink)?;
             }
             let elapsed = started.elapsed().saturating_sub(sink_time);
             samples.push(elapsed.as_secs_f64() * 1e6);
@@ -257,12 +258,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// The key handling of `present`'s loop, for the keys the script presses.
+#[allow(clippy::too_many_arguments)]
 fn dispatch_key(
     state: &mut State,
     host: &mut Host,
     clock: &mut TermClock,
     storage: &mut StorageScreen,
     telemetry: &mut TelemetryScreen,
+    handoff: &mut T3Handoff,
     tracing: &mut Option<trace_live::Screen>,
     name: &'static str,
     size: (usize, usize),
@@ -278,7 +281,7 @@ fn dispatch_key(
         if matches!(name, "c" | "C") {
             on_key(state, host, clock, name, false);
         } else {
-            telemetry.key(name, state, host);
+            telemetry.key(name, state, host, handoff);
         }
         return;
     }
@@ -293,7 +296,7 @@ fn dispatch_key(
         if matches!(name, "c" | "C") {
             on_key(state, host, clock, name, false);
         } else {
-            storage.key(name, state, host, size);
+            storage.key(name, state, host, handoff, size);
         }
         return;
     }
@@ -302,7 +305,7 @@ fn dispatch_key(
             let at = host::input_now(state, host);
             match t.key(name) {
                 trace_live::Outcome::Close => *tracing = None,
-                trace_live::Outcome::OpenThread(_) => {}
+                trace_live::Outcome::OpenThread(_) | trace_live::Outcome::InvestigateInT3 => {}
                 trace_live::Outcome::Say(text) => state.note(text, false, at),
                 trace_live::Outcome::Read => trace_read_now(t, state, host),
                 trace_live::Outcome::Stay => {}

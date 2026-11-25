@@ -1,9 +1,11 @@
 //! Owns the on-demand job and the one retained measurement for this terminal session.
 
+use crate::t3_handoff::T3Handoff;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use loupe_core::{
+    handoff,
     headroom::{Volume, WarningVolume},
     host::{self, Host},
     model::{self, Agent, State},
@@ -259,6 +261,7 @@ impl StorageScreen {
         key: &str,
         dashboard: &mut State,
         host: &Host,
+        handoff: &mut T3Handoff,
         (w, h): (usize, usize),
     ) -> bool {
         let effect = self
@@ -267,9 +270,29 @@ impl StorageScreen {
             .and_then(|view| view.key(key, &self.display, w, h));
         match effect {
             Some(Effect::Quit) => return true,
-            Some(Effect::Back) => self.close(),
+            Some(Effect::Back) => {
+                handoff.dismiss();
+                self.close();
+            }
             Some(Effect::Rescan) => self.request(dashboard, true),
             Some(Effect::OpenInT3(id)) => host::open_local_thread(dashboard, host, &id),
+            Some(Effect::CleanInT3) => {
+                if let Some((ctx, preferred_project)) = self
+                    .view
+                    .as_ref()
+                    .and_then(|v| v.selected_context(&self.display, w, h))
+                {
+                    let (title, prompt) = handoff::storage_prompt(&ctx);
+                    handoff.begin_start(
+                        "clean up storage",
+                        title,
+                        prompt,
+                        preferred_project.as_deref(),
+                        None,
+                        dashboard,
+                    );
+                }
+            }
             None => {}
         }
         false

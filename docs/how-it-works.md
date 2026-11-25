@@ -154,9 +154,19 @@ writes to it, and it makes no network connections.
 - **Following T3:** under Hyprland it listens on Hyprland's event socket for
   the T3 Code window's title, which T3 sets to `project / thread`. It queries
   the window list when connecting and keeps only T3 windows' titles.
-- **Opening threads:** `Enter` passes a `t3code://threads/…` link to
-  `xdg-open` on Linux or `open` on macOS. Local links use the environment ID
-  T3 keeps beside the database. Remote links use the recorded destination.
+- **Opening and handing off to T3 Code:** `Enter` passes a `t3code://threads/…`
+  link to `xdg-open` on Linux or `open` on macOS. Local links use the
+  environment ID T3 keeps beside the database; remote links use the recorded
+  destination. Pressing `f` in Telemetry, Storage, Trace or Insights (Tools and
+  Recap) shows a confirmation bar with a project picker and, only after you
+  confirm with `Enter`, invokes `t3 thread start` with a prompt built strictly
+  from the non-secret findings, timings, program names or paths already shown on
+  screen (never secrets, auth files, message bodies or command arguments).
+  Pressing `M` on a local thread in Live shows contextual nudge presets and a
+  single-line reply box and, after you confirm with `Enter`, invokes
+  `t3 thread send` (which queues safely on busy threads without interrupting).
+  Both work over SSH as well as on the desktop, never run in `--demo` or with an
+  explicit `--db`, and leave Loupe's database reader strictly read-only.
 - **Usage limits:** read from Omarchy's agent usage records in
   `~/.local/state/omarchy/agents/usage/`, if they exist.
 - **Themes:** it reads the theme it's told to use, once a second so edits

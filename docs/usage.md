@@ -18,6 +18,7 @@ it's already open with its app id, which foot always sets and
 | `↑` `↓` / `j` `k`, click, wheel | select an agent |
 | `g` `G` / `Home` `End` | first / last agent |
 | `Enter` / `o` | open the selected agent's thread in T3 Code |
+| `M` | send a quick reply or contextual nudge to the selected local thread (`t3 thread send`, asks first) |
 | `Space` / `←` `→` | fold or unfold subagents; `→` again lists the earlier ones too, `←` steps back (on a leaf it jumps to the parent) |
 | `n` | jump to the next agent waiting on you (or click the NEEDS YOU tile) |
 | `a` | scope: all threads → active only → T3's sidebar (not settled or snoozed) → all |
@@ -38,22 +39,32 @@ it's already open with its app id, which foot always sets and
 
 In Insights, press `Tab` to switch between Recap and Tools. The left and right
 arrows step through this week, last week, this month and last month. Use the
-wheel, `↑` `↓` / `j` `k`, `PgUp` `PgDn` or `Home` `End` to scroll. Press `r` to
-read the report again, `?` for help, and `i` or Esc to return to Live. Esc
-closes help first.
+wheel, `↑` `↓` / `j` `k`, `PgUp` `PgDn` or `Home` `End` to scroll. Press `f` to
+start a T3 Code thread to audit slow/failing tools (Tools) or turn weekly
+findings into workflow optimizations (Recap) — Loupe shows a confirmation bar
+and project picker first. Press `r` to read the report again, `?` for help, and
+`i` or Esc to return to Live. Esc closes help first.
 
 In Storage, use the arrows or wheel to select a row, Space to fold a project,
-Enter to open an eligible thread in T3 Code, and `r` to measure again. Press `s`
-or Esc to return to the dashboard. Disk measurements are available with the live
-dashboard on Linux. The demo uses sample sizes, and an explicit `--db` leaves
-filesystem measurements unavailable.
+Enter to open an eligible thread in T3 Code, `f` to have a T3 Code thread
+inspect and clean up the selected worktrees or build caches (asks before
+starting), and `r` to measure again. Press `s` or Esc to return to the
+dashboard. Disk measurements are available with the live dashboard on Linux. The
+demo uses sample sizes, and an explicit `--db` leaves filesystem measurements
+unavailable.
+
+In Trace, press `f` to start a T3 Code thread to diagnose why the task was slow,
+stalled or failed (with only the timings, statuses and listed program names
+shown on screen).
 
 In Telemetry, press `Tab` to switch between Telemetry and Sources. Use the
 arrows, `j`/`k`, click or wheel to select a row and inspect its decision ladder
-or notes, `r` to check again now, `?` for help, and `e` or Esc to return to
-Live. Telemetry reads local files only (never secrets, agent logins or
-`/proc/*/environ`), sends nothing and changes nothing. The demo uses a made-up
-machine, and an explicit `--db` leaves local telemetry inspection unavailable.
+or notes, `f` to start a T3 Code thread with the findings and fix instructions
+when telemetry isn't already off, `r` to check again now, `?` for help, and `e`
+or Esc to return to Live. Telemetry reads local files only (never secrets, agent
+logins or `/proc/*/environ`), sends nothing and changes nothing. The demo uses a
+made-up machine, and an explicit `--db` leaves local telemetry inspection
+unavailable.
 
 The numpad works too: its Enter opens threads, and with Num Lock off its arrows,
 Home, End and Page Up/Down act like the main keys.

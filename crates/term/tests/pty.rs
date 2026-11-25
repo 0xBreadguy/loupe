@@ -1432,3 +1432,98 @@ fn demo_telemetry_board_navigation_and_no_themes_gating() {
     let out = String::from_utf8_lossy(&pty.buf);
     assert!(!out.contains("WHAT T3 CODE SENDS"), "e opened Telemetry under LOUPE_NO_THEMES");
 }
+
+#[test]
+fn demo_t3_handoffs_across_all_boards_and_no_themes_gating() {
+    let mut v = Shown::open("handoff-all", 120, 40);
+    v.until("dashboard", on_dashboard);
+
+    // 1. Live `M` quick-reply / nudge shows demo preview and dismisses on Esc.
+    v.key(b"M", "Live M demo preview", |rows| {
+        rows.iter().any(|r| r.contains("Demo: would queue a message"))
+    });
+    v.key(b"\x1b", "Esc dismisses Live M banner", |rows| {
+        on_dashboard(rows) && !rows.iter().any(|r| r.contains("Demo: would queue a message"))
+    });
+
+    // 2. Trace `f` shows demo preview and dismisses on Esc.
+    v.key(b"w", "open Trace", |rows| {
+        header(rows).contains("TRACE") && footer(rows).contains("f diagnose")
+    });
+    v.key(b"f", "Trace f demo preview", |rows| {
+        rows.iter().any(|r| r.contains("Demo: would start a T3 thread (diagnose trace)"))
+    });
+    v.key(b"\x1b", "Esc dismisses Trace handoff banner", |rows| {
+        header(rows).contains("TRACE")
+            && !rows.iter().any(|r| r.contains("Demo: would start a T3 thread"))
+    });
+    v.key(b"w", "close Trace", on_dashboard);
+
+    // 3. Storage `f` shows demo preview and dismisses on Esc.
+    v.key(b"s", "open Storage", |rows| {
+        header(rows).contains("STORAGE") && footer(rows).contains("f clean")
+    });
+    v.key(b"f", "Storage f demo preview", |rows| {
+        rows.iter().any(|r| r.contains("Demo: would start a T3 thread (clean up storage)"))
+    });
+    v.key(b"\x1b", "Esc dismisses Storage handoff banner", |rows| {
+        header(rows).contains("STORAGE")
+            && !rows.iter().any(|r| r.contains("Demo: would start a T3 thread"))
+    });
+    v.key(b"s", "close Storage", on_dashboard);
+
+    // 4. Insights Recap `f` and Tools `f` show demo previews and dismiss on Esc.
+    v.key(b"i", "open Insights Recap", |rows| {
+        header(rows).contains("RECAP") && footer(rows).contains("f optimize")
+    });
+    v.key(b"f", "Recap f demo preview", |rows| {
+        rows.iter()
+            .any(|r| r.contains("Demo: would start a T3 thread (optimize workflow from Recap)"))
+    });
+    v.key(b"\x1b", "Esc dismisses Recap handoff banner", |rows| {
+        header(rows).contains("RECAP")
+            && !rows.iter().any(|r| r.contains("Demo: would start a T3 thread"))
+    });
+    v.key(b"\t", "switch to Insights Tools", |rows| {
+        header(rows).contains("TOOLS") && footer(rows).contains("f optimize tools")
+    });
+    v.key(b"f", "Tools f demo preview", |rows| {
+        rows.iter()
+            .any(|r| r.contains("Demo: would start a T3 thread (optimize slow & failing tools)"))
+    });
+    v.key(b"\x1b", "Esc dismisses Tools handoff banner", |rows| {
+        header(rows).contains("TOOLS")
+            && !rows.iter().any(|r| r.contains("Demo: would start a T3 thread"))
+    });
+    v.key(b"i", "close Insights", on_dashboard);
+
+    // 5. Telemetry `f` shows demo preview.
+    v.key(b"e", "open Telemetry", |rows| header(rows).contains("TELEMETRY"));
+    v.key(b"f", "Telemetry f demo preview", |rows| {
+        rows.iter()
+            .any(|r| r.contains("Demo: would start a T3 thread (turn off telemetry)"))
+    });
+    v.key(b"e", "close Telemetry", on_dashboard);
+    v.quit(b"q");
+
+    // Under LOUPE_NO_THEMES=1, `M` must be a complete no-op (oracle parity).
+    let home = Home::new("handoff-no-themes");
+    let t3 = home.0.join("t3");
+    let env = [
+        ("HOME", home.0.to_str().unwrap()),
+        ("T3CODE_HOME", t3.to_str().unwrap()),
+        ("TERM", "xterm-256color"),
+        ("COLORTERM", "truecolor"),
+        ("LOUPE_NO_THEMES", "1"),
+    ];
+    let mut pty = Pty::spawn_args(120, 40, &["--demo", "--calm"], &env, &OUTSIDE[..3]);
+    pty.wait_for(b"\x1b[c", 1);
+    pty.send(b"\x1b[?62;22c");
+    pty.wait_for(b"Loupe", 1);
+    pty.send(b"M");
+    pty.send(b"q");
+    let status = pty.wait();
+    assert!(status.success(), "{status:?}");
+    let out = String::from_utf8_lossy(&pty.buf);
+    assert!(!out.contains("Demo: would queue"), "M opened handoff under LOUPE_NO_THEMES");
+}

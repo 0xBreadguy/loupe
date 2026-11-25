@@ -105,6 +105,8 @@ pub enum Outcome {
     Say(String),
     /// Read a different task: the presenter starts a new watch on `Screen::target()`.
     Read,
+    /// Start a T3 Code thread to investigate this traced task (`f`).
+    InvestigateInT3,
 }
 
 /// Trace while it is open.
@@ -269,6 +271,13 @@ impl Screen {
                         None => Outcome::Say(format!("{} left no thread to trace", d.model)),
                     },
                     None => Outcome::OpenThread(t.thread.clone()),
+                }
+            }
+            "f" => {
+                if self.trace().is_some() {
+                    Outcome::InvestigateInT3
+                } else {
+                    Outcome::Stay
                 }
             }
             _ => Outcome::Stay,

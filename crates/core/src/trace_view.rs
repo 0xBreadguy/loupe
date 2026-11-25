@@ -657,7 +657,15 @@ pub fn draw(t: &Trace, p: &Palette, cols: usize, rows: usize, view: &View, local
 fn keys(pen: &mut Pen, rows: usize) {
     let p = pen.p;
     let mut x = 1;
-    for (key, word) in [("↑↓", "step"), ("←→", "task"), ("⏎", "open"), ("w", "back"), ("?", "help")] {
+    let diagnose = if pen.c.w >= 76 { "diagnose in T3" } else { "diagnose" };
+    for (key, word) in [
+        ("↑↓", "step"),
+        ("←→", "task"),
+        ("⏎", "open"),
+        ("w", "back"),
+        ("?", "help"),
+        ("f", diagnose),
+    ] {
         x = pen.text(x, rows as i32 - 1, key, p.accent, true);
         x = pen.text(x, rows as i32 - 1, &format!(" {word}  "), p.dim, false);
     }
@@ -1071,6 +1079,7 @@ pub fn help(c: &mut Canvas, p: &Palette) {
         ("g G / Home End", "select first / last step"),
         ("←→", "previous / next task"),
         ("⏎ / o", "open a delegate trace or its thread in T3"),
+        ("f", "start a T3 thread to diagnose this task"),
         ("w / Esc", "back · Esc closes help first"),
         ("? / h", "close help"),
         ("m p r c C", "calm · pause · refresh · themes"),

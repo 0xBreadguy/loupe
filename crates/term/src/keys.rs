@@ -65,6 +65,8 @@ pub enum Report {
 pub enum Event {
     /// An allowed key name: `up`, `j`, `space`, `escape`, …
     Key(&'static str),
+    /// A typed printable character, emitted only while [`Parser::set_text_mode`] is true.
+    Char(char),
     /// Ctrl-C. The presenter quits, the same way the window does.
     Quit,
     /// Left button press, 0-based cell coordinates.
@@ -95,11 +97,23 @@ pub struct Parser {
     /// Inside a bracketed paste: when the last byte of it arrived. Nothing is kept of the paste
     /// but, in `buf`, the end of what was read if that could be the start of the end marker.
     paste: Option<Instant>,
+    /// Opt-in single-line text entry mode (used only while typing in Live's quick-reply bar).
+    text_mode: bool,
 }
 
 impl Parser {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Switch printable-character capture on or off. Default is `false` (strict allow-list).
+    pub fn set_text_mode(&mut self, on: bool) {
+        self.text_mode = on;
+    }
+
+    #[allow(dead_code)]
+    pub fn text_mode(&self) -> bool {
+        self.text_mode
     }
 
     /// When the parser next needs to be told the time: when a pending partial sequence is given
@@ -238,7 +252,7 @@ impl Parser {
                 }
             }
             if self.buf[0] != 0x1b {
-                match take_plain(&mut self.buf) {
+                match take_plain(&mut self.buf, self.text_mode) {
                     Plain::Event(ev) => out.push(ev),
                     Plain::Ignore => {}
                     Plain::Need(n) if self.buf.len() < n => break,
@@ -315,7 +329,7 @@ enum Plain {
     Need(usize),
 }
 
-fn take_plain(buf: &mut Vec<u8>) -> Plain {
+fn take_plain(buf: &mut Vec<u8>, text_mode: bool) -> Plain {
     let b = buf[0];
     if b == 0x03 {
         buf.remove(0);
@@ -329,6 +343,38 @@ fn take_plain(buf: &mut Vec<u8>) -> Plain {
     if b == b'\t' {
         buf.remove(0);
         return Plain::Event(Event::Key("tab"));
+    }
+    if text_mode {
+        if b == 0x7f || b == 0x08 {
+            buf.remove(0);
+            return Plain::Event(Event::Key("backspace"));
+        }
+        if b == 0x15 {
+            buf.remove(0);
+            return Plain::Event(Event::Key("clear-line"));
+        }
+        if b < 0x20 {
+            buf.remove(0);
+            return Plain::Ignore;
+        }
+        if b < 0x80 {
+            buf.remove(0);
+            return Plain::Event(Event::Char(b as char));
+        }
+        let need = match b {
+            0xc0..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf7 => 4,
+            _ => return Plain::Need(1),
+        };
+        if buf.len() < need {
+            return Plain::Need(need);
+        }
+        let bytes: Vec<u8> = buf.drain(..need).collect();
+        return match std::str::from_utf8(&bytes).ok().and_then(|s| s.chars().next()) {
+            Some(ch) if !ch.is_control() => Plain::Event(Event::Char(ch)),
+            _ => Plain::Ignore,
+        };
     }
     if b < 0x20 || b == 0x7f {
         buf.remove(0);
@@ -377,6 +423,7 @@ fn allowed_char(c: char) -> Option<&'static str> {
         'i' => "i",
         'e' => "e",
         'm' => "m",
+        'M' => "M",
         'x' => "x",
         'f' => "f",
         'c' => "c",
@@ -1111,5 +1158,33 @@ mod tests {
             p.push(&[END, b"j"].concat(), t0 + Duration::from_secs(11)),
             vec![Event::Key("j")]
         );
+    }
+
+    #[test]
+    fn text_mode_captures_printable_utf8_and_backspace_without_changing_default() {
+        let t0 = Instant::now();
+        let mut p = Parser::new();
+        assert!(!p.text_mode());
+        // Default mode drops free-text letters like z/1 and backspace.
+        assert_eq!(p.push(b"z1\x7f", t0), vec![]);
+
+        p.set_text_mode(true);
+        assert_eq!(
+            p.push("hi! 🍞\x7f\x15\r\x03".as_bytes(), t0),
+            vec![
+                Event::Char('h'),
+                Event::Char('i'),
+                Event::Char('!'),
+                Event::Char(' '),
+                Event::Char('🍞'),
+                Event::Key("backspace"),
+                Event::Key("clear-line"),
+                Event::Key("enter"),
+                Event::Quit,
+            ]
+        );
+        // Switching back restores strict allow-list behavior.
+        p.set_text_mode(false);
+        assert_eq!(p.push(b"z1\x7fM", t0), vec![Event::Key("M")]);
     }
 }
