@@ -130,6 +130,27 @@ writes to it, and it makes no network connections.
   task on its own connection at the dashboard's refresh interval. It usually
   reuses unchanged items and skips rereading a finished task while the
   database's change counter stays the same.
+- **Telemetry Check:** `e` and `--telemetry-check` inspect local configuration
+  files only, make no network connections, and change nothing. On Linux and
+  macOS it reads T3's `userdata/server-runtime.json` (PID, start time, server
+  version, launch mode, loaded policy metadata), `userdata/settings.json`
+  (`agentFeedback`, `enableProviderUpdateChecks`, `shareUsageData`),
+  `service.env`, the OS managed policy file (`/etc/t3code/policy.json` on Linux
+  or `/Library/Application Support/T3Code/policy.json` on macOS), `/etc/hosts`,
+  and `/etc/nsswitch.conf` (Linux), plus allowlisted telemetry environment
+  variables from the current process (`T3CODE_TELEMETRY_ENABLED`,
+  `T3CODE_OTEL_SDK_DISABLED`, `OTEL_SDK_DISABLED`, `T3CODE_POSTHOG_HOST`,
+  `OTEL_*_EXPORTER`, `OTEL_EXPORTER_OTLP_*PROTOCOL`,
+  `OTEL_EXPORTER_OTLP_*ENDPOINT` and `T3CODE_OTLP_*_URL` with
+  userinfo/path/query stripped). It calls `symlink_metadata()` only on
+  `userdata/anonymous-id` (and on macOS `/Library/Managed Preferences/com.t3tools.t3code.plist`)
+  to check existence and modification date without opening them, and checks PID liveness/ancestry with
+  `kill(pid, 0)` and `/proc/<pid>/stat` on Linux. It never opens
+  `userdata/secrets/`, `~/.codex/auth.json`, `~/.claude.json`,
+  `/proc/*/environ`, `/proc/*/cmdline`, `OTEL_EXPORTER_OTLP_HEADERS`, or
+  `statev2.sqlite`. In the live dashboard a background watcher polls file
+  metadata and PID liveness cheaply and re-evaluates only when an input changes
+  or you press `r`.
 - **Following T3:** under Hyprland it listens on Hyprland's event socket for
   the T3 Code window's title, which T3 sets to `project / thread`. It queries
   the window list when connecting and keeps only T3 windows' titles.

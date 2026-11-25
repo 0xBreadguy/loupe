@@ -35,7 +35,7 @@ pub(crate) fn not_supported(what: &str) -> io::Error {
     )
 }
 
-/// A calendar time in some zone: the fields of `struct tm` the program reads.
+/// Calendar fields for epoch seconds in some zone: the fields of `struct tm` the program reads.
 ///
 /// `year` is the full year, `month0` runs 0 to 11, `day` from 1. `Default` is all zero, which
 /// is what the program shows when a conversion fails.
@@ -47,6 +47,22 @@ pub struct LocalTime {
     pub hour: i32,
     pub minute: i32,
     pub second: i32,
+}
+
+/// Liveness of a recorded process id, from `kill(pid, 0)`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ProcessAlive {
+    Alive,
+    Stopped,
+    Unknown,
+}
+
+/// Non-secret metadata from `/proc/<pid>/stat` (Linux only). Never reads `environ` or `cmdline`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ProcStat {
+    pub comm: String,
+    pub ppid: u32,
+    pub started_ms: Option<f64>,
 }
 
 /// The user's home directory, found the way the original finds it (Node's `os.homedir()`).

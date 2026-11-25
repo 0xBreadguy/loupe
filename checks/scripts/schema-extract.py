@@ -2,7 +2,7 @@
 """Extract dashboard-relevant DDL from a pinned T3 source tree, in migration order.
 
 This is NOT a T3 migrator: data transforms, preview reconciliation, FTS/search,
-and unrelated tables are outside its scope. See schema-compatibility.md.
+and unrelated tables are outside its scope. See CONTRIBUTING.md.
 Usage: schema-extract.py CLONE COMMIT LIMIT OUTPUT
 """
 import json, re, sqlite3, subprocess, sys

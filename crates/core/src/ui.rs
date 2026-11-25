@@ -2373,12 +2373,59 @@ fn warning_plan(s: &State, columns: i32) -> (Vec<(String, WarnInk)>, bool) {
     (built.swap_remove(chosen), with_hint)
 }
 
+fn telemetry_warning_plan(
+    alert: &crate::telemetry::Alert,
+    columns: i32,
+) -> (Vec<(String, WarnInk)>, bool) {
+    let candidates: Vec<Vec<(String, WarnInk)>> = match alert.kind {
+        crate::telemetry::AlertKind::Misconfigured => vec![
+            vec![
+                ("△ Telemetry opt-out not working".to_string(), WarnInk::Bold),
+                (" · ".to_string(), WarnInk::Dim),
+                (alert.detail.clone(), WarnInk::Plain),
+            ],
+            vec![("△ Telemetry opt-out not working".to_string(), WarnInk::Bold)],
+            vec![("△ Opt-out not working".to_string(), WarnInk::Bold)],
+        ],
+        crate::telemetry::AlertKind::RestartNeeded => vec![
+            vec![(
+                "△ Restart T3 Code to apply your telemetry change".to_string(),
+                WarnInk::Bold,
+            )],
+            vec![("△ Restart T3 to apply".to_string(), WarnInk::Bold)],
+        ],
+    };
+    // `e` + ` telemetry` is 11 columns.
+    const HINT: i32 = 11;
+    let room = columns - 2;
+    let mut chosen = candidates.len() - 1;
+    let mut with_hint = false;
+    for (i, parts) in candidates.iter().enumerate() {
+        let n: i32 = parts.iter().map(|(text, _)| width(text)).sum();
+        if n + 2 + HINT <= room {
+            chosen = i;
+            with_hint = true;
+            break;
+        }
+    }
+    (candidates.into_iter().nth(chosen).unwrap(), with_hint)
+}
+
 fn draw_warning(c: &mut Canvas, s: &State, p: &Palette) {
     let w = c.w as i32;
     let y = c.h as i32 - 2;
     c.fill(0, y, w, 1, p.bg);
-    let (parts, with_hint) = warning_plan(s, w);
-    let limit = if with_hint { w - 1 - 9 } else { w - 1 };
+    let headroom_low = s.headroom.iter().any(|volume| volume.low());
+    let (parts, with_hint, hint_key, hint_label, hint_w) = if headroom_low {
+        let (parts, with_hint) = warning_plan(s, w);
+        (parts, with_hint, "s", " storage", 9)
+    } else if let Some(alert) = s.telemetry_alert() {
+        let (parts, with_hint) = telemetry_warning_plan(&alert, w);
+        (parts, with_hint, "e", " telemetry", 11)
+    } else {
+        return;
+    };
+    let limit = if with_hint { w - 1 - hint_w } else { w - 1 };
     let mut x = 1;
     for (text, ink) in parts {
         if x >= limit {
@@ -2393,9 +2440,9 @@ fn draw_warning(c: &mut Canvas, s: &State, p: &Palette) {
         x += c.text_with(x, y, &text, color, None, bold, max);
     }
     if with_hint {
-        let mut x = w - 1 - 9;
-        x += c.text_bold(x, y, "s", p.accent);
-        c.text(x, y, " storage", p.dim);
+        let mut x = w - 1 - hint_w;
+        x += c.text_bold(x, y, hint_key, p.accent);
+        c.text(x, y, hint_label, p.dim);
     }
 }
 
@@ -2568,9 +2615,11 @@ pub fn draw_grid(s: &State, w: usize, h: usize, p: &Palette) -> (Canvas, Surface
     };
     let overview_time = phase_start.elapsed();
     frame.needs_you = top.needs_you;
-    // One row above the footer, only when a watched volume is low. Healthy
-    // headroom leaves `main_h` alone, so every other cell stays where it was.
-    let show_warn = s.headroom.iter().any(|volume| volume.low()) && hh - 2 > top.main_top;
+    // One row above the footer, only when a watched volume is low or a user-set
+    // telemetry opt-out is broken/pending restart. Healthy state leaves `main_h` alone.
+    let show_warn = (s.headroom.iter().any(|volume| volume.low())
+        || s.telemetry_alert().is_some())
+        && hh - 2 > top.main_top;
     let main_bottom = hh - 1 - i32::from(show_warn);
     let main_h = main_bottom - top.main_top;
     if w >= 140 {

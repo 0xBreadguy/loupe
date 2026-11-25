@@ -105,9 +105,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     };
     let storage_key = matches!(database, Database::Path { .. });
     let themes = if theme::disabled() { None } else { Some(theme::Themes::from_environment(None)?.0) };
-    let (mut state, mut host, source, _insights) = product_launch(database, 2., calm, themes);
+    let (mut state, mut host, source, _insights, telemetry_source) = product_launch(database, 2., calm, themes);
     let wake = Arc::new(Wake::new()?);
     let mut storage = StorageScreen::new(source, Arc::clone(&wake));
+    let mut telemetry = TelemetryScreen::new(telemetry_source);
     // `setup` without the threads: the palette, and a mailbox in place of the reader thread.
     if let Some(themes) = &host.themes {
         state.palette = themes.palette();
@@ -217,11 +218,11 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 full = false;
                 sink(&canvas, &bytes, was_full)?;
             } else {
-                paint_with(&mut state, &mut storage, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut sink)?;
+                paint_with(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut sink)?;
             }
             for &(_, key) in seg.keys.iter().filter(|(at, _)| *at == i) {
-                dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut tracing, key, size);
-                paint_with(&mut state, &mut storage, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut sink)?;
+                dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut telemetry, &mut tracing, key, size);
+                paint_with(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut sink)?;
             }
             let elapsed = started.elapsed().saturating_sub(sink_time);
             samples.push(elapsed.as_secs_f64() * 1e6);
@@ -261,10 +262,26 @@ fn dispatch_key(
     host: &mut Host,
     clock: &mut TermClock,
     storage: &mut StorageScreen,
+    telemetry: &mut TelemetryScreen,
     tracing: &mut Option<trace_live::Screen>,
     name: &'static str,
     size: (usize, usize),
 ) {
+    if name == "e" && state.storage_key_in_help && tracing.is_none() && !storage.is_open() && !telemetry.is_open() {
+        if state.help {
+            on_key(state, host, clock, "escape", false);
+        }
+        telemetry.open(state, host);
+        return;
+    }
+    if telemetry.is_open() {
+        if matches!(name, "c" | "C") {
+            on_key(state, host, clock, name, false);
+        } else {
+            telemetry.key(name, state, host);
+        }
+        return;
+    }
     if name == "s" && state.storage_key_in_help && tracing.is_none() && !storage.is_open() {
         if state.help {
             on_key(state, host, clock, "escape", false);

@@ -27,12 +27,13 @@ it's already open with its app id, which foot always sets and
 | `p` / `r` | pause updates / refresh now |
 | `i` | open [Insights](features.md#insights) on Recap for this week |
 | `s` | Storage: disk use by project and thread |
+| `e` | [Telemetry](features.md#telemetry-check): check what T3 Code sends and whether opt-outs work |
 | `m` | calm mode: nothing animates (on by default when Omarchy's animations are off) |
 | `x` | CRT effects, purely for fun (off in calm mode) |
 | `c` / `C` | next / previous theme, saved for next time ([themes](themes.md)) |
 | `w` | [trace](features.md#trace) the selected agent's task: every step on one clock; `w` or `Esc` goes back |
 | `?` / `h` | help and legend (scroll it with `↑` `↓` / `j` `k` or the wheel) |
-| `Esc` | close help, return from Insights, Storage or Trace, or quit |
+| `Esc` | close help, return from Insights, Storage, Telemetry or Trace, or quit |
 | `q` | quit |
 
 In Insights, press `Tab` to switch between Recap and Tools. The left and right
@@ -46,6 +47,13 @@ Enter to open an eligible thread in T3 Code, and `r` to measure again. Press `s`
 or Esc to return to the dashboard. Disk measurements are available with the live
 dashboard on Linux. The demo uses sample sizes, and an explicit `--db` leaves
 filesystem measurements unavailable.
+
+In Telemetry, press `Tab` to switch between Telemetry and Sources. Use the
+arrows, `j`/`k`, click or wheel to select a row and inspect its decision ladder
+or notes, `r` to check again now, `?` for help, and `e` or Esc to return to
+Live. Telemetry reads local files only (never secrets, agent logins or
+`/proc/*/environ`), sends nothing and changes nothing. The demo uses a made-up
+machine, and an explicit `--db` leaves local telemetry inspection unavailable.
 
 The numpad works too: its Enter opens threads, and with Num Lock off its arrows,
 Home, End and Page Up/Down act like the main keys.
@@ -85,6 +93,7 @@ Options:
 | `--recap` | [last week on one card](features.md#recap); with `--this-week`, the current week so far; with `--month` or `--this-month`, [a month](features.md#a-month); with `--json`, the numbers; `--wide`, `--compact` or `--narrow` picks [the card's size](features.md#the-wide-card) |
 | `--tools` | [what agents ran last week and what failed](features.md#tools); with `--this-week`, `--month`, `--this-month` or `--json`, as `--recap`; `--wide` or `--compact` picks the report's size |
 | `--trace [ID]` | [one task on a time axis](features.md#trace): the latest, a thread's latest (its id, or the end of it), or the task that holds a run; with `--json`, the spans |
+| `--telemetry-check` | [check T3 Code telemetry](features.md#telemetry-check) on this machine (local files only, never opens secrets); with `--json`, `--wide`, `--compact` or `--narrow` |
 | `--help` | list the options |
 
 Recap and Tools read directly by default. Set `LOUPE_CACHE=1` to reuse

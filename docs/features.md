@@ -7,10 +7,11 @@ The short list is in the [README](../README.md). This is the long one.
 - **Themes:** 27 built in, including all 23 of Omarchy's, plus Frontier, Paper,
   Phosphor and Dracula. On Omarchy it follows the live theme; elsewhere it
   follows the terminal between Frontier and Paper. `c` and `C` step through
-  them and remember the choice. Every built-in keeps the provider colors,
-  "needs you" and the warning apart for colorblind readers. A theme of your own
-  is an Omarchy `colors.toml` plus a few optional keys, and `--theme-check`
-  says how it reads. See [themes](themes.md).
+  them and remember the choice. Built-in themes are tested against contrast and
+  colorblind-separation floors (ΔE ≥ 6 for Loupe's own palettes, ≥ 5.5 for
+  upstream Omarchy palettes), and `--theme-check` reports each theme's exact
+  numbers. A theme of your own
+  is an Omarchy `colors.toml` plus a few optional keys. See [themes](themes.md).
 
 - **Big numbers up top:** active agents, agents waiting on you, tool calls per
   minute, peak context, tokens today, failed calls. Only numbers worth a look
@@ -316,6 +317,49 @@ Good to know:
   have no length of their own; they count as calls and add no time.
 - **It costs little.** While open it rereads that one task every two seconds;
   closed, it costs nothing.
+
+## Telemetry Check
+
+Press `e` in the dashboard, or run `loupe --telemetry-check`, to see what T3
+Code is configured to send from this machine and whether your opt-outs are
+actually taking effect. `loupe --telemetry-check --demo` shows a made-up
+machine with a broken opt-out so you can inspect the layout first.
+
+![Telemetry Check: streams, decision ladder and opt-out findings, on demo data](telemetry.png)
+
+- **Three streams, evaluated in T3's own precedence order:** product usage
+  events (`ingest.t3.codes` / PostHog), relay traces (Axiom / T3 Connect), and
+  any custom OTLP exporters you pointed at your own collector (labeled `this
+  machine` for loopback endpoints or `remote` otherwise).
+- **Decision ladder:** select any stream in the dashboard (or view `--wide` in
+  the CLI) to see each gate T3 evaluates — managed policy
+  (`policy.json`), `T3CODE_TELEMETRY_ENABLED`, `T3CODE_OTEL_SDK_DISABLED`,
+  `OTEL_SDK_DISABLED` and `/etc/hosts` — and which step actually decided it.
+- **Catches silent opt-out traps:** flags `OTEL_SDK_DISABLED=1` (T3 only honors
+  literal `"true"`, unlike `T3CODE_OTEL_SDK_DISABLED` which accepts `1`, `yes`,
+  and `on`), `T3CODE_OTEL_SDK_DISABLED=false` overriding `OTEL_SDK_DISABLED=true`,
+  invalid managed policy files, `/etc/hosts` rules targeting `t3.codes` instead
+  of `ingest.t3.codes` or bypassed by `/etc/nsswitch.conf`, and managed policy
+  or `service.env` edits made after T3 started that still need a restart.
+- **PR #42299 version check:** reads `serverVersion` from
+  `userdata/server-runtime.json` and flags builds older than
+  `0.1.12-nightly.20261124.5209` that hash `~/.codex/auth.json` and
+  `~/.claude.json` into the install ID. Loupe never opens either auth file.
+- **Launch-aware fix commands:** gives a copy-paste snippet tailored to how T3
+  was started (`service.env`, desktop session environment such as uwsm/systemd,
+  shell rc, or machine-wide `policy.json`). Loupe changes nothing itself.
+- **Sources tab and honest gaps:** press `Tab` to see every local file Loupe
+  read (and its timestamp), what it stat-only checked (`anonymous-id`), and what
+  it deliberately never opened (`userdata/secrets/`, agent logins,
+  `/proc/*/environ`). When T3 was started from the desktop rather than the
+  current shell, Loupe says so plainly instead of guessing.
+- **Quiet Live alert:** in the dashboard, a single warning line appears above
+  the footer only when an opt-out is misconfigured or needs a T3 restart. It
+  never nags when telemetry is simply left on by default, yields to low disk
+  headroom warnings, and stays silent in `--demo` and `--db` modes.
+- **CLI formats:** prints an 80-column card, a 120-column `--wide` card, a
+  39-column `--narrow` list, or `--json` (`schema: 1`). Piped output or
+  `NO_COLOR` degrades to plain text with unique glyph-and-word states.
 
 ## The bar widget
 

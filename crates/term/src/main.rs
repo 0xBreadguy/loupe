@@ -29,6 +29,8 @@ mod insights_screen;
 use insights_screen::{Effect as InsightsEffect, InsightsScreen, InsightsSource};
 mod storage_screen;
 use storage_screen::StorageScreen;
+mod telemetry_screen;
+use telemetry_screen::{TelemetryScreen, TelemetrySource};
 #[cfg(feature = "frame-stream")]
 mod stream_check;
 
@@ -328,16 +330,19 @@ fn draw_trace(s: &State, t: &mut trace_live::Screen, cols: usize, rows: usize) -
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint(
     s: &mut State,
+    host: &Host,
     storage: &mut StorageScreen,
+    telemetry: &mut TelemetryScreen,
     cols: usize,
     rows: usize,
     enc: &mut Encoder,
     full: &mut bool,
     tracing: &mut Option<trace_live::Screen>,
 ) -> io::Result<()> {
-    paint_with(s, storage, cols, rows, enc, full, tracing, &mut |_, bytes, _| {
+    paint_with(s, host, storage, telemetry, cols, rows, enc, full, tracing, &mut |_, bytes, _| {
         if !bytes.is_empty() {
             platform::write_stdout(bytes)?;
         }
@@ -352,7 +357,9 @@ type Sink<'a> = dyn FnMut(&terminal::Canvas, &[u8], bool) -> io::Result<()> + 'a
 #[allow(clippy::too_many_arguments)]
 fn paint_with(
     s: &mut State,
+    host: &Host,
     storage: &mut StorageScreen,
+    telemetry: &mut TelemetryScreen,
     cols: usize,
     rows: usize,
     enc: &mut Encoder,
@@ -366,7 +373,10 @@ fn paint_with(
             if s.help { trace_view::help(&mut canvas, &s.palette); }
             canvas
         },
-        _ => storage.render(s, (cols, rows)).unwrap_or_else(|| compose(s, cols, rows)),
+        _ => telemetry
+            .render(s, host, (cols, rows))
+            .or_else(|| storage.render(s, (cols, rows)))
+            .unwrap_or_else(|| compose(s, cols, rows)),
     };
     let was_full = *full;
     let bytes = enc.encode(&canvas, *full);
@@ -374,13 +384,14 @@ fn paint_with(
     sink(&canvas, &bytes, was_full)
 }
 
-type Launch = (State, Host, StorageSource, Option<InsightsSource>);
+type Launch = (State, Host, StorageSource, Option<InsightsSource>, TelemetrySource);
 
 fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Error>> {
     let _restore = platform::enter_raw()?;
-    let (mut state, mut host, source, insights_source) = launch;
+    let (mut state, mut host, source, insights_source, telemetry_source) = launch;
     let mut insights = InsightsScreen::default();
     let mut storage = StorageScreen::new(source, Arc::clone(&wake));
+    let mut telemetry = TelemetryScreen::new(telemetry_source);
     // Ask the terminal what it can do before anything slow, and never wait for the answer: it
     // arrives while the first frame is being composed. See `caps.rs`. A theme that follows the
     // terminal's light or dark mode also asks for its background and for color scheme reports.
@@ -542,7 +553,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
             let completed = ready.wake && insights.poll(source);
             insights_dirty = completed || full || background_changed || host_changed;
         } else if !hold {
-            paint(&mut state, &mut storage, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
+            paint(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
             painted = true;
         }
         let mut quit = eof || signals.quit;
@@ -565,7 +576,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                     }
                     InsightsEffect::Back => {
                         insights.close();
-                        paint(&mut state, &mut storage, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
+                        paint(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
                     }
                     InsightsEffect::Paint => {
                         insights.present_key(&state, source, host.db.as_deref(), size, &mut encoder, &mut full, &wake)?;
@@ -577,8 +588,23 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
             }
             let stop = match event {
                 Event::Quit => true,
+                Event::Key("e") if state.storage_key_in_help && tracing.is_none()
+                    && !storage.is_open() && !telemetry.is_open() && !quit => {
+                    if state.help {
+                        on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
+                    }
+                    telemetry.open(&state, &mut host);
+                    false
+                }
+                Event::Key(name) if telemetry.is_open() => {
+                    if matches!(name, "c" | "C") {
+                        on_key(&mut state, &mut host, &mut clock, name, replay.is_some())
+                    } else {
+                        telemetry.key(name, &state, &mut host)
+                    }
+                }
                 Event::Key("i") if state.storage_key_in_help && tracing.is_none()
-                    && !storage.is_open() && !quit && let Some(source) = insights_source => {
+                    && !storage.is_open() && !telemetry.is_open() && !quit && let Some(source) = insights_source => {
                     if state.help {
                         on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
                     }
@@ -589,7 +615,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                     continue;
                 }
                 Event::Key("i" | "tab" | "shift-tab") => continue,
-                Event::Key("s") if state.storage_key_in_help && tracing.is_none() && !storage.is_open() => {
+                Event::Key("s") if state.storage_key_in_help && tracing.is_none() && !storage.is_open() && !telemetry.is_open() => {
                     if state.help {
                         on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
                     }
@@ -628,6 +654,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                 Event::Press { x, y } => {
                     match tracing.as_mut() {
                         Some(t) if !state.help => t.press(y),
+                        _ if telemetry.is_open() => telemetry.press(y),
                         _ if storage.is_open() => storage.press(y, size),
                         _ => on_press(&mut state, &mut host, &mut clock, x, y, replay.is_some()),
                     }
@@ -638,6 +665,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                         Some(t) if !state.help => {
                             t.key(if down { "down" } else { "up" });
                         }
+                        _ if telemetry.is_open() => telemetry.wheel(down, &state, &mut host),
                         _ if storage.is_open() => { storage.key(if down { "down" } else { "up" }, &mut state, &host, size); }
                         _ => on_wheel(&mut state, &host, x, y, down),
                     }
@@ -646,7 +674,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                 // Answers were taken above.
                 Event::Report(_) => false,
             };
-            paint(&mut state, &mut storage, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
+            paint(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
             painted = true;
             if stop {
                 quit = true;
@@ -768,6 +796,7 @@ fn product_launch(
     themes: Option<theme::Themes>,
 ) -> Launch {
     let storage = StorageSource::for_database(&database);
+    let telemetry_source = TelemetrySource::for_database(&database);
     let now = clock::wall_now();
     let insights_source = InsightsSource::from(&database);
     let (mut state, mut host) = match database {
@@ -824,11 +853,14 @@ fn product_launch(
         host.managed_worktrees = Some(roots.worktrees.clone());
         host.temporary = Some(roots.temp.clone());
     }
+    if telemetry_source == TelemetrySource::Machine && themes.is_some() {
+        host.watch_telemetry = true;
+    }
     if themes.is_some() {
         host.theme = None;
         host.themes = themes;
     }
-    (state, host, storage, Some(insights_source))
+    (state, host, storage, Some(insights_source), telemetry_source)
 }
 
 /// A state that shows why T3's database could not be read.
@@ -859,7 +891,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         let state = cli::init();
         let host = Host::from_args(&state);
-        (state, host, StorageSource::Unavailable, None)
+        (state, host, StorageSource::Unavailable, None, TelemetrySource::Unavailable)
     } else {
         let cache_stats = request_recap_cache_stats();
         let headless = product::headless();

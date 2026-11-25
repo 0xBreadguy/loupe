@@ -1409,6 +1409,7 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
         ("c C", "theme: next · back"),
         ("w", "trace: the agent's task on a clock"),
         ("s", "storage: disk use by project and thread"),
+        ("e", "telemetry: what T3 sends"),
         ("q Esc", "quit (Esc closes help)"),
     ];
     // `c` is the product's; the original's help, which the parity checks compare, has no theme key.
@@ -1416,7 +1417,7 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
         .into_iter()
         .filter(|k| match k.0 {
             "c C" | "w" => s.themes,
-            "s" | "i" => s.storage_key_in_help,
+            "s" | "i" | "e" => s.storage_key_in_help,
             _ => true,
         })
         .collect();

@@ -2040,12 +2040,22 @@ pub struct State {
     /// snapshot did not change. Demo, `--db`, and tests set it themselves.
     /// Drawing never probes.
     pub headroom: Vec<crate::headroom::WarningVolume>,
+    /// Latest read-only telemetry check report from the background host worker.
+    /// Always `None` under `LOUPE_NO_THEMES`, `--demo`, `--db`, and tests unless set.
+    pub telemetry: Option<std::sync::Arc<crate::telemetry::Report>>,
+    pub telemetry_revision: u64,
     /// `process.env.HOME ?? ""`, read once when the state is built, as `view.ts` reads it at
     /// module load. Drawing never reads the environment. It lives on the state because the
     /// presenters build their own state instead of going through `cli`.
     pub home: String,
 }
 impl State {
+    pub fn telemetry_alert(&self) -> Option<crate::telemetry::Alert> {
+        if !self.themes || self.demo {
+            return None;
+        }
+        self.telemetry.as_deref().and_then(crate::telemetry::Report::alert)
+    }
     pub fn new(snap: Snapshot) -> Self {
         let now = snap.at;
         let mut s = Self {
@@ -2097,6 +2107,8 @@ impl State {
             linked: None,
             notice: None,
             headroom: Vec::new(),
+            telemetry: None,
+            telemetry_revision: 0,
             home: std::env::var_os("HOME")
                 .map(|home| home.to_string_lossy().into_owned())
                 .unwrap_or_default(),

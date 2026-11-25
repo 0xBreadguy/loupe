@@ -2932,7 +2932,7 @@ const has = (name: string) => args.includes(name)
 const schemaArg = arg("--schema", "t3")
 if (schemaArg !== "t3" && schemaArg !== "demo") throw new Error(`bad --schema ${schemaArg}; expected t3 or demo`)
 const schema: Schema = schemaArg
-const defaultDir = schema === "t3" ? join("experiment", "generated", "scale", "t3") : join("experiment", "generated", "scale")
+const defaultDir = schema === "t3" ? join("checks", "generated", "scale", "t3") : join("checks", "generated", "scale")
 const dbPath = resolve(arg("--db", join(defaultDir, `${arg("--tier", "s")}.sqlite`)))
 if (has("--stream")) {
   const exclude = has("--exclude") ? arg("--exclude").split(",").filter(Boolean) : []
