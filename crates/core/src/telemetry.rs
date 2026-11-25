@@ -484,7 +484,7 @@ impl Verdict {
             Verdict::On => "TELEMETRY ON",
             Verdict::Misconfigured => "OPT-OUT NOT WORKING",
             Verdict::RestartNeeded => "RESTART T3 TO APPLY",
-            Verdict::Unverified => "CAN'T TELL",
+            Verdict::Unverified => "UNVERIFIED",
         }
     }
 
@@ -496,7 +496,7 @@ impl Verdict {
             Verdict::On => "Telemetry on",
             Verdict::Misconfigured => "Opt-out not working",
             Verdict::RestartNeeded => "Restart T3 to apply",
-            Verdict::Unverified => "Can't tell",
+            Verdict::Unverified => "Unverified",
         }
     }
 }
@@ -562,8 +562,8 @@ impl StreamState {
             StreamState::Off => "off",
             StreamState::Blocked => "blocked",
             StreamState::On | StreamState::OptOutIgnored => "on",
-            StreamState::RestartNeeded => "restart T3",
-            StreamState::Unverified => "can't tell",
+            StreamState::RestartNeeded => "restart",
+            StreamState::Unverified => "unknown",
             StreamState::None => "none",
         }
     }
@@ -747,6 +747,99 @@ pub struct Report {
 }
 
 impl Report {
+    /// Contextual heading for CLI banners. Gives specific, graceful readouts for
+    /// `Verdict::Unverified` instead of a blunt generic "can't tell".
+    pub fn verdict_heading(&self) -> &'static str {
+        if self.verdict != Verdict::Unverified {
+            return self.verdict.heading();
+        }
+        if matches!(self.inputs.platform, Platform::Other) {
+            return "NOT SUPPORTED ON THIS OS";
+        }
+        if self.inputs.macos_managed_prefs_present && !matches!(&self.inputs.policy, Read::Absent)
+        {
+            return "POLICY CONFLICT";
+        }
+        if matches!(&self.inputs.policy, Read::Invalid { .. }) {
+            return "INVALID POLICY";
+        }
+        if matches!(&self.inputs.policy, Read::Unreadable(_)) {
+            return "POLICY UNREADABLE";
+        }
+        if self.inputs.macos_managed_prefs_present
+            || self
+                .findings
+                .iter()
+                .any(|f| f.id == "macos_managed_profile")
+        {
+            return "MACOS PROFILE";
+        }
+        if self
+            .findings
+            .iter()
+            .any(|f| f.id == "invalid_telemetry_enabled")
+        {
+            return "INVALID SETTING";
+        }
+        if self
+            .findings
+            .iter()
+            .any(|f| f.id == "shell_env_unverified" || f.id == "shell_otel_unverified")
+        {
+            return "OFF IN THIS SHELL";
+        }
+        if !self.inputs.data_folder_exists && matches!(&self.inputs.policy, Read::Absent) {
+            return "NO T3 DATA HERE";
+        }
+        "UNVERIFIED"
+    }
+
+    /// Short contextual label for the interactive board verdict strip.
+    pub fn verdict_short(&self) -> &'static str {
+        if self.verdict != Verdict::Unverified {
+            return self.verdict.short_label();
+        }
+        if matches!(self.inputs.platform, Platform::Other) {
+            return "Unsupported OS";
+        }
+        if self.inputs.macos_managed_prefs_present && !matches!(&self.inputs.policy, Read::Absent)
+        {
+            return "Policy conflict";
+        }
+        if matches!(&self.inputs.policy, Read::Invalid { .. }) {
+            return "Invalid policy";
+        }
+        if matches!(&self.inputs.policy, Read::Unreadable(_)) {
+            return "Policy unreadable";
+        }
+        if self.inputs.macos_managed_prefs_present
+            || self
+                .findings
+                .iter()
+                .any(|f| f.id == "macos_managed_profile")
+        {
+            return "macOS profile";
+        }
+        if self
+            .findings
+            .iter()
+            .any(|f| f.id == "invalid_telemetry_enabled")
+        {
+            return "Invalid setting";
+        }
+        if self
+            .findings
+            .iter()
+            .any(|f| f.id == "shell_env_unverified" || f.id == "shell_otel_unverified")
+        {
+            return "Off in shell";
+        }
+        if !self.inputs.data_folder_exists && matches!(&self.inputs.policy, Read::Absent) {
+            return "No T3 data here";
+        }
+        "Unverified"
+    }
+
     /// Returns a Live dashboard warning alert only when a user-set opt-out is ignored
     /// or waiting on a T3 restart. Plain default-on never fires an alert.
     pub fn alert(&self) -> Option<Alert> {
@@ -1874,9 +1967,9 @@ pub fn evaluate(inputs: Inputs) -> Report {
     });
     if eff_env.is_unverified_for_running() && !policy_denies_telemetry {
         let reason = match &inputs.server.launch {
-            Launch::Desktop(_) => "started from desktop, not this shell",
-            Launch::Shell { .. } => "started in another shell, not this one",
-            _ => "cannot verify running T3's environment",
+            Launch::Desktop(_) => "desktop app env is private (never read)",
+            Launch::Shell { .. } => "other shell env is private (never read)",
+            _ => "running T3 env is private (never read)",
         };
         not_checked.push(NotChecked {
             id: "app_environment",
@@ -2172,7 +2265,7 @@ fn evaluate_product_events(
             } else if eff_env.is_unverified_for_running() {
                 (
                     StreamState::Unverified,
-                    format!("T3CODE_TELEMETRY_ENABLED={raw} (this shell only)"),
+                    "in this shell · app env private".to_owned(),
                 )
             } else {
                 (
@@ -2659,7 +2752,7 @@ fn evaluate_relay_traces(
         } else if eff_env.is_unverified_for_running() {
             (
                 StreamState::Unverified,
-                format!("T3CODE_TELEMETRY_ENABLED={raw} (this shell only)"),
+                "in this shell · app env private".to_owned(),
             )
         } else {
             (
@@ -2808,7 +2901,7 @@ fn evaluate_relay_traces(
         } else if eff_env.is_unverified_for_running() {
             (
                 StreamState::Unverified,
-                "T3CODE_OTEL_SDK_DISABLED=true (this shell only)".into(),
+                "in this shell · app env private".into(),
             )
         } else {
             (
@@ -2928,7 +3021,7 @@ fn evaluate_relay_traces(
         } else if eff_env.is_unverified_for_running() {
             (
                 StreamState::Unverified,
-                "OTEL_SDK_DISABLED=true (this shell only)".into(),
+                "in this shell · app env private".into(),
             )
         } else {
             (
@@ -3227,18 +3320,24 @@ fn build_summary(
                 "Telemetry checks are supported on Linux and macOS.".into()
             } else if inputs.macos_managed_prefs_present && !matches!(&inputs.policy, Read::Absent)
             {
-                "Both macOS Managed Preferences and policy.json exist; T3 Code refuses to start."
-                    .into()
+                "Both macOS Managed Preferences and policy.json exist; T3 won't start.".into()
             } else if matches!(&inputs.policy, Read::Invalid { .. }) {
                 "Managed policy is invalid; T3 Code will not start until policy.json is fixed."
                     .into()
+            } else if matches!(&inputs.policy, Read::Unreadable(_)) {
+                "Can't read policy.json (check permissions) to verify limits.telemetry.".into()
             } else if inputs.macos_managed_prefs_present {
-                "A macOS Managed Preferences profile is present; Loupe does not open managed plists."
+                "A macOS Managed Preferences plist is active; Loupe does not open plists.".into()
+            } else if product.decided_step == "T3CODE_TELEMETRY_ENABLED"
+                && product.decided_detail.contains("invalid")
+            {
+                "T3CODE_TELEMETRY_ENABLED must be exact lowercase (like \"false\"); T3 rejects it."
                     .into()
             } else if no_t3_or_policy {
-                "No T3 data folder or managed policy found here yet.".into()
+                "No T3 data folder or policy found here — set T3CODE_HOME if it's elsewhere.".into()
             } else {
-                "Loupe cannot verify the running T3 Code server's environment from here.".into()
+                "Set in this shell; Loupe never reads the running app's env (API keys live there)."
+                    .into()
             }
         }
     }
@@ -3735,13 +3834,15 @@ mod tests {
         assert_eq!(rep.streams[1].state, StreamState::Off); // relay traces trim+lowercase
         assert!(rep.findings.iter().any(|f| f.id == "invalid_telemetry_enabled"));
 
-        // 3. Desktop launch with shell opt-out -> row & verdict both Unverified ("?" / "Can't tell")
+        // 3. Desktop launch with shell opt-out -> row & verdict both Unverified with graceful wording
         let mut inp = base_inputs();
         inp.server.liveness = Liveness::Running;
         inp.server.launch = Launch::Desktop("uwsm".into());
         inp.shell.set_raw(EnvKey::TelemetryEnabled, "false");
         let rep = evaluate(inp);
         assert_eq!(rep.verdict, Verdict::Unverified);
+        assert_eq!(rep.verdict_heading(), "OFF IN THIS SHELL");
+        assert_eq!(rep.verdict_short(), "Off in shell");
         assert_eq!(rep.streams[0].state, StreamState::Unverified);
         assert_eq!(rep.streams[1].state, StreamState::Unverified);
         assert!(rep.findings.iter().any(|f| f.id == "shell_env_unverified"));

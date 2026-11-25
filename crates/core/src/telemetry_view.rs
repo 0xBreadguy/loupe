@@ -62,8 +62,8 @@ pub fn stream_style(state: StreamState, p: &Palette) -> (char, &'static str, Rgb
         StreamState::Blocked => ('⊘', "blocked", p.text2, p.fg, false),
         StreamState::On => ('●', "on", p.warn, p.warn, false),
         StreamState::OptOutIgnored => ('✗', "on", p.hot, p.hot, true),
-        StreamState::RestartNeeded => (restart_glyph(), "restart T3", p.warn, p.warn, true),
-        StreamState::Unverified => ('?', "can't tell", p.text2, p.fg, false),
+        StreamState::RestartNeeded => (restart_glyph(), "restart", p.warn, p.warn, true),
+        StreamState::Unverified => ('?', "unknown", p.text2, p.fg, false),
         StreamState::None => ('○', "none", p.dim, p.dim, false),
     }
 }
@@ -80,11 +80,24 @@ fn custom_stream_style(stream: &Stream, p: &Palette) -> (char, String, Rgb, Rgb,
 
 fn stream_visual(stream: &Stream, p: &Palette) -> (char, String, Rgb, Rgb, bool) {
     if stream.id == StreamId::CustomExporters {
-        custom_stream_style(stream, p)
-    } else {
-        let (g, w, gi, wi, b) = stream_style(stream.state, p);
-        (g, w.to_owned(), gi, wi, b)
+        return custom_stream_style(stream, p);
     }
+    if stream.state == StreamState::Unverified {
+        if stream.decided_detail.contains("shell") {
+            return ('?', "in shell".into(), p.text2, p.fg, false);
+        }
+        if stream.decided_detail.contains("unreadable") {
+            return ('?', "locked".into(), p.warn, p.warn, false);
+        }
+        if stream.decided_detail.contains("macOS") {
+            return ('?', "profile".into(), p.text2, p.fg, false);
+        }
+        if stream.decided_detail.contains("invalid") || stream.decided_detail.contains("both") {
+            return ('?', "invalid".into(), p.warn, p.warn, false);
+        }
+    }
+    let (g, w, gi, wi, b) = stream_style(stream.state, p);
+    (g, w.to_owned(), gi, wi, b)
 }
 
 fn width(s: &str) -> i32 {
@@ -360,7 +373,7 @@ pub fn card(report: &Report, p: &Palette, _mono: bool) -> Canvas {
     c.set(1, y, '▌', v_t_ink, Some(p.panel), false);
     c.set(1, y + 1, '▌', v_t_ink, Some(p.panel), false);
     c.set(3, y, v_glyph, v_g_ink, Some(p.panel), true);
-    c.text_bg(5, y, report.verdict.heading(), v_t_ink, p.panel, true);
+    c.text_bg(5, y, &fit(report.verdict_heading(), ww - 6), v_t_ink, p.panel, true);
     c.text_bg(5, y + 1, &fit(&report.summary, ww - 6), p.fg, p.panel, false);
     y += 3;
 
@@ -513,8 +526,10 @@ pub fn wide(report: &Report, p: &Palette, _mono: bool) -> Canvas {
     c.fill(0, y, ww, 1, p.panel);
     c.set(1, y, '▌', v_t_ink, Some(p.panel), false);
     c.set(3, y, v_glyph, v_g_ink, Some(p.panel), true);
-    let vx = 5 + c.text_bg(5, y, report.verdict.heading(), v_t_ink, p.panel, true) + 3;
-    c.text_bg(vx, y, &fit(&report.summary, ww - 1 - vx), p.fg, p.panel, false);
+    let vx = 5 + c.text_bg(5, y, report.verdict_heading(), v_t_ink, p.panel, true) + 3;
+    if ww - 1 > vx {
+        c.text_bg(vx, y, &fit(&report.summary, ww - 1 - vx), p.fg, p.panel, false);
+    }
     y += 2;
 
     let left_x = 1i32;
@@ -660,7 +675,7 @@ pub fn list(report: &Report, p: &Palette, _mono: bool) -> Canvas {
     let (v_glyph, v_g_ink, v_t_ink) = verdict_style(report.verdict, p);
     c.set(0, y, '▌', v_t_ink, None, false);
     c.set(1, y, v_glyph, v_g_ink, None, true);
-    c.text_bold(3, y, &fit(report.verdict.heading(), ww - 4), v_t_ink);
+    c.text_bold(3, y, &fit(report.verdict_heading(), ww - 4), v_t_ink);
     y += 1;
     for line in wrap_lines(&report.summary, (ww - 2) as usize) {
         c.text(1, y, &line, p.fg);
@@ -797,12 +812,16 @@ fn draw_card_stream_row(
     c.text(x + 2, y, &fit(s.id.label(), 20), p.fg);
     let state_x = x + 23;
     if bold {
-        c.text_bold(state_x, y, &fit(&word, 10), w_ink);
+        c.text_bold(state_x, y, &fit(&word, 8), w_ink);
     } else {
-        c.text(state_x, y, &fit(&word, 10), w_ink);
+        c.text(state_x, y, &fit(&word, 8), w_ink);
     }
     let detail_x = state_x + 9;
-    let conf_w = if show_confidence { 8 } else { 0 };
+    let conf_w = if show_confidence {
+        width(s.confidence.label()) + 1
+    } else {
+        0
+    };
     let detail_w = (x + w - conf_w - detail_x).max(0);
     if detail_w > 0 {
         let d_ink = if s.state == StreamState::OptOutIgnored {
@@ -1163,7 +1182,7 @@ impl TelemetryView {
         } else {
             ww - 1 - width(right_note)
         };
-        let label_end = 3 + c.text_bg(3, 1, report.verdict.short_label(), v_t_ink, p.panel, true);
+        let label_end = 3 + c.text_bg(3, 1, report.verdict_short(), v_t_ink, p.panel, true);
         if label_end + 4 < rx {
             let summary_text = format!(" · {}", report.summary);
             c.text_bg(
@@ -1821,6 +1840,10 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for st in states {
             let (g, w, _, _, _) = stream_style(st, &p);
+            assert!(
+                terminal::width(w) <= 8,
+                "stream state word for {st:?} exceeds 8 cols: {w:?}"
+            );
             assert!(
                 seen.insert((g, w)),
                 "duplicate (glyph, word) pair for {st:?}: ({g:?}, {w:?})"
