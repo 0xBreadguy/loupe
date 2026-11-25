@@ -3446,7 +3446,17 @@ pub fn t3_handoff_prompt(report: &Report) -> (String, String) {
     };
 
     let mut body = String::new();
-    body.push_str("Please help me turn off T3 Code telemetry on this machine based on what Loupe's read-only Telemetry Check found.\n\n");
+    let intro = if matches!(&report.inputs.policy, Read::Invalid { .. }) {
+        "Loupe's read-only Telemetry Check found an invalid T3 Code managed policy file on this machine (which can prevent T3 Code from starting). Please help me fix it cleanly."
+    } else if report.verdict == Verdict::RestartNeeded {
+        "Loupe's read-only Telemetry Check found a telemetry opt-out on disk that T3 Code hasn't picked up yet. Please help me verify the configuration and get it applied cleanly."
+    } else if report.verdict == Verdict::Unverified {
+        "Loupe's read-only Telemetry Check could not verify whether T3 Code's running telemetry is actually off on this machine. Please help me make the opt-out deterministic and verifiable."
+    } else {
+        "Please help me turn off T3 Code telemetry on this machine based on what Loupe's read-only Telemetry Check found."
+    };
+    body.push_str(intro);
+    body.push_str("\n\n**Scope:** Machine-wide T3 Code configuration on this host. Do not edit files or make commits in the project repository where this thread was opened.\n\n");
     body.push_str("## Current Telemetry Check summary\n");
     body.push_str(&format!(
         "- Status: {} — {}\n",

@@ -115,6 +115,7 @@ fn inventory() -> Inventory {
             scratch: Bytes::Exact(120 * MB),
         }),
         shown: Shown::Current,
+        ..Inventory::default()
     }
 }
 

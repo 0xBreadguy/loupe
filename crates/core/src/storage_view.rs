@@ -310,7 +310,8 @@ impl StorageView {
                     .projects
                     .iter()
                     .find(|p| p.threads.iter().any(|t| t.id == entry.id))
-                    .map(|p| p.id.clone());
+                    .map(|p| p.id.clone())
+                    .or_else(|| inventory.settled_projects.get(&entry.id).cloned());
                 (
                     crate::handoff::StorageTarget::Entry {
                         title: entry.title.clone(),

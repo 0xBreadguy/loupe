@@ -93,8 +93,11 @@ pub struct SendPreset {
 pub struct StorageContext {
     pub target: StorageTarget,
     pub volumes: Vec<StorageVolume>,
-    pub settled_or_gone_count: usize,
-    pub settled_or_gone_bytes: u64,
+    /// Settled/gone entries *within this exact scope* (never global when scoped to a project or single entry).
+    pub scoped_settled_count: usize,
+    pub scoped_settled_bytes: u64,
+    pub scoped_settled_items: Vec<StorageItem>,
+    /// Active/open entries within this exact scope (or top settled/gone entries when `target` is `SettledOrGone`).
     pub top_items: Vec<StorageItem>,
 }
 
@@ -293,7 +296,8 @@ pub fn telemetry_prompt(report: &telemetry::Report) -> (String, String) {
 }
 
 /// Build the Storage cleanup handoff `(title, prompt)`.
-/// Contains only folder paths, measured sizes, thread states, and volume headroom already shown on screen.
+/// Contains only folder paths, measured sizes, thread states, and volume headroom already shown on screen,
+/// strictly scoped to the user's selected project, entry, or group.
 pub fn storage_prompt(ctx: &StorageContext) -> (String, String) {
     let title = match &ctx.target {
         StorageTarget::Project { title, .. } => {
@@ -307,13 +311,50 @@ pub fn storage_prompt(ctx: &StorageContext) -> (String, String) {
         StorageTarget::Overview => "Clean up T3 worktree & build storage".into(),
     };
 
+    let low_headroom = ctx.volumes.iter().any(|v| {
+        v.total_bytes > 0
+            && (v.available_bytes < 1_073_741_824
+                || (v.available_bytes as f64 / v.total_bytes as f64) < 0.10)
+    });
+
     let mut out = String::new();
-    out.push_str(
-        "I noticed high disk usage in Loupe's Storage view. Please inspect these worktrees, build caches, and scratch folders, and help me reclaim disk space safely.\n\n",
-    );
+    match &ctx.target {
+        StorageTarget::Project { title, .. } => {
+            let name = terminal::clean(title);
+            out.push_str(&format!(
+                "I triggered a project-scoped cleanup from Loupe's Storage view for **{name}**. Inspect only **{name}**'s worktrees, build caches, and scratch folders listed below, and help me reclaim space safely.\n\n",
+            ));
+        }
+        StorageTarget::Entry { title, .. } => {
+            let name = terminal::clean(title);
+            out.push_str(&format!(
+                "I triggered a cleanup from Loupe's Storage view for the single folder **{name}**. Inspect only this worktree/folder and its scratch or build artifacts, and help me clean it up safely.\n\n",
+            ));
+        }
+        StorageTarget::SettledOrGone { .. } => {
+            out.push_str(
+                "I triggered a cleanup from Loupe's Storage view for the **Settled or gone** group (worktrees for settled threads or folders with no remaining thread in T3). Inspect these folders and help me reclaim space safely.\n\n",
+            );
+        }
+        StorageTarget::Other { .. } => {
+            out.push_str(
+                "I triggered a cleanup from Loupe's Storage view for **Other** (unassigned temp/scratch space not tied to a thread). Inspect stale temp/scratch files safely without touching active worktrees.\n\n",
+            );
+        }
+        StorageTarget::Overview => {
+            out.push_str(
+                "I triggered a cleanup from Loupe's Storage view. Inspect these worktrees, build caches, and scratch folders, and help me reclaim disk space safely.\n\n",
+            );
+        }
+    }
 
     if !ctx.volumes.is_empty() {
-        out.push_str("## Volume headroom\n");
+        let heading = if low_headroom {
+            "## Volume headroom (low space)\n"
+        } else {
+            "## Volume headroom\n"
+        };
+        out.push_str(heading);
         for v in &ctx.volumes {
             let pct_free = if v.total_bytes > 0 {
                 (v.available_bytes as f64 / v.total_bytes as f64) * 100.0
@@ -343,11 +384,19 @@ pub fn storage_prompt(ctx: &StorageContext) -> (String, String) {
             sizes,
             ..
         } => {
+            let name = terminal::clean(title);
             out.push_str(&format!(
-                "- Project: **{}** ({thread_count} worktree threads)\n- Measured footprint: {}\n",
-                terminal::clean(title),
+                "- Project: **{name}** ({thread_count} open/recent worktree {})\n- Open/recent footprint: {}\n",
+                if *thread_count == 1 { "thread" } else { "threads" },
                 fmt_sizes(*sizes),
             ));
+            if ctx.scoped_settled_count > 0 {
+                out.push_str(&format!(
+                    "- Settled or gone folders belonging to **{name}**: {} (~{})\n",
+                    ctx.scoped_settled_count,
+                    fmt_bytes(ctx.scoped_settled_bytes),
+                ));
+            }
         }
         StorageTarget::SettledOrGone { count, sizes } => {
             out.push_str(&format!(
@@ -380,20 +429,22 @@ pub fn storage_prompt(ctx: &StorageContext) -> (String, String) {
         }
         StorageTarget::Overview => {
             out.push_str("- Scope: overall T3 worktree and scratch usage\n");
+            if ctx.scoped_settled_count > 0 {
+                out.push_str(&format!(
+                    "- Settled or gone folders: {} (~{})\n",
+                    ctx.scoped_settled_count,
+                    fmt_bytes(ctx.scoped_settled_bytes),
+                ));
+            }
         }
     }
 
-    if ctx.settled_or_gone_count > 0 {
-        out.push_str(&format!(
-            "- Total settled/gone folders: {} (~{})\n",
-            ctx.settled_or_gone_count,
-            fmt_bytes(ctx.settled_or_gone_bytes),
-        ));
-    }
-
-    if !ctx.top_items.is_empty() {
-        out.push_str("\n## Largest folders in scope\n");
-        for item in ctx.top_items.iter().take(12) {
+    let push_items = |out: &mut String, heading: &str, items: &[StorageItem], limit: usize| {
+        if items.is_empty() {
+            return;
+        }
+        out.push_str(heading);
+        for item in items.iter().take(limit) {
             let mut parts = Vec::new();
             if let Some(w) = item.worktree_bytes.filter(|&b| b > 0) {
                 parts.push(format!("worktree {}", fmt_bytes(w)));
@@ -420,14 +471,55 @@ pub fn storage_prompt(ctx: &StorageContext) -> (String, String) {
                 thread_state_word(item.state),
             ));
         }
+    };
+
+    match &ctx.target {
+        StorageTarget::Project { title, .. } => {
+            let name = terminal::clean(title);
+            push_items(
+                &mut out,
+                &format!("\n## Settled or gone folders in {name}\n"),
+                &ctx.scoped_settled_items,
+                12,
+            );
+            push_items(
+                &mut out,
+                &format!("\n## Open/recent folders in {name}\n"),
+                &ctx.top_items,
+                12,
+            );
+        }
+        StorageTarget::Entry { .. } => {
+            // The single selected entry is already fully described under "Selected focus".
+        }
+        StorageTarget::SettledOrGone { .. } => {
+            push_items(&mut out, "\n## Largest settled or gone folders\n", &ctx.top_items, 15);
+        }
+        StorageTarget::Other { .. } => {}
+        StorageTarget::Overview => {
+            push_items(&mut out, "\n## Largest folders in scope\n", &ctx.top_items, 12);
+        }
     }
 
-    out.push_str(
+    let scope_rule = match &ctx.target {
+        StorageTarget::Project { title, .. } => format!(
+            "Stay strictly scoped to **{}** — do not inspect, list, or propose deleting worktrees or folders from other projects. ",
+            terminal::clean(title),
+        ),
+        StorageTarget::Entry { .. } => {
+            "Stay strictly scoped to this single folder — do not inspect or propose deleting other worktrees or projects. "
+                .into()
+        }
+        _ => String::new(),
+    };
+
+    out.push_str(&format!(
         "\n## What to do\n\
-1. Inspect the folders above (checking `git status`, unpushed branches/commits, and whether any process is actively using them).\n\
-2. Rank the safest, highest-impact space savings first: e.g. removing settled/gone worktrees with no unpushed work, then cleaning heavy build caches (`target/`, `node_modules/`, `.next/`, etc.) or stale scratch files.\n\
-3. Present the exact cleanup plan with estimated bytes reclaimed and **ask for my confirmation before deleting any files or worktrees**.\n",
-    );
+1. {scope_rule}Leave your own current working directory/worktree alone if T3 started this thread in one.\n\
+2. Inspect the target folders above (checking `git status`, unpushed branches/commits, whether branches are merged into the main checkout, and whether any process is actively using them).\n\
+3. Rank the safest, highest-impact space savings first (settled/gone worktrees with no unpushed work, then clean done worktrees, build caches like `target/` or `node_modules/`, and stale scratch files).\n\
+4. Present the exact cleanup plan with estimated bytes reclaimed and **ask for my confirmation before deleting any files or worktrees**.\n",
+    ));
 
     (title, out)
 }
@@ -468,43 +560,115 @@ pub fn storage_context_from_inventory(
         }
     }
 
-    let settled_or_gone_count = inventory.settled_or_gone.len();
-    let settled_or_gone_bytes: u64 = inventory
-        .settled_or_gone
-        .iter()
-        .filter_map(|e| e.sizes.footprint())
-        .map(|b| u64::try_from(b).unwrap_or(u64::MAX))
-        .fold(0u64, u64::saturating_add);
-
-    let mut ranked: Vec<&Entry> = if !focus_entries.is_empty() {
-        focus_entries.to_vec()
-    } else {
-        inventory
-            .settled_or_gone
-            .iter()
-            .chain(inventory.projects.iter().flat_map(|p| p.threads.iter()))
-            .collect()
+    let to_item = |e: &Entry| StorageItem {
+        title: e.title.clone(),
+        path: e.worktree_path.clone(),
+        state: e.state,
+        worktree_bytes: e.sizes.worktree.measured(),
+        build_bytes: e.sizes.build.measured(),
+        scratch_bytes: e.sizes.scratch.measured(),
     };
-    ranked.sort_by_key(|e| std::cmp::Reverse(e.sizes.footprint().unwrap_or(0)));
 
-    let top_items = ranked
-        .into_iter()
-        .take(12)
-        .map(|e| StorageItem {
-            title: e.title.clone(),
-            path: e.worktree_path.clone(),
-            state: e.state,
-            worktree_bytes: e.sizes.worktree.measured(),
-            build_bytes: e.sizes.build.measured(),
-            scratch_bytes: e.sizes.scratch.measured(),
-        })
-        .collect();
+    let (scoped_settled_count, scoped_settled_bytes, scoped_settled_items, top_items) =
+        match &target {
+            StorageTarget::Project { id, .. } => {
+                // Match ONLY settled/gone entries belonging to this project:
+                // 1) exact `settled_projects` ownership recorded by the adapter, or
+                // 2) an orphaned worktree folder sitting in a parent directory uniquely used by this project's worktrees.
+                let mut project_parents: Vec<&Path> = focus_entries
+                    .iter()
+                    .filter_map(|e| e.worktree_path.as_deref().and_then(Path::parent))
+                    .collect();
+                project_parents.sort_unstable();
+                project_parents.dedup();
+                // Keep only parent dirs that no OTHER project in the inventory shares.
+                project_parents.retain(|parent| {
+                    !inventory.projects.iter().any(|other| {
+                        other.id != *id
+                            && other.threads.iter().any(|t| {
+                                t.worktree_path.as_deref().and_then(Path::parent) == Some(*parent)
+                            })
+                    })
+                });
+
+                let mut owned_settled: Vec<&Entry> = inventory
+                    .settled_or_gone
+                    .iter()
+                    .filter(|e| {
+                        if let Some(owner) = inventory.settled_projects.get(&e.id) {
+                            return owner == id;
+                        }
+                        e.worktree_path
+                            .as_deref()
+                            .and_then(Path::parent)
+                            .is_some_and(|p| project_parents.contains(&p))
+                    })
+                    .collect();
+                owned_settled.sort_by_key(|e| std::cmp::Reverse(e.sizes.footprint().unwrap_or(0)));
+
+                let settled_count = owned_settled.len();
+                let settled_bytes: u64 = owned_settled
+                    .iter()
+                    .filter_map(|e| e.sizes.footprint())
+                    .map(|b| u64::try_from(b).unwrap_or(u64::MAX))
+                    .fold(0u64, u64::saturating_add);
+                let settled_items: Vec<StorageItem> =
+                    owned_settled.into_iter().take(12).map(to_item).collect();
+
+                let mut active: Vec<&Entry> = focus_entries.to_vec();
+                active.sort_by_key(|e| std::cmp::Reverse(e.sizes.footprint().unwrap_or(0)));
+                let active_items: Vec<StorageItem> =
+                    active.into_iter().take(12).map(to_item).collect();
+
+                (settled_count, settled_bytes, settled_items, active_items)
+            }
+            StorageTarget::Entry { .. } => {
+                // Single-entry scope: never include global settled totals or sibling entries.
+                let items: Vec<StorageItem> = focus_entries.iter().take(1).map(|e| to_item(e)).collect();
+                (0, 0, Vec::new(), items)
+            }
+            StorageTarget::SettledOrGone { .. } => {
+                let mut settled: Vec<&Entry> = if !focus_entries.is_empty() {
+                    focus_entries.to_vec()
+                } else {
+                    inventory.settled_or_gone.iter().collect()
+                };
+                settled.sort_by_key(|e| std::cmp::Reverse(e.sizes.footprint().unwrap_or(0)));
+                let count = settled.len();
+                let bytes: u64 = settled
+                    .iter()
+                    .filter_map(|e| e.sizes.footprint())
+                    .map(|b| u64::try_from(b).unwrap_or(u64::MAX))
+                    .fold(0u64, u64::saturating_add);
+                let items: Vec<StorageItem> = settled.into_iter().take(15).map(to_item).collect();
+                (count, bytes, Vec::new(), items)
+            }
+            StorageTarget::Other { .. } => (0, 0, Vec::new(), Vec::new()),
+            StorageTarget::Overview => {
+                let count = inventory.settled_or_gone.len();
+                let bytes: u64 = inventory
+                    .settled_or_gone
+                    .iter()
+                    .filter_map(|e| e.sizes.footprint())
+                    .map(|b| u64::try_from(b).unwrap_or(u64::MAX))
+                    .fold(0u64, u64::saturating_add);
+                let mut ranked: Vec<&Entry> = inventory
+                    .settled_or_gone
+                    .iter()
+                    .chain(inventory.projects.iter().flat_map(|p| p.threads.iter()))
+                    .collect();
+                ranked.sort_by_key(|e| std::cmp::Reverse(e.sizes.footprint().unwrap_or(0)));
+                let items: Vec<StorageItem> = ranked.into_iter().take(12).map(to_item).collect();
+                (count, bytes, Vec::new(), items)
+            }
+        };
 
     StorageContext {
         target,
         volumes,
-        settled_or_gone_count,
-        settled_or_gone_bytes,
+        scoped_settled_count,
+        scoped_settled_bytes,
+        scoped_settled_items,
         top_items,
     }
 }
@@ -534,9 +698,22 @@ pub fn trace_prompt(
     };
 
     let mut out = String::new();
-    out.push_str(
-        "I inspected this task in Loupe's Trace view and want to understand why it was slow, failed, or stalled — and optimize the root cause.\n\n",
-    );
+    let intro = match t.state {
+        trace::State::Failed => {
+            "I inspected this failed task in Loupe's Trace view and want to pinpoint why it failed and how to fix or prevent the root cause."
+        }
+        trace::State::Running | trace::State::Waiting | trace::State::Delegated | trace::State::Queued => {
+            "I inspected this in-flight task in Loupe's Trace view and want to understand what is slowing it down, blocking it, or causing retries."
+        }
+        _ if t.steps.failed > 0 => {
+            "I inspected this task in Loupe's Trace view and want to diagnose its failed steps and slowest bottlenecks so similar runs are faster and cleaner."
+        }
+        _ => {
+            "I inspected this task in Loupe's Trace view and want to see where the time went and whether its slowest steps can be optimized."
+        }
+    };
+    out.push_str(intro);
+    out.push_str("\n\n");
     out.push_str("## Task summary (from Loupe Trace)\n");
     out.push_str(&format!("- Task: **{}**\n", terminal::clean(task_name)));
     if let Some(proj) = project_name.filter(|s| !s.is_empty()) {
@@ -601,11 +778,13 @@ pub fn trace_prompt(
         ));
     }
 
+    let mut has_highlighted = false;
     if let Some(key) = selected_span_key {
         if let Some(s) = t.spans.iter().find(|s| s.key == key) {
             let dur = (s.end.unwrap_or(t.now) - s.start).max(0.0);
             out.push_str("\n## Highlighted step\n");
             out.push_str(&format!("- {}\n", format_trace_span(s, dur)));
+            has_highlighted = true;
         }
     }
 
@@ -652,16 +831,18 @@ pub fn trace_prompt(
         }
     }
 
-    out.push_str(
+    let highlight_step = if has_highlighted {
+        "Start with the highlighted step above, then inspect "
+    } else {
+        "Inspect "
+    };
+    out.push_str(&format!(
         "\n## What to do\n\
-1. Read thread `",
-    );
-    out.push_str(&t.thread);
-    out.push_str(
-        "` (using `t3_thread_read` if available) and inspect the slow or failing steps above.\n\
-2. Pinpoint why the task spent so much time or failed (slow build/test command, retries, flaky tool, poor prompt/delegation split, or environment issue).\n\
-3. Recommend concrete fixes — and if they belong in this repo (scripts, tests, config, or `AGENTS.md` guidance), propose implementing them.\n",
-    );
+1. Stay focused on this single task — thread `{}` and any child delegate threads listed above (do not audit unrelated threads).\n\
+2. {highlight_step}thread `{}` (using `t3_thread_read` if available) to pinpoint why its slowest or failed steps behaved this way (slow build/test command, retries, flaky tool, delegation split, or environment issue).\n\
+3. Recommend concrete fixes — and if they belong in this repo (scripts, tests, config, or `AGENTS.md` guidance), present them and **ask before editing files or committing**.\n",
+        t.thread, t.thread,
+    ));
 
     (title, out)
 }
@@ -707,6 +888,10 @@ pub fn tools_prompt(report: &Tools) -> (String, String) {
     out.push_str(
         "I reviewed Loupe's Tools report and want to investigate my top tool bottlenecks, command failures, and recurring friction — then optimize my toolchain, scripts, or agent setup.\n\n",
     );
+    out.push_str(&format!(
+        "**Scope:** Loupe's Tools report aggregates **all T3 Code projects on this machine** for {} to {} (not only the repository where this thread opened). Loupe records only allowlisted program names and integer exit codes (never command arguments), so inspect the referenced thread IDs to see exact invocations and which project each belongs to.\n\n",
+        report.from, report.to,
+    ));
 
     out.push_str(&format!(
         "## Tools overview ({} to {}, {period_word})\n",
@@ -894,12 +1079,9 @@ pub fn tools_prompt(report: &Tools) -> (String, String) {
 
     out.push_str(
         "\n## What to do\n\
-1. Diagnose the top 2–3 time sinks and failure patterns above (feel free to inspect the referenced thread IDs with `t3_thread_read` or check this repository's build/test scripts, CI, and `AGENTS.md`).\n\
-2. Propose high-leverage, concrete optimizations across:\n\
-   - **Build / test / lint speed** (incremental caching, narrower test invocations, parallel runners, avoiding redundant full rebuilds).\n\
-   - **Recurring command failures** (missing PATH/binaries for exit 127, timeouts for exit 124, bad flags for exit 2, flaky scripts or MCP tool friction).\n\
-   - **Agent workflow / repo guidance** (scripts, aliases, or `AGENTS.md` rules that steer agents onto the fast, reliable path automatically).\n\
-3. Highlight quick wins we can implement right now, and ask which ones I want you to apply.\n",
+1. Diagnose the top 2–3 time sinks and failure patterns above. Use `t3_thread_read` on the referenced thread IDs to see which project(s) and exact commands drove them before proposing repo-specific changes.\n\
+2. Separate **machine/global improvements** (PATH/missing binaries for exit 127, timeouts for exit 124, shared caches like sccache, shell/CLI wrappers, global harness rules) from **project-specific improvements** (`AGENTS.md`, build/test scripts, narrower test commands) and name which project each fix targets.\n\
+3. Highlight the highest-ROI quick wins and **ask which ones I want applied before modifying files** (especially in any repo other than the one this thread opened in).\n",
     );
 
     (title, out)
@@ -918,8 +1100,15 @@ pub fn recap_prompt(report: &Recap) -> (String, String) {
 
     let mut out = String::new();
     out.push_str(
-        "I reviewed Loupe's Recap report and want to turn these patterns and findings into concrete workflow, model-routing, context-management, or repo setup optimizations.\n\n",
+        "I reviewed Loupe's Recap report and want to turn these patterns and findings into concrete workflow, model-routing, context-management, or harness optimizations.\n\n",
     );
+    out.push_str(&format!(
+        "**Scope:** Loupe's Recap aggregates **all {} T3 Code {} on this machine** for {} to {} (not only the repository where this thread opened).\n\n",
+        report.projects,
+        if report.projects == 1 { "project" } else { "projects" },
+        report.from,
+        report.to,
+    ));
     out.push_str(&format!(
         "## Period summary ({} to {}, {period_word})\n",
         report.from, report.to
@@ -988,6 +1177,25 @@ pub fn recap_prompt(report: &Recap) -> (String, String) {
             "- Delegate handoffs: {} total ({:.1}h, {} failed)\n",
             report.handed.count, report.handed.hours, report.handed.failed,
         ));
+        if !report.handed.pairs.is_empty() {
+            let pairs: Vec<String> = report
+                .handed
+                .pairs
+                .iter()
+                .take(3)
+                .map(|(from, to, n)| format!("{from} → {to} ({n})"))
+                .collect();
+            out.push_str(&format!("- Common handoff pairs: {}\n", pairs.join(", ")));
+        }
+    }
+    if !report.models.is_empty() {
+        let top_models: Vec<String> = report
+            .models
+            .iter()
+            .take(6)
+            .map(|m| format!("{} ({:.1}h, {} runs)", m.name, m.hours, m.runs))
+            .collect();
+        out.push_str(&format!("- Models by time: {}\n", top_models.join(", ")));
     }
     if report.commands > 0 {
         let fail_pct = 100.0 * f64::from(report.commands_failed) / f64::from(report.commands);
@@ -1011,9 +1219,9 @@ pub fn recap_prompt(report: &Recap) -> (String, String) {
 
     out.push_str(
         "\n## What to do\n\
-1. Identify the top 2–3 leverage points from this period (e.g. reducing wait-on-you interruptions, avoiding context compaction / >90% turns, cutting tool or setup failures, tuning delegate handoffs, or balancing providers around plan limits).\n\
-2. Check this repository's `AGENTS.md`, scripts, or workflow conventions where relevant.\n\
-3. Give me concrete, actionable changes ranked by impact — and ask which ones I want you to implement.\n",
+1. Identify the top 2–3 leverage points from this cross-project period (reducing wait-on-you interruptions, preventing context compaction / >90% turns, cutting tool or setup failures, tuning delegate handoffs, or balancing providers around plan limits).\n\
+2. Distinguish **global workflow / T3 setup / harness optimizations** from **project-specific repo changes** (do not assume all numbers come from the repository this thread opened in).\n\
+3. Give me concrete, ranked recommendations and **ask before modifying any files**.\n",
     );
 
     (title, out)
@@ -1024,7 +1232,8 @@ pub fn live_send_presets(agent: &Agent, pace: Option<&Pace>) -> Vec<SendPreset> 
     let mut presets = Vec::new();
     let ratio = model::ratio(agent.context.used_tokens, agent.context.max_tokens);
     let stalled = pace.is_some_and(|p| p.stalled);
-    let failed = matches!(agent.status.as_str(), "failed" | "error") || agent.failures > 0;
+    let task_failed = matches!(agent.status.as_str(), "failed" | "error");
+    let has_tool_failures = agent.failures > 0;
     let high_ctx = ratio.is_some_and(|r| r >= 0.85);
     let needs_you = model::needs_you(agent);
 
@@ -1056,11 +1265,11 @@ pub fn live_send_presets(agent: &Agent, pace: Option<&Pace>) -> Vec<SendPreset> 
             ),
         });
     }
-    if failed {
+    if task_failed {
         presets.push(SendPreset {
             label: "diagnose failure & recover".into(),
             text: Some(
-                "Inspect the recent failure, explain the root cause briefly, and retry with a safer fix (or tell me if you're blocked).".into(),
+                "Inspect the failure, explain the root cause briefly, and retry with a safer fix (or tell me if you're blocked).".into(),
             ),
         });
     }
@@ -1079,6 +1288,14 @@ pub fn live_send_presets(agent: &Agent, pace: Option<&Pace>) -> Vec<SendPreset> 
                 "Quick status check: what's done, what's in flight, and are there any blockers?".into(),
             ),
         });
+        if has_tool_failures {
+            presets.push(SendPreset {
+                label: "check recent failed calls".into(),
+                text: Some(
+                    "I noticed recent failed tool calls in this run — are they expected, or is something broken we should fix?".into(),
+                ),
+            });
+        }
         presets.push(SendPreset {
             label: "checkpoint & summarize".into(),
             text: Some(
@@ -1632,8 +1849,9 @@ mod tests {
                 total_bytes: 500_000_000_000,
                 is_tmpfs: Some(false),
             }],
-            settled_or_gone_count: 4,
-            settled_or_gone_bytes: 18_900_000_000,
+            scoped_settled_count: 4,
+            scoped_settled_bytes: 18_900_000_000,
+            scoped_settled_items: Vec::new(),
             top_items: vec![StorageItem {
                 title: "old-refactor".into(),
                 path: Some(PathBuf::from("/tmp/wt/old-refactor")),
@@ -1648,6 +1866,136 @@ mod tests {
         assert!(prompt.contains("18.4 GB"));
         assert!(prompt.contains("/tmp/wt/old-refactor"));
         assert!(prompt.contains("ask for my confirmation before deleting"));
+    }
+
+    #[test]
+    fn project_scoped_storage_context_excludes_other_projects_settled_folders() {
+        let mut inv = Inventory::default();
+        let mood_active = Entry {
+            id: "thread:m1".into(),
+            title: "Build mood core".into(),
+            worktree_path: Some(PathBuf::from("/wt/mood/t3-m1")),
+            sizes: Sizes {
+                worktree: Bytes::Exact(10_000_000),
+                build: Bytes::Exact(0),
+                scratch: Bytes::Exact(0),
+            },
+            state: ThreadState::Done,
+            age: None,
+            open_target: None,
+        };
+        let mood_settled = Entry {
+            id: "thread:m-old".into(),
+            title: "Old mood sketch".into(),
+            worktree_path: Some(PathBuf::from("/wt/mood/t3-m-old")),
+            sizes: Sizes {
+                worktree: Bytes::Exact(5_000_000),
+                build: Bytes::Exact(0),
+                scratch: Bytes::Exact(0),
+            },
+            state: ThreadState::Settled,
+            age: None,
+            open_target: None,
+        };
+        let mood_orphan = Entry {
+            id: "folder:Worktree:orphan".into(),
+            title: "t3-orphan-mood".into(),
+            worktree_path: Some(PathBuf::from("/wt/mood/t3-orphan")),
+            sizes: Sizes {
+                worktree: Bytes::Exact(3_000_000),
+                build: Bytes::Exact(0),
+                scratch: Bytes::Exact(0),
+            },
+            state: ThreadState::Gone,
+            age: None,
+            open_target: None,
+        };
+        let other_settled = Entry {
+            id: "thread:other-giant".into(),
+            title: "Huge unrelated repo".into(),
+            worktree_path: Some(PathBuf::from("/wt/other-app/t3-giant")),
+            sizes: Sizes {
+                worktree: Bytes::Exact(21_000_000_000),
+                build: Bytes::Exact(18_000_000_000),
+                scratch: Bytes::Exact(0),
+            },
+            state: ThreadState::Settled,
+            age: None,
+            open_target: None,
+        };
+
+        inv.projects.push(crate::storage_view::data::Project {
+            id: "proj-mood".into(),
+            title: "mood".into(),
+            threads: vec![mood_active.clone()],
+        });
+        inv.settled_projects
+            .insert("thread:m-old".into(), "proj-mood".into());
+        inv.settled_projects
+            .insert("thread:other-giant".into(), "proj-other".into());
+        inv.settled_or_gone = vec![mood_settled, mood_orphan, other_settled];
+
+        let focus = [&inv.projects[0].threads[0]];
+        let ctx = storage_context_from_inventory(
+            &inv,
+            StorageTarget::Project {
+                id: "proj-mood".into(),
+                title: "mood".into(),
+                thread_count: 1,
+                sizes: mood_active.sizes,
+            },
+            &focus,
+        );
+        assert_eq!(ctx.scoped_settled_count, 2);
+        assert_eq!(ctx.scoped_settled_bytes, 8_000_000);
+        let (_, prompt) = storage_prompt(&ctx);
+        assert!(prompt.contains("Old mood sketch"));
+        assert!(prompt.contains("t3-orphan-mood"));
+        assert!(prompt.contains("Build mood core"));
+        assert!(prompt.contains("Stay strictly scoped to **mood**"));
+        assert!(!prompt.contains("Huge unrelated repo"));
+        assert!(!prompt.contains("21.0 GB"));
+    }
+
+    #[test]
+    fn all_handoff_prompts_state_their_exact_scope() {
+        // Telemetry: machine-wide, explicitly tells agent not to edit the opened repo.
+        let tel_report = telemetry::demo::report(1_795_532_700_000.0);
+        let (_, tel_prompt) = telemetry_prompt(&tel_report);
+        assert!(tel_prompt.contains("Machine-wide T3 Code configuration"));
+        assert!(tel_prompt.contains("Do not edit files"));
+
+        // Trace: single task, does not audit unrelated threads, asks before editing.
+        let tr = trace::demo(1_795_000_000_000.0).unwrap();
+        let (_, tr_prompt) = trace_prompt(&tr, None, Some("loupe"));
+        assert!(tr_prompt.contains("Stay focused on this single task"));
+        assert!(tr_prompt.contains("ask before editing files"));
+
+        // Tools: explicitly cross-project across the machine, notes no command args.
+        let mut t = Tools::default();
+        t.from = "2026-11-16".into();
+        t.to = "2026-11-22".into();
+        let (_, t_prompt) = tools_prompt(&t);
+        assert!(t_prompt.contains("all T3 Code projects on this machine"));
+        assert!(t_prompt.contains("never command arguments"));
+
+        // Recap: explicitly cross-project across N projects.
+        let mut r = Recap::default();
+        r.from = "2026-11-16".into();
+        r.to = "2026-11-22".into();
+        r.projects = 4;
+        let (_, r_prompt) = recap_prompt(&r);
+        assert!(r_prompt.contains("all 4 T3 Code projects on this machine"));
+        assert!(r_prompt.contains("do not assume all numbers come from the repository"));
+
+        // Live presets: running thread with an earlier tool failure still leads with status update.
+        let mut running = Agent::default();
+        running.thread_id = "t-run".into();
+        running.status = "running".into();
+        running.failures = 2;
+        let presets = live_send_presets(&running, None);
+        assert_eq!(presets[0].label, "status update");
+        assert!(presets.iter().any(|p| p.label == "check recent failed calls"));
     }
 
     #[test]

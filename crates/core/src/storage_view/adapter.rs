@@ -156,6 +156,9 @@ pub fn convert(
     rows.sort_by(|a, b| a.entry.id.cmp(&b.entry.id));
     for row in rows {
         if matches!(row.entry.state, ThreadState::Settled | ThreadState::Gone) {
+            if let Some(pid) = row.project {
+                result.settled_projects.insert(row.entry.id.clone(), pid);
+            }
             result.settled_or_gone.push(row.entry);
         } else if let Some(project) = result
             .projects
@@ -164,6 +167,9 @@ pub fn convert(
         {
             project.threads.push(row.entry);
         } else {
+            if let Some(pid) = row.project {
+                result.settled_projects.insert(row.entry.id.clone(), pid);
+            }
             result.settled_or_gone.push(row.entry);
         }
     }
