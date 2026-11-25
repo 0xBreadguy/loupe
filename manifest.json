@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "0xbreadguy.loupe",
   "name": "Loupe",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "author": "0xBreadguy",
   "description": "Unofficial: running and waiting T3 Code agents in the bar. Click for a card listing them; right-click opens the Loupe dashboard. Not affiliated with Omarchy or T3 Code.",
   "kinds": [

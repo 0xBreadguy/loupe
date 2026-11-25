@@ -11,15 +11,14 @@ It runs on Linux. T3 Code's desktop app must be on the same machine, because the
 **With a release archive.** No toolchain is needed. The [releases page](https://github.com/0xBreadguy/loupe/releases/latest) has one archive for x86-64 and one for ARM, and a `SHA256SUMS` file listing all release archives. Check the page for the newest version and use its number for `v`.
 
 ```sh
-v=1.5.0 t=$(uname -m)-unknown-linux-gnu
-curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/loupe-$v-$t.tar.gz"
-curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/SHA256SUMS"
-sha256sum -c --ignore-missing SHA256SUMS
-tar -xzf "loupe-$v-$t.tar.gz"
-cd "loupe-$v-$t" && ./install.sh --binary ./loupe-term
+v=1.6.0 t=$(uname -m)-unknown-linux-gnu
+curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/loupe-$v-$t.tar.gz" &&
+  curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/SHA256SUMS" &&
+  sha256sum -c --ignore-missing SHA256SUMS &&
+  tar -xzf "loupe-$v-$t.tar.gz"
 ```
 
-Stop if the checksum does not match. Compare the highest glibc symbol version in the archive’s `BUILD-INFO` with the installed version shown by `ldd --version`. If the installed glibc is older, build from source.
+Stop if the checksum does not match. Compare the highest glibc symbol version in `loupe-$v-$t/BUILD-INFO` with the installed version shown by `ldd --version`. If the installed glibc is older, build from source; otherwise run `cd "loupe-$v-$t" && ./install.sh --binary ./loupe-term`.
 
 **From source.** This needs a Rust toolchain with `cargo`. Check for one before starting, and ask before installing one.
 
@@ -80,7 +79,7 @@ The rules, in the order they matter:
 3. **Never open a window or a terminal emulator on the real desktop.** `checks/scripts/window-parity.sh` runs them in an isolated desktop.
 4. **The Rust program must behave like `oracle/`.** If a check fails, the Rust program is wrong unless you can show the reference is. A deliberate difference is stated in the pull request and in the check.
 5. **Read the source for a rule; do not infer it.** Terminal behavior comes from OpenTUI 0.8.3. Find the rule in its source and cite the file in your comment.
-6. **Keep the reader read-only.** Follow the field list in [CONTRIBUTING.md](CONTRIBUTING.md) and explain each new read in the pull request. Never read authentication tables or return prompts, message text, tool output, subagent results or reasoning text. Only the ask-count function may inspect eligible assistant prose, and it returns a number. The live dashboard may display up to 240 characters of command input locally in row activity and details, with terminal controls stripped. For tool calls, Trace and Tools may return tool names and allowlisted program names, and Tools may return integer command exit codes. Recap uses counts and timings for commands. Storage measures directory entries and file metadata.
+6. **Keep the reader read-only.** Follow the field list in [CONTRIBUTING.md](CONTRIBUTING.md) and explain each new read in the pull request. Never read authentication tables or return prompts, message text, tool output, subagent results or reasoning text. Only the ask-count function may inspect eligible assistant prose, and it returns a number. The live dashboard may display up to 240 characters of command input locally in row activity and details, with terminal controls stripped. For tool calls, Trace and Tools may return tool names and allowlisted program names, and Tools may return integer command exit codes. Recap uses counts and timings for commands. Storage measures directory entries and file metadata. Telemetry Check reads local configuration files and allowlisted env vars only, never opens secrets, auth files or `/proc/*/environ`, and never sends data or writes files.
 7. **Stop only processes you started**, by process id. Do not kill by name, and do not delete temporary folders by pattern: other work may be running on the machine.
 8. **Do not hand-edit generated files**: `crates/core/src/cluster_tables.rs`, `checks/fixtures/golden/`, the schema fixtures. Their generators are named in [CONTRIBUTING.md](CONTRIBUTING.md).
 9. **Measure, do not estimate.** A performance claim is the median and range of at least five alternating trials on built binaries. Say what was not measured.
