@@ -1382,3 +1382,53 @@ fn insights_unreadable_and_snapshot_routes_preserve_terminal_shutdown() {
     v.still("the standalone board never opens a report", |rows| !header(rows).contains("RECAP"));
     v.quit(b"q");
 }
+
+#[test]
+fn demo_telemetry_board_navigation_and_no_themes_gating() {
+    let on_telemetry = |rows: &[String]| {
+        header(rows).contains("TELEMETRY")
+            && header(rows).contains("SOURCES")
+            && rows.iter().any(|r| r.contains("WHAT T3 CODE SENDS"))
+            && footer(rows).contains("e back")
+    };
+    let on_sources = |rows: &[String]| {
+        header(rows).contains("SOURCES")
+            && rows.iter().any(|r| r.contains("LOCAL SOURCES INSPECTED"))
+            && footer(rows).contains("e back")
+    };
+    let on_tel_help = |rows: &[String]| {
+        rows.iter().any(|r| r.contains("TELEMETRY HELP"))
+            && footer(rows).contains("close help")
+    };
+
+    let mut v = Shown::open("telemetry-nav", 120, 40);
+    v.until("dashboard", on_dashboard);
+    v.key(b"e", "Telemetry board", on_telemetry);
+    v.key(b"\t", "Sources tab", on_sources);
+    v.key(b"\t", "back to Telemetry tab", on_telemetry);
+    v.key(b"?", "Telemetry help", on_tel_help);
+    v.key(b"\x1b", "Esc closes help first", on_telemetry);
+    v.key(b"e", "e returns to dashboard", on_dashboard);
+    v.quit(b"q");
+
+    // Under LOUPE_NO_THEMES=1, `e` must be a no-op (oracle parity).
+    let home = Home::new("telemetry-no-themes");
+    let t3 = home.0.join("t3");
+    let env = [
+        ("HOME", home.0.to_str().unwrap()),
+        ("T3CODE_HOME", t3.to_str().unwrap()),
+        ("TERM", "xterm-256color"),
+        ("COLORTERM", "truecolor"),
+        ("LOUPE_NO_THEMES", "1"),
+    ];
+    let mut pty = Pty::spawn_args(120, 40, &["--demo", "--calm"], &env, &OUTSIDE[..3]);
+    pty.wait_for(b"\x1b[c", 1);
+    pty.send(b"\x1b[?62;22c");
+    pty.wait_for(b"Loupe", 1);
+    pty.send(b"e");
+    pty.send(b"q");
+    let status = pty.wait();
+    assert!(status.success(), "{status:?}");
+    let out = String::from_utf8_lossy(&pty.buf);
+    assert!(!out.contains("WHAT T3 CODE SENDS"), "e opened Telemetry under LOUPE_NO_THEMES");
+}

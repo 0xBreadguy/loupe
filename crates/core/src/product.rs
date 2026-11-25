@@ -9,6 +9,7 @@ use crate::{
     model::{self, Agent, Snapshot, State},
     recap, recap_view, tools, tools_view,
     source::{self, SourceError},
+    telemetry, telemetry_view,
     trace, trace_view,
     status, terminal, theme,
 };
@@ -77,10 +78,17 @@ pub const TRACE_USAGE: &str = "  --trace [ID]      one task on a time axis: the 
                     run; with --json, the spans
 ";
 
+/// What `--help` adds for Telemetry Check: product-only, omitted under `LOUPE_NO_THEMES`.
+pub const TELEMETRY_USAGE: &str = "  --telemetry-check what T3 Code sends about you, and whether your opt-outs
+                    work: usage events, relay traces and exporters you set,
+                    from local files only. Nothing is sent or changed
+                    (--json, --demo, --wide, --compact, --narrow, --theme)
+";
+
 /// `--help`: the original's text, and the theme and report options where they are on.
 pub fn usage(themes: bool) -> String {
     if themes {
-        format!("{USAGE}{THEME_USAGE}{RECAP_USAGE}{TOOLS_USAGE}{TRACE_USAGE}")
+        format!("{USAGE}{THEME_USAGE}{RECAP_USAGE}{TOOLS_USAGE}{TRACE_USAGE}{TELEMETRY_USAGE}")
     } else {
         USAGE.to_owned()
     }
@@ -121,6 +129,8 @@ pub enum Command {
     Tools { database: Database, now: Option<f64>, period: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<String> },
     /// `--recap`: a week or a month of agent work on one card.
     Recap { database: Database, now: Option<f64>, period: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<String> },
+    /// `--telemetry-check`: read-only check of T3 Code telemetry config and opt-outs.
+    TelemetryCheck { demo: bool, now: Option<f64>, json: bool, size: Option<recap_view::Size>, theme: Option<String> },
 }
 
 /// A usage error: `message`, a blank line, then [`USAGE`] on stderr, exiting 2.
@@ -303,6 +313,7 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
     let (mut theme, mut check, mut themes) = (None::<String>, None::<String>, false);
     let (mut recap, mut this_week, mut month, mut this_month) = (false, false, false, false);
     let mut tools_flag = false;
+    let mut telemetry_flag = false;
     let (mut json, mut wide, mut compact, mut narrow) = (false, false, false, false);
     let mut i = 0;
     let (mut trace, mut trace_target) = (false, None::<String>);
@@ -336,6 +347,8 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
                 "--recap" if env.themes => boolean(&mut recap)?,
                 // So is Tools.
                 "--tools" if env.themes => boolean(&mut tools_flag)?,
+                // And Telemetry Check.
+                "--telemetry-check" if env.themes => boolean(&mut telemetry_flag)?,
                 "--this-week" if env.themes => boolean(&mut this_week)?,
                 "--month" if env.themes => boolean(&mut month)?,
                 "--this-month" if env.themes => boolean(&mut this_month)?,
@@ -410,6 +423,46 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
             origin,
         }
     };
+    if telemetry_flag {
+        if explicit {
+            return Err(UsageError(
+                "--telemetry-check reads T3's data folder, not a database: leave out --db".into(),
+            ));
+        }
+        if recap
+            || tools_flag
+            || trace
+            || this_week
+            || month
+            || this_month
+            || status
+            || once
+            || watch
+        {
+            return Err(UsageError(
+                "--telemetry-check goes with --json, --demo, --wide, --compact, --narrow and --theme only".into(),
+            ));
+        }
+        if u8::from(wide) + u8::from(compact) + u8::from(narrow) > 1 {
+            return Err(UsageError(
+                "--wide, --compact and --narrow cannot be used together".into(),
+            ));
+        }
+        let size = if wide {
+            Some(recap_view::Size::Wide)
+        } else if compact {
+            Some(recap_view::Size::Compact)
+        } else {
+            narrow.then_some(recap_view::Size::Narrow)
+        };
+        return Ok(Command::TelemetryCheck {
+            demo,
+            now: now_ms,
+            json,
+            size,
+            theme,
+        });
+    }
     if trace {
         if recap || tools_flag || this_week || month || this_month || narrow || wide || compact || status || once || watch {
             return Err(UsageError("--trace goes with --json, --demo, --db and --theme only".into()));
@@ -700,6 +753,13 @@ pub fn headless() -> Result<bool, Box<dyn std::error::Error>> {
             }
             Ok(true)
         }
+        Command::TelemetryCheck { demo, now, json, size, theme } => {
+            let code = telemetry_command(demo, now.unwrap_or_else(clock::wall_now), json, size, theme.as_deref())?;
+            if code != 0 {
+                std::process::exit(code);
+            }
+            Ok(true)
+        }
         // The caller presents. A terminal presenter calls `ensure_terminal` first; a window
         // does not need one.
         Command::Interactive { .. } => Ok(false),
@@ -774,6 +834,79 @@ pub fn load_recap(
             Database::Path { path, .. } => recap::load(path, &period, local),
         }
     }, recap::Recap::is_empty)
+}
+
+/// `--telemetry-check`. Exits 0 for any finished check, whatever the verdict.
+fn telemetry_command(
+    demo: bool,
+    now: f64,
+    json: bool,
+    size: Option<recap_view::Size>,
+    theme: Option<&str>,
+) -> Result<i32, Box<dyn std::error::Error>> {
+    let report = if demo {
+        telemetry::demo::report(now)
+    } else {
+        let env = Environment::current();
+        let paths = telemetry::gather::Paths::current(&env);
+        let home_display = env
+            .home
+            .as_ref()
+            .map(|h| h.to_string_lossy().into_owned());
+        let sys = telemetry::gather::HostSystem;
+        let inputs = telemetry::gather::gather(
+            &paths,
+            &|name| std::env::var_os(name),
+            &sys,
+            now,
+            home_display,
+        );
+        telemetry::evaluate(inputs)
+    };
+    let text = if json {
+        serde_json::to_string_pretty(&report.json())?
+    } else {
+        let terminal = io::stdout().is_terminal();
+        let color = recap_color(terminal, &|name| std::env::var(name).ok());
+        let columns = terminal
+            .then(|| crate::platform::terminal_size().0)
+            .flatten()
+            .unwrap_or(80);
+        let (themes, skipped) = theme::Themes::from_environment(theme)?;
+        for line in skipped {
+            let _ = io::stderr().write_all(format!("skipped {line}\n").as_bytes());
+        }
+        let palette = themes.palette();
+        let mono = color == recap_view::Color::None;
+        let chosen = match size {
+            Some(s) => s,
+            None if columns < telemetry_view::CARD_COLUMNS => recap_view::Size::Narrow,
+            None if columns >= telemetry_view::WIDE_COLUMNS => recap_view::Size::Wide,
+            None => recap_view::Size::Compact,
+        };
+        let canvas = match chosen {
+            recap_view::Size::Wide => telemetry_view::wide(&report, &palette, mono),
+            recap_view::Size::Compact => telemetry_view::card(&report, &palette, mono),
+            recap_view::Size::Narrow => telemetry_view::list(&report, &palette, mono),
+        };
+        let mut rendered = recap_view::paint(&canvas, color);
+        if terminal && columns < canvas.w {
+            rendered.push_str(&format!(
+                "\nNote: this card is {} columns wide; your terminal is {columns}. Pass --narrow for a 39-column list.",
+                canvas.w
+            ));
+        }
+        rendered
+    };
+    let mut out = io::stdout().lock();
+    match out
+        .write_all(format!("{text}\n").as_bytes())
+        .and_then(|()| out.flush())
+    {
+        Ok(()) => Ok(0),
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(0),
+        Err(error) => Err(error.into()),
+    }
 }
 
 /// `--tools`. Returns the exit code: 0, or 1 when T3's database can't be read.
@@ -1385,8 +1518,8 @@ mod tests {
             assert_eq!(parse_in(&args(&[flag]), &env("/tmp/home", None)), Err(UsageError(format!("Unknown option '{flag}'"))));
         }
         assert_eq!(usage(false), USAGE);
-        assert_eq!(usage(true), format!("{USAGE}{THEME_USAGE}{RECAP_USAGE}{TOOLS_USAGE}{TRACE_USAGE}"));
-        assert!(THEME_USAGE.lines().chain(RECAP_USAGE.lines()).chain(TRACE_USAGE.lines()).all(|l| l.chars().count() <= 80));
+        assert_eq!(usage(true), format!("{USAGE}{THEME_USAGE}{RECAP_USAGE}{TOOLS_USAGE}{TRACE_USAGE}{TELEMETRY_USAGE}"));
+        assert!(THEME_USAGE.lines().chain(RECAP_USAGE.lines()).chain(TRACE_USAGE.lines()).chain(TELEMETRY_USAGE.lines()).all(|l| l.chars().count() <= 80));
     }
 
     #[test]

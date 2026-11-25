@@ -4,7 +4,7 @@
 //!
 //! Nothing here has run on Windows. Test builds on other hosts compile this file so the stubs
 //! cannot rot unseen.
-use super::{LocalTime, not_supported, utc_seconds, utc_time};
+use super::{LocalTime, ProcStat, ProcessAlive, not_supported, utc_seconds, utc_time};
 use std::{ffi::OsString, io, path::PathBuf, sync::mpsc::Sender};
 
 /// Windows has no `HOME`: `USERPROFILE` first, then `HOMEDRIVE` joined with `HOMEPATH`.
@@ -58,4 +58,19 @@ impl FocusWatcher {
 /// The terminal's columns and its rows. Not read on Windows yet.
 pub fn terminal_size() -> (Option<usize>, Option<usize>) {
     (None, None)
+}
+
+/// Process liveness is not probed on Windows yet.
+pub fn process_alive(_pid: u32) -> ProcessAlive {
+    ProcessAlive::Unknown
+}
+
+/// Process ancestry metadata is Linux-only.
+pub fn process_stat(_pid: u32) -> Option<ProcStat> {
+    None
+}
+
+/// Ancestor PIDs are Linux-only.
+pub fn loupe_ancestors() -> Vec<u32> {
+    Vec::new()
 }

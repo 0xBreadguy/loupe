@@ -41,6 +41,6 @@ printf 'Loupe %s for %s\n\nInstall for the current user, from this folder:\n\n  
   printf 'Dynamic dependencies:\n%s\n' "$deps"
 } > "$out/$folder/BUILD-INFO"
 archive="$folder.tar.gz"
-tar -C "$out" -czf "$out/$archive" "$folder"
+tar --owner=0 --group=0 --numeric-owner -C "$out" -czf "$out/$archive" "$folder"
 (cd "$out" && sha256sum "$archive" > SHA256SUMS)
 printf 'Archive: %s\n' "$out/$archive"

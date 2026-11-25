@@ -46,7 +46,7 @@ Item {
     onStarted: root.started = true
     onExited: function(exitCode) {
       if (root.restarting) return
-      // Keep the watcher's own last words (say, no Node.js) over a bare exit code.
+      // Keep the watcher's own last words (say, missing binary or unreadable DB) over a bare exit code.
       if (!root.status || !root.status.error) root.status = Status.unavailable("exit code " + exitCode, "exited", exitCode)
     }
     onRunningChanged: {

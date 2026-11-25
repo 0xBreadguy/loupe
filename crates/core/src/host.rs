@@ -50,8 +50,24 @@ pub struct Host {
     pub temporary: Option<PathBuf>,
     /// When set, a due refresh copies this instead of probing the filesystem.
     pub headroom_inject: Option<Vec<crate::headroom::WarningVolume>>,
+    /// Run background read-only telemetry checks on the dashboard interval.
+    /// Off for `--demo`, explicit `--db`, `LOUPE_NO_THEMES`, replays, and tests.
+    pub watch_telemetry: bool,
+    telemetry_worker: Option<TelemetryWorker>,
     last_headroom: f64,
+    last_telemetry: f64,
     initial_reader: Option<live::Reader>,
+}
+
+struct TelemetryWorker {
+    tx: mpsc::Sender<TelemetryMsg>,
+    rx: mpsc::Receiver<std::sync::Arc<crate::telemetry::Report>>,
+    inflight: bool,
+}
+
+enum TelemetryMsg {
+    Poll,
+    Force,
 }
 
 impl Host {
@@ -81,7 +97,10 @@ impl Host {
             managed_worktrees: None,
             temporary: None,
             headroom_inject: None,
+            watch_telemetry: false,
+            telemetry_worker: None,
             last_headroom: -1e9,
+            last_telemetry: -1e9,
             initial_reader: None,
         }
     }
@@ -137,6 +156,15 @@ impl Host {
 /// is ready; it must only notify. `LOUPE_SYNC_READ` keeps the reads on the interface
 /// thread, for comparison.
 pub fn start_live(h: &mut Host, interval: f64, wake: impl Fn() + Send + 'static) {
+    let wake = std::sync::Arc::new(std::sync::Mutex::new(wake));
+    if h.watch_telemetry && h.telemetry_worker.is_none() {
+        let wake_tel = std::sync::Arc::clone(&wake);
+        h.telemetry_worker = Some(spawn_telemetry_worker(move || {
+            if let Ok(f) = wake_tel.lock() {
+                f();
+            }
+        }));
+    }
     if std::env::var_os("LOUPE_SYNC_READ").is_some() {
         h.initial_reader = None;
         return;
@@ -144,10 +172,117 @@ pub fn start_live(h: &mut Host, interval: f64, wake: impl Fn() + Send + 'static)
     if let Some(path) = &h.db {
         let interval = Duration::from_secs_f64(interval.max(0.5));
         h.live = Some(match h.initial_reader.take() {
-            Some(reader) => live::spawn_with_reader(path, reader, interval, wake),
-            None => live::spawn(path, interval, wake),
+            Some(reader) => live::spawn_with_reader(path, reader, interval, move || {
+                if let Ok(f) = wake.lock() {
+                    f();
+                }
+            }),
+            None => live::spawn(path, interval, move || {
+                if let Ok(f) = wake.lock() {
+                    f();
+                }
+            }),
         });
     }
+}
+
+fn spawn_telemetry_worker(wake: impl Fn() + Send + 'static) -> TelemetryWorker {
+    let (req_tx, req_rx) = mpsc::channel::<TelemetryMsg>();
+    let (res_tx, res_rx) = mpsc::channel::<std::sync::Arc<crate::telemetry::Report>>();
+    let _ = req_tx.send(TelemetryMsg::Force);
+    let _ = std::thread::Builder::new()
+        .name("loupe-telemetry".into())
+        .spawn(move || {
+            let env = crate::product::Environment::current();
+            let paths = crate::telemetry::gather::Paths::current(&env);
+            let home_display = env
+                .home
+                .as_ref()
+                .map(|h| h.to_string_lossy().into_owned());
+            let sys = crate::telemetry::gather::HostSystem;
+            let mut last_fp: Option<crate::telemetry::gather::Fingerprint> = None;
+            let mut last_pid: Option<u32> = None;
+
+            while let Ok(msg) = req_rx.recv() {
+                // Drain queued triggers; if any was Force, force a gather.
+                let mut force = matches!(msg, TelemetryMsg::Force);
+                while let Ok(extra) = req_rx.try_recv() {
+                    if matches!(extra, TelemetryMsg::Force) {
+                        force = true;
+                    }
+                }
+                let pre_fp = crate::telemetry::gather::fingerprint(&paths, last_pid, &sys);
+                if !force && last_fp.as_ref() == Some(&pre_fp) {
+                    continue;
+                }
+                let inputs = crate::telemetry::gather::gather(
+                    &paths,
+                    &|k| std::env::var_os(k),
+                    &sys,
+                    clock::wall_now(),
+                    home_display.clone(),
+                );
+                let next_pid = match &inputs.runtime {
+                    crate::telemetry::Read::Ok { value, .. } => Some(value.pid),
+                    _ => None,
+                };
+                // Retain the pre-read fingerprint when PID did not change so edits landing
+                // mid-gather are still caught on the very next poll.
+                last_fp = Some(if next_pid == last_pid {
+                    pre_fp
+                } else {
+                    last_pid = next_pid;
+                    crate::telemetry::gather::fingerprint(&paths, last_pid, &sys)
+                });
+                let report = std::sync::Arc::new(crate::telemetry::evaluate(inputs));
+                if res_tx.send(report).is_err() {
+                    break;
+                }
+                wake();
+            }
+        });
+    TelemetryWorker {
+        tx: req_tx,
+        rx: res_rx,
+        inflight: true,
+    }
+}
+
+/// Ask the background telemetry worker to re-gather immediately (`r` on the Telemetry board).
+pub fn force_telemetry_refresh(h: &mut Host) -> bool {
+    if let Some(worker) = h.telemetry_worker.as_mut() {
+        worker.inflight = true;
+        return worker.tx.send(TelemetryMsg::Force).is_ok();
+    }
+    false
+}
+
+/// Whether a background telemetry gather is currently in flight.
+pub fn telemetry_inflight(h: &Host) -> bool {
+    h.telemetry_worker.as_ref().is_some_and(|w| w.inflight)
+}
+
+fn refresh_telemetry(s: &mut State, h: &mut Host) -> bool {
+    let Some(worker) = h.telemetry_worker.as_mut() else {
+        return false;
+    };
+    let mut changed = false;
+    while let Ok(report) = worker.rx.try_recv() {
+        worker.inflight = false;
+        s.telemetry = Some(report);
+        s.telemetry_revision = s.telemetry_revision.wrapping_add(1);
+        changed = true;
+    }
+    if !h.watch_telemetry || s.paused {
+        return changed;
+    }
+    let interval = s.interval.max(0.5);
+    if h.last_telemetry >= 0. && h.last_time - h.last_telemetry < interval {
+        return changed;
+    }
+    h.last_telemetry = h.last_time;
+    let _ = worker.tx.send(TelemetryMsg::Poll);
+    changed
 }
 
 /// Reread free space on the dashboard interval, including when the database snapshot
@@ -463,6 +598,7 @@ pub fn poll_host(s: &mut State, time: f64, clock: &mut impl Clock, h: &mut Host)
     // Free space moves without a database write. This still runs when the live reader
     // had nothing new to apply.
     changed |= refresh_headroom(s, h);
+    changed |= refresh_telemetry(s, h);
     if time - h.last_usage >= 5. {
         h.last_usage = time;
         if let Some(path) = &h.usage {
@@ -564,7 +700,10 @@ mod tests {
             managed_worktrees: None,
             temporary: None,
             headroom_inject: None,
+            watch_telemetry: false,
+            telemetry_worker: None,
             last_headroom: -1e9,
+            last_telemetry: -1e9,
             initial_reader: None,
         }
     }

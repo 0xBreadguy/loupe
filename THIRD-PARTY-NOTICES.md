@@ -1,6 +1,6 @@
 # Third-party notices
 
-Covers T3 Code fixtures, OpenTUI ports, the Omarchy and Dracula theme palettes, uucode and Unicode data, and the Rust dependency tree and bundled SQLite in the Linux binary.
+Covers T3 Code fixtures, OpenTUI ports, the Omarchy and Dracula theme palettes, uucode and Unicode data, and the Rust dependency tree and bundled SQLite in the Linux and macOS release binaries.
 
 The original Loupe in `oracle/` is this project’s earlier implementation; its npm dependencies are not checked in or included in the release.
 

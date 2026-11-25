@@ -386,10 +386,11 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
         None => None,
     };
     let themes = if theme::disabled() { None } else { Some(theme::Themes::from_environment(None)?.0) };
-    let (mut state, mut host, source, insights_source) = product_launch(database, 2., has("--calm"), themes);
+    let (mut state, mut host, source, insights_source, telemetry_source) = product_launch(database, 2., has("--calm"), themes);
     let insights_source = insights_source.filter(|_| !db);
     let wake = Arc::new(Wake::new()?);
     let mut storage = StorageScreen::new(source, Arc::clone(&wake));
+    let mut telemetry = TelemetryScreen::new(telemetry_source);
     let mut insights = InsightsScreen::default();
     if let Some(themes) = &host.themes {
         state.palette = themes.palette();
@@ -530,7 +531,7 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
         if insights.is_open() {
             insights_dirty = full || background_changed || host_changed;
         } else {
-            paint_with(&mut state, &mut storage, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
+            paint_with(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
         }
         for input in &p.inputs {
             if let Input::Key(name) = input {
@@ -548,7 +549,7 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
                 match effect {
                     InsightsEffect::Back => {
                         insights.close();
-                        paint_with(&mut state, &mut storage, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
+                        paint_with(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
                     }
                     InsightsEffect::Paint => {
                         insights.present_key_with(&state, source, host.db.as_deref(), size, &mut primary, &mut full, &wake, &mut |c, b, f| tally.take(c, b, f))?;
@@ -563,7 +564,7 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
             match *input {
                 Input::Key("i") => {
                     let Some(source) = insights_source else { continue };
-                    if !state.storage_key_in_help || tracing.is_some() || storage.is_open() {
+                    if !state.storage_key_in_help || tracing.is_some() || storage.is_open() || telemetry.is_open() {
                         continue;
                     }
                     if state.help {
@@ -576,12 +577,13 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
                     insights_dirty = false;
                     continue;
                 }
-                Input::Key("tab" | "shift-tab") => continue,
-                Input::Key(name) => dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut tracing, name, size),
+                Input::Key("tab" | "shift-tab") if !telemetry.is_open() => continue,
+                Input::Key(name) => dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut telemetry, &mut tracing, name, size),
                 Input::PressAt(..) | Input::PressRow(_) | Input::PressNeedsYou => {
                     let (x, y) = point(input, &state, size);
                     match tracing.as_mut() {
                         Some(t) if !state.help => t.press(y),
+                        _ if telemetry.is_open() => telemetry.press(y),
                         _ if storage.is_open() => storage.press(y, size),
                         _ => on_press(&mut state, &mut host, &mut clock, x, y, false),
                     }
@@ -592,6 +594,7 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
                         Some(t) if !state.help => {
                             t.key(if down { "down" } else { "up" });
                         }
+                        _ if telemetry.is_open() => telemetry.wheel(down, &state, &mut host),
                         _ if storage.is_open() => {
                             storage.key(if down { "down" } else { "up" }, &mut state, &host, size);
                         }
@@ -599,7 +602,7 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
                     }
                 }
             }
-            paint_with(&mut state, &mut storage, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
+            paint_with(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
         }
         if insights_dirty && insights.is_open() {
             let source = insights_source.expect("open only with a source");

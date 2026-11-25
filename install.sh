@@ -4,7 +4,8 @@
 # Everything this writes is keyed by --name: the command ~/.local/bin/NAME, the program
 # directory ${XDG_DATA_HOME:-~/.local/share}/NAME/, the launcher entry NAME.desktop and the
 # window's app id. Two names therefore never touch each other's files. It is the Rust
-# replacement for oracle/install.sh: no Node.js, no npm and no network.
+# replacement for oracle/install.sh: no Node.js or npm, and with --binary no network or
+# toolchain (building from source uses cargo --locked).
 set -euo pipefail
 source_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
@@ -14,10 +15,12 @@ marker='Managed by loupe-rust (github.com/0xBreadguy/loupe)'
 # Legacy Rust marker from before the rename to Loupe, so `./install.sh --name t3-agents --uninstall`
 # cleanly removes an earlier install.
 legacy_rust_marker='Managed by t3-agents-rust (github.com/0xBreadguy/t3-agents)'
-# The Node installer's own marker. Its files may be replaced, so an existing Node install
-# upgrades in place; anything without a marker of ours or of the original is left alone.
+# The Node installer's own markers (current and pre-rename). Its files may be replaced or
+# uninstalled; anything without a marker of ours or of the original is left alone.
 original_marker='Managed by loupe (github.com/0xBreadguy/loupe)'
+legacy_original_marker='Managed by t3-agents (github.com/0xBreadguy/t3-agents)'
 old_marker='Managed by omarchy-config/tools/loupe' # earlier installs; replaced on upgrade
+legacy_old_marker='Managed by omarchy-config/tools/t3-agents'
 
 name='loupe'
 title=''
@@ -112,7 +115,10 @@ end_watchers() {
   done
   pkill -u "$UID" -f -- "${escaped}/(loupe-term|t3-agents-term|src/main\\.ts) --status --watch" 2>/dev/null || true
 }
-has_original_marker() { [[ -f $1 && ! -L $1 ]] && grep -qF -e "$original_marker" -e "$old_marker" -- "$1"; }
+has_original_marker() {
+  [[ -f $1 && ! -L $1 ]] &&
+    grep -qF -e "$original_marker" -e "$legacy_original_marker" -e "$old_marker" -e "$legacy_old_marker" -- "$1"
+}
 
 if ((uninstall)); then
   removed=0

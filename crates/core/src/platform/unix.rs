@@ -1,5 +1,5 @@
 //! Linux and macOS, and the other Unixes: libc.
-use super::LocalTime;
+use super::{LocalTime, ProcStat, ProcessAlive};
 use std::{io, process::Command, process::Stdio};
 
 /// Calendar fields for epoch seconds in the process's local zone, from `localtime_r`.
@@ -137,4 +137,113 @@ pub fn terminal_size() -> (Option<usize>, Option<usize>) {
     let ok = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ as _, &mut size) } == 0;
     let known = |cells: u16| (ok && cells > 0).then_some(cells as usize);
     (known(size.ws_col), known(size.ws_row))
+}
+
+/// Whether `pid` is alive according to `kill(pid, 0)`. `EPERM` means the process exists under
+/// another uid; `ESRCH` means no such process.
+pub fn process_alive(pid: u32) -> ProcessAlive {
+    let Ok(pid) = i32::try_from(pid) else {
+        return ProcessAlive::Stopped;
+    };
+    if pid <= 0 {
+        return ProcessAlive::Stopped;
+    }
+    // SAFETY: signal 0 tests process existence without delivering a signal.
+    if unsafe { libc::kill(pid, 0) } == 0 {
+        return ProcessAlive::Alive;
+    }
+    match io::Error::last_os_error().raw_os_error() {
+        Some(libc::EPERM) => ProcessAlive::Alive,
+        Some(libc::ESRCH) => ProcessAlive::Stopped,
+        _ => ProcessAlive::Unknown,
+    }
+}
+
+/// Non-secret metadata (`comm`, `ppid`, approximate start epoch ms) from `/proc/<pid>/stat` on
+/// Linux. Never opens `environ` or `cmdline`. Returns `None` on other Unixes or on read error.
+pub fn process_stat(pid: u32) -> Option<ProcStat> {
+    #[cfg(target_os = "linux")]
+    {
+        use std::io::Read;
+        if pid == 0 {
+            return None;
+        }
+        let file = std::fs::File::open(format!("/proc/{pid}/stat")).ok()?;
+        let mut buf = String::new();
+        file.take(4096).read_to_string(&mut buf).ok()?;
+        let (comm, rest) = parse_proc_stat_comm(&buf)?;
+        let fields: Vec<&str> = rest.split_whitespace().collect();
+        // After ") ": field 0 is state, field 1 is ppid, field 19 is starttime (22nd overall).
+        let ppid = fields.get(1)?.parse::<u32>().ok()?;
+        let start_ticks = fields.get(19).and_then(|s| s.parse::<u64>().ok());
+        let started_ms = start_ticks.and_then(|ticks| {
+            let btime = linux_boot_time_secs()?;
+            // SAFETY: sysconf(_SC_CLK_TCK) is thread-safe and takes a constant selector.
+            let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) };
+            if hz <= 0 {
+                return None;
+            }
+            Some((btime as f64 + (ticks as f64 / hz as f64)) * 1000.0)
+        });
+        Some(ProcStat {
+            comm,
+            ppid,
+            started_ms,
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn parse_proc_stat_comm(raw: &str) -> Option<(String, &str)> {
+    let open = raw.find('(')?;
+    let close = raw.rfind(')')?;
+    if close <= open {
+        return None;
+    }
+    let comm = raw[open + 1..close].to_owned();
+    let rest = raw.get(close + 1..)?;
+    Some((comm, rest))
+}
+
+#[cfg(target_os = "linux")]
+fn linux_boot_time_secs() -> Option<u64> {
+    use std::io::Read;
+    let file = std::fs::File::open("/proc/stat").ok()?;
+    let mut buf = String::new();
+    file.take(65_536).read_to_string(&mut buf).ok()?;
+    for line in buf.lines() {
+        if let Some(rest) = line.strip_prefix("btime ") {
+            return rest.trim().parse::<u64>().ok();
+        }
+    }
+    None
+}
+
+/// Ancestor PIDs of the current Loupe process, walking `ppid` up to 16 hops on Linux.
+pub fn loupe_ancestors() -> Vec<u32> {
+    #[cfg(target_os = "linux")]
+    {
+        let mut out = Vec::new();
+        let mut cur = u32::try_from(parent_pid()).unwrap_or(0);
+        for _ in 0..16 {
+            if cur <= 1 || out.contains(&cur) {
+                break;
+            }
+            out.push(cur);
+            match process_stat(cur) {
+                Some(stat) if stat.ppid > 1 => cur = stat.ppid,
+                _ => break,
+            }
+        }
+        out
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Vec::new()
+    }
 }

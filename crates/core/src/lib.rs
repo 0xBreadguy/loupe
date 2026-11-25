@@ -33,6 +33,8 @@ pub mod source;
 pub mod status;
 pub mod storage;
 pub mod storage_view;
+pub mod telemetry;
+pub mod telemetry_view;
 pub mod terminal;
 pub mod theme;
 pub mod tools;
