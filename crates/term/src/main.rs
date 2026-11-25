@@ -391,7 +391,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
     let (mut state, mut host, source, insights_source, telemetry_source) = launch;
     let mut insights = InsightsScreen::default();
     let mut storage = StorageScreen::new(source, Arc::clone(&wake));
-    let mut telemetry = TelemetryScreen::new(telemetry_source);
+    let mut telemetry = TelemetryScreen::with_wake(telemetry_source, Arc::clone(&wake));
     // Ask the terminal what it can do before anything slow, and never wait for the answer: it
     // arrives while the first frame is being composed. See `caps.rs`. A theme that follows the
     // terminal's light or dark mode also asks for its background and for color scheme reports.
@@ -538,6 +538,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
             host::poll_host(&mut state, clock.now, &mut clock, &mut host)
         };
         storage.poll(&state);
+        telemetry.poll();
         if let Some(t) = tracing.as_mut() {
             t.poll();
             trace_read(t, &state, &host, &wake);

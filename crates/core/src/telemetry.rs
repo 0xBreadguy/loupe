@@ -3433,6 +3433,89 @@ fn build_fix_snippets(
     out
 }
 
+/// Builds a self-contained, non-secret `(title, prompt)` pair for `t3 thread start`
+/// so a T3 Code agent can turn off or fix telemetry on this machine when the user
+/// explicitly asks Loupe to hand it off (`f` on the Telemetry board).
+pub fn t3_handoff_prompt(report: &Report) -> (String, String) {
+    let title = if matches!(&report.inputs.policy, Read::Invalid { .. }) {
+        "Fix T3 Code telemetry policy".to_owned()
+    } else if report.verdict == Verdict::RestartNeeded {
+        "Apply T3 Code telemetry opt-out".to_owned()
+    } else {
+        "Turn off T3 Code telemetry".to_owned()
+    };
+
+    let mut body = String::new();
+    body.push_str("Please help me turn off T3 Code telemetry on this machine based on what Loupe's read-only Telemetry Check found.\n\n");
+    body.push_str("## Current Telemetry Check summary\n");
+    body.push_str(&format!(
+        "- Status: {} — {}\n",
+        report.verdict_heading(),
+        report.summary
+    ));
+    body.push_str(&format!(
+        "- Platform: {} · T3 server: {:?} (launch: {})\n",
+        match report.inputs.platform {
+            Platform::Linux => "Linux",
+            Platform::MacOs => "macOS",
+            Platform::Other => "Other",
+        },
+        report.server.state,
+        report.server.launch.kind_str()
+    ));
+    for s in &report.streams {
+        body.push_str(&format!(
+            "- {}: {} ({})\n",
+            s.id.label(),
+            s.state.word(),
+            s.decided_detail
+        ));
+    }
+
+    if !report.findings.is_empty() {
+        body.push_str("\n## Findings\n");
+        for f in &report.findings {
+            body.push_str(&format!("- {}\n", f.message));
+        }
+    }
+
+    if !report.fix.is_empty() {
+        body.push_str("\n## Recommended options from Loupe\n");
+        for snip in &report.fix {
+            body.push_str(&format!(
+                "- {}:\n  ```sh\n  {}\n  ```\n  ({})\n",
+                snip.heading, snip.command, snip.note
+            ));
+        }
+    }
+
+    body.push_str("\n## What I'd like you to do\n");
+    body.push_str("1. Confirm with me which option to apply (e.g., my desktop/service/shell environment vs machine-wide `policy.json`) before editing system files or running `sudo`.\n");
+    body.push_str("2. Apply the change cleanly (and fix any broken opt-out like `OTEL_SDK_DISABLED=1` or invalid `policy.json`).\n");
+    body.push_str("3. Run `loupe --telemetry-check` afterward to verify the result, and tell me if I need to restart T3 Code or log out/in for it to take effect.\n");
+
+    (title, body)
+}
+
+/// Extracts `threadId` (or plain-text thread ID) from `t3 thread start` stdout.
+pub fn parse_t3_thread_id(stdout: &str) -> Option<String> {
+    if let Ok(v) = serde_json::from_str::<Value>(stdout.trim()) {
+        if let Some(id) = v
+            .get("threadId")
+            .or_else(|| v.get("id"))
+            .and_then(|s| s.as_str())
+            .filter(|s| !s.is_empty())
+        {
+            return Some(id.to_owned());
+        }
+    }
+    stdout
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_owned)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3992,5 +4075,13 @@ mod tests {
             })
         ));
         let _ = fs::remove_dir_all(&dir);
+
+        // 9. T3 handoff prompt is self-contained and contains zero secrets
+        let demo_rep = demo::report(1_795_532_700_000.0);
+        let (title, prompt) = t3_handoff_prompt(&demo_rep);
+        assert_eq!(title, "Turn off T3 Code telemetry");
+        assert!(prompt.contains("OTEL_SDK_DISABLED"));
+        assert!(prompt.contains("loupe --telemetry-check"));
+        assert!(prompt.contains("~/.config/uwsm/env"));
     }
 }

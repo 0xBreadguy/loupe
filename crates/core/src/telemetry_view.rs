@@ -36,6 +36,27 @@ pub enum Motion {
     End,
 }
 
+/// Interactive "have a T3 thread turn this off" handoff banner state.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum HandoffState {
+    #[default]
+    Idle,
+    Confirm {
+        project_name: String,
+        project_count: usize,
+    },
+    Starting {
+        project_name: String,
+    },
+    Started {
+        thread_id: String,
+        project_name: String,
+        opened_app: bool,
+    },
+    DemoPreview,
+    Error(String),
+}
+
 /// Glyphs chosen to stay 1 terminal column wide across Unicode terminals.
 pub fn restart_glyph() -> char {
     if terminal::width("↻") == 1 {
@@ -1102,6 +1123,31 @@ impl TelemetryView {
         cols: usize,
         rows: usize,
     ) -> Canvas {
+        self.render_with_handoff(
+            state,
+            report,
+            revision,
+            checking,
+            unavailable_db,
+            &HandoffState::Idle,
+            cols,
+            rows,
+        )
+    }
+
+    /// Paint the interactive Telemetry board with an optional T3 thread handoff status bar.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_with_handoff(
+        &mut self,
+        state: &State,
+        report: Option<&Report>,
+        revision: u64,
+        checking: bool,
+        unavailable_db: bool,
+        handoff: &HandoffState,
+        cols: usize,
+        rows: usize,
+    ) -> Canvas {
         let p = &state.palette;
         if cols < MIN_COLUMNS || rows < MIN_ROWS {
             return floor_notice(p, cols, rows);
@@ -1198,8 +1244,10 @@ impl TelemetryView {
             c.right(ww - 1, 1, right_note, p.dim);
         }
 
-        // Body viewport (rows 2 .. rows - 1)
-        let view_h = rows.saturating_sub(3);
+        // Body viewport (rows 2 .. rows - 1, or rows - 2 when handoff bar is visible)
+        let show_handoff = !matches!(handoff, HandoffState::Idle);
+        let footer_reserve = if show_handoff { 4 } else { 3 };
+        let view_h = rows.saturating_sub(footer_reserve);
         self.last_viewport_h = view_h;
         if self.follow_selection && !self.help && self.tab == Tab::Telemetry && view_h > 0 {
             if let Some((hy, _)) = self.hits.iter().find(|(_, idx)| *idx == self.selected) {
@@ -1236,9 +1284,73 @@ impl TelemetryView {
             }
         }
 
+        if show_handoff && rows >= 4 {
+            draw_handoff_bar(&mut c, (rows - 2) as i32, handoff, p);
+        }
+
         // Footer (row h - 1)
         draw_board_footer(&mut c, state, report, self.tab, self.help, checking, p);
         c
+    }
+}
+
+fn draw_handoff_bar(c: &mut Canvas, y: i32, handoff: &HandoffState, p: &Palette) {
+    let w = c.w as i32;
+    c.fill(0, y, w, 1, p.panel);
+    match handoff {
+        HandoffState::Idle => {}
+        HandoffState::Confirm {
+            project_name,
+            project_count,
+        } => {
+            c.set(1, y, '▌', p.accent, Some(p.panel), false);
+            let prompt = format!("Start a T3 thread in \"{project_name}\" to fix telemetry?");
+            let hint = if *project_count > 1 {
+                "Enter confirm · ←→ project · Esc cancel"
+            } else {
+                "Enter confirm · Esc cancel"
+            };
+            let hint_w = width(hint);
+            let max_prompt = (w - 4 - hint_w - 2).max(10);
+            c.text_bg(3, y, &fit(&prompt, max_prompt), p.fg, p.panel, true);
+            if w - 1 - hint_w > 4 {
+                c.right(w - 1, y, hint, p.accent);
+            }
+        }
+        HandoffState::Starting { project_name } => {
+            c.set(1, y, '▌', p.accent, Some(p.panel), false);
+            let msg = format!("Starting thread in T3 Code ({project_name})…");
+            c.text_bg(3, y, &fit(&msg, w - 4), p.fg, p.panel, false);
+        }
+        HandoffState::Started {
+            thread_id,
+            project_name,
+            opened_app,
+        } => {
+            c.set(1, y, '▌', p.accent, Some(p.panel), false);
+            let short_id = if thread_id.len() > 12 {
+                &thread_id[thread_id.len() - 8..]
+            } else {
+                thread_id.as_str()
+            };
+            let tail = if *opened_app {
+                "opened in T3 Code"
+            } else {
+                "press e to watch on Live"
+            };
+            let msg = format!("✓ Started T3 thread ({short_id}) in {project_name} · {tail}");
+            c.text_bg(3, y, &fit(&msg, w - 4), p.fg, p.panel, false);
+        }
+        HandoffState::DemoPreview => {
+            c.set(1, y, '▌', p.text2, Some(p.panel), false);
+            let msg = "Demo mode: press f on live data to fire a T3 thread with fix instructions.";
+            c.text_bg(3, y, &fit(msg, w - 4), p.text2, p.panel, false);
+        }
+        HandoffState::Error(err) => {
+            c.set(1, y, '▌', p.warn, Some(p.panel), false);
+            let msg = format!("△ Couldn't start T3 thread: {err}");
+            c.text_bg(3, y, &fit(&msg, w - 4), p.warn, p.panel, false);
+        }
     }
 }
 
@@ -1268,14 +1380,37 @@ fn draw_board_footer(
     let y = c.h as i32 - 1;
     c.fill(0, y, w, 1, p.panel);
 
+    let can_fix = report.verdict != Verdict::Off;
     let keys: &[(&str, &str)] = if help {
         &[("?", "close help"), ("e", "back"), ("q", "quit")]
     } else if tab == Tab::Sources {
+        if can_fix {
+            &[
+                ("?", "help"),
+                ("e", "back"),
+                ("tab", "telemetry"),
+                ("f", "fix in T3"),
+                ("↑↓", "scroll"),
+                ("r", "recheck"),
+                ("q", "quit"),
+            ]
+        } else {
+            &[
+                ("?", "help"),
+                ("e", "back"),
+                ("tab", "telemetry"),
+                ("↑↓", "scroll"),
+                ("r", "recheck"),
+                ("q", "quit"),
+            ]
+        }
+    } else if can_fix {
         &[
             ("?", "help"),
             ("e", "back"),
-            ("tab", "telemetry"),
-            ("↑↓", "scroll"),
+            ("tab", "sources"),
+            ("f", "fix in T3"),
+            ("↑↓", "select"),
             ("r", "recheck"),
             ("q", "quit"),
         ]
@@ -1381,6 +1516,18 @@ fn build_telemetry_body(
                 ry += 1;
             }
             ry += 1;
+            if report.verdict != Verdict::Off {
+                let mut fx = right_x;
+                fx += c.text_bold(fx, ry, "f", p.accent) + 1;
+                c.text(
+                    fx,
+                    ry,
+                    &fit("have a T3 thread turn this off", right_x + right_w - fx),
+                    p.fg,
+                );
+                ry += 1;
+            }
+            ry += 1;
         }
 
         let h = ly.max(ry).max(1) as usize;
@@ -1427,6 +1574,18 @@ fn build_telemetry_body(
         }
         for line in wrap_lines(&snip.note, (ww - 2).max(16) as usize) {
             c.text(1, y, &line, p.dim);
+            y += 1;
+        }
+        if report.verdict != Verdict::Off {
+            y += 1;
+            let mut fx = 1;
+            fx += c.text_bold(fx, y, "f", p.accent) + 1;
+            c.text(
+                fx,
+                y,
+                &fit("have a T3 thread turn this off", ww - 1 - fx),
+                p.fg,
+            );
             y += 1;
         }
         y += 1;
@@ -1767,6 +1926,7 @@ fn build_help_body(cols: usize, is_demo: bool, p: &Palette) -> Canvas {
         ("tab / ⇧tab", "what T3 sends, or the files Loupe read"),
         ("↑↓ / j k", "select a stream · scroll sources"),
         ("PgUp PgDn", "a page · Home End: the ends"),
+        ("f", "start a T3 thread with fix instructions (asks first)"),
         ("r", "check again now; also rechecks when a file changes"),
         ("e / Esc", "dashboard · Esc closes help first"),
         ("c C", "theme: next · back"),
