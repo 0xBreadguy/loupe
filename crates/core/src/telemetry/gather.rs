@@ -16,7 +16,7 @@ use crate::platform::{ProcStat, ProcessAlive};
 use crate::product::{self, Environment, PLATFORM_HOME_RULES};
 use serde::Deserialize;
 use std::ffi::OsString;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read as _};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -145,18 +145,18 @@ pub struct Fingerprint {
 }
 
 pub fn fingerprint(paths: &Paths, runtime_pid: Option<u32>, sys: &dyn System) -> Fingerprint {
-    // Follow symlinks on readable config files (e.g. symlinked /etc/hosts or policy.json),
-    // but keep `symlink_metadata` on `anonymous-id` and macOS managed prefs (stat-only).
+    // Follow symlinks only on OS-managed system files (with canonical target verification);
+    // walk user-controlled T3 files component-by-component with O_NOFOLLOW / AT_SYMLINK_NOFOLLOW.
     let mut files = vec![
-        file_sig(&paths.policy, true),
-        file_sig(&paths.runtime(), true),
-        file_sig(&paths.settings(), true),
-        file_sig(&paths.service_env(), true),
-        file_sig(&paths.anonymous_id(), false),
-        file_sig(&paths.hosts, true),
+        system_file_sig(&paths.policy),
+        sig_under_root_nofollow(&paths.data_folder, &["userdata", "server-runtime.json"]),
+        sig_under_root_nofollow(&paths.data_folder, &["userdata", "settings.json"]),
+        sig_under_root_nofollow(&paths.data_folder, &["service.env"]),
+        sig_under_root_nofollow(&paths.data_folder, &["userdata", "anonymous-id"]),
+        system_file_sig(&paths.hosts),
     ];
     if let Some(nss) = &paths.nsswitch {
-        files.push(file_sig(nss, true));
+        files.push(system_file_sig(nss));
     }
     if let Some(prefs) = &paths.macos_managed_prefs {
         files.push(file_sig(prefs, false));
@@ -165,12 +165,28 @@ pub fn fingerprint(paths: &Paths, runtime_pid: Option<u32>, sys: &dyn System) ->
     Fingerprint { files, pid_alive }
 }
 
+fn system_file_sig(path: &Path) -> Option<(u64, u64, i128, u64)> {
+    #[cfg(unix)]
+    if is_os_config_path(path) {
+        let canon = fs::canonicalize(path).ok()?;
+        if !is_trusted_system_target(&canon) {
+            return None;
+        }
+        return file_sig(&canon, false);
+    }
+    file_sig(path, true)
+}
+
 fn file_sig(path: &Path, follow_symlinks: bool) -> Option<(u64, u64, i128, u64)> {
     let meta = if follow_symlinks {
         fs::metadata(path).ok()?
     } else {
         fs::symlink_metadata(path).ok()?
     };
+    sig_from_meta(&meta)
+}
+
+fn sig_from_meta(meta: &fs::Metadata) -> Option<(u64, u64, i128, u64)> {
     let mtime = meta
         .modified()
         .ok()
@@ -274,9 +290,9 @@ pub fn gather(
         false
     };
 
-    // 3. Server runtime note
+    // 3. Server runtime note (component-by-component O_NOFOLLOW from data_folder)
     let runtime_path = paths.runtime();
-    let runtime = read_runtime(&runtime_path);
+    let runtime = read_runtime(&paths.data_folder);
     let server = classify_server(&runtime, sys);
     reads.push(record_for("runtime", &runtime_path, home_ref, &runtime, |r| {
         let ver = r.server_version.as_deref().unwrap_or("unknown");
@@ -289,9 +305,9 @@ pub fn gather(
         format!("T3 {ver} · {st}")
     }));
 
-    // 4. Settings
+    // 4. Settings (component-by-component O_NOFOLLOW from data_folder)
     let settings_path = paths.settings();
-    let settings = read_settings(&settings_path);
+    let settings = read_settings(&paths.data_folder);
     reads.push(record_for("settings", &settings_path, home_ref, &settings, |s| {
         let mut n = 0usize;
         if s.agent_feedback.is_some() {
@@ -313,9 +329,9 @@ pub fn gather(
         }
     }));
 
-    // 5. service.env (allowlisted keys only)
+    // 5. service.env (allowlisted keys only, O_NOFOLLOW from data_folder)
     let service_env_path = paths.service_env();
-    let service_env = read_service_env(&service_env_path);
+    let service_env = read_service_env(&paths.data_folder);
     reads.push(record_for(
         "service_env",
         &service_env_path,
@@ -332,9 +348,9 @@ pub fn gather(
         },
     ));
 
-    // 6. anonymous-id (symlink_metadata ONLY — never opened!)
+    // 6. anonymous-id (component-by-component O_NOFOLLOW stat ONLY — never opened!)
     let anon_path = paths.anonymous_id();
-    let install_id = fs::symlink_metadata(&anon_path).ok().map(|m| stamp_from_meta(&m));
+    let install_id = stamp_under_root_nofollow(&paths.data_folder, &["userdata", "anonymous-id"]);
     reads.push(ReadRecord {
         name: "install_id".into(),
         path: shorten(&anon_path, home_ref),
@@ -484,17 +500,288 @@ fn record_for<T>(
     }
 }
 
-fn read_bounded_string(path: &Path, cap: u64) -> Result<(String, Stamp), ReadError> {
-    let file = File::open(path).map_err(|e| {
-        if e.kind() == io::ErrorKind::NotFound {
-            ReadError::Absent
-        } else {
-            ReadError::Unreadable(io_kind_label(e.kind()))
+pub(crate) fn is_os_config_path(path: &Path) -> bool {
+    path.starts_with("/etc") || path.starts_with("/Library")
+}
+
+pub(crate) fn is_trusted_system_target(canon: &Path) -> bool {
+    canon.starts_with("/etc")
+        || canon.starts_with("/private/etc")
+        || canon.starts_with("/nix/store")
+        || canon.starts_with("/run")
+        || canon.starts_with("/usr")
+        || canon.starts_with("/Library")
+        || canon.starts_with("/System")
+}
+
+/// Walk `components` under `root` component-by-component with `openat(..., O_NOFOLLOW)` so
+/// neither intermediate directories (e.g. `userdata -> /attacker`) nor the final file can
+/// follow a symlink. Opens the final regular file with `O_NONBLOCK` so FIFOs never block.
+fn open_under_root_nofollow(
+    root: &Path,
+    components: &[&str],
+) -> Result<(File, fs::Metadata), ReadError> {
+    if components.is_empty() {
+        return Err(ReadError::Absent);
+    }
+    #[cfg(unix)]
+    {
+        use std::ffi::CString;
+        use std::os::unix::fs::OpenOptionsExt;
+        use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd};
+
+        let root_file = OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+            .open(root)
+            .map_err(|e| {
+                if e.kind() == io::ErrorKind::NotFound {
+                    ReadError::Absent
+                } else {
+                    ReadError::Unreadable(io_kind_label(e.kind()))
+                }
+            })?;
+        let mut dir_fd: OwnedFd = root_file.into();
+
+        for &dir_name in &components[..components.len() - 1] {
+            let c_name = CString::new(dir_name)
+                .map_err(|_| ReadError::Unreadable("invalid path".into()))?;
+            let next_raw = unsafe {
+                libc::openat(
+                    dir_fd.as_raw_fd(),
+                    c_name.as_ptr(),
+                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+                )
+            };
+            if next_raw < 0 {
+                let err = io::Error::last_os_error();
+                return Err(map_nofollow_open_err(err));
+            }
+            dir_fd = unsafe { OwnedFd::from_raw_fd(next_raw) };
         }
-    })?;
-    let meta = file
-        .metadata()
-        .map_err(|e| ReadError::Unreadable(io_kind_label(e.kind())))?;
+
+        let last = *components.last().unwrap();
+        let c_last =
+            CString::new(last).map_err(|_| ReadError::Unreadable("invalid path".into()))?;
+        let file_raw = unsafe {
+            libc::openat(
+                dir_fd.as_raw_fd(),
+                c_last.as_ptr(),
+                libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC,
+            )
+        };
+        if file_raw < 0 {
+            let err = io::Error::last_os_error();
+            return Err(map_nofollow_open_err(err));
+        }
+        let file = unsafe { File::from_raw_fd(file_raw) };
+        let meta = file
+            .metadata()
+            .map_err(|e| ReadError::Unreadable(io_kind_label(e.kind())))?;
+        if !meta.is_file() {
+            return Err(ReadError::Unreadable("not a regular file".into()));
+        }
+        Ok((file, meta))
+    }
+    #[cfg(not(unix))]
+    {
+        let mut cur = root.to_path_buf();
+        for &comp in components {
+            cur.push(comp);
+            if fs::symlink_metadata(&cur).is_ok_and(|m| m.file_type().is_symlink()) {
+                return Err(ReadError::Unreadable("symlink not followed".into()));
+            }
+        }
+        let file = OpenOptions::new().read(true).open(&cur).map_err(|e| {
+            if e.kind() == io::ErrorKind::NotFound {
+                ReadError::Absent
+            } else {
+                ReadError::Unreadable(io_kind_label(e.kind()))
+            }
+        })?;
+        let meta = file
+            .metadata()
+            .map_err(|e| ReadError::Unreadable(io_kind_label(e.kind())))?;
+        if !meta.is_file() {
+            return Err(ReadError::Unreadable("not a regular file".into()));
+        }
+        Ok((file, meta))
+    }
+}
+
+#[cfg(unix)]
+fn map_nofollow_open_err(err: io::Error) -> ReadError {
+    if err.kind() == io::ErrorKind::NotFound {
+        ReadError::Absent
+    } else if err.raw_os_error() == Some(libc::ELOOP)
+        || err.raw_os_error() == Some(libc::ENOTDIR)
+    {
+        // Note: on Linux `openat(..., O_DIRECTORY | O_NOFOLLOW)` returns ELOOP on a symlink;
+        // on macOS/BSD it can return ENOTDIR when a symlink is opened with O_DIRECTORY | O_NOFOLLOW.
+        ReadError::Unreadable("symlink not followed".into())
+    } else {
+        ReadError::Unreadable(io_kind_label(err.kind()))
+    }
+}
+
+#[cfg(unix)]
+fn stat_under_root_nofollow(root: &Path, components: &[&str]) -> Option<libc::stat> {
+    use std::ffi::CString;
+    use std::os::unix::fs::OpenOptionsExt;
+    use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd};
+
+    if components.is_empty() {
+        return None;
+    }
+    let root_file = OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_CLOEXEC)
+        .open(root)
+        .ok()?;
+    let mut dir_fd: OwnedFd = root_file.into();
+    for &dir_name in &components[..components.len() - 1] {
+        let c_name = CString::new(dir_name).ok()?;
+        let next_raw = unsafe {
+            libc::openat(
+                dir_fd.as_raw_fd(),
+                c_name.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+            )
+        };
+        if next_raw < 0 {
+            return None;
+        }
+        dir_fd = unsafe { OwnedFd::from_raw_fd(next_raw) };
+    }
+    let last = *components.last()?;
+    let c_last = CString::new(last).ok()?;
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    let rc = unsafe {
+        libc::fstatat(
+            dir_fd.as_raw_fd(),
+            c_last.as_ptr(),
+            &mut st,
+            libc::AT_SYMLINK_NOFOLLOW,
+        )
+    };
+    if rc == 0 { Some(st) } else { None }
+}
+
+fn sig_under_root_nofollow(root: &Path, components: &[&str]) -> Option<(u64, u64, i128, u64)> {
+    #[cfg(unix)]
+    {
+        let st = stat_under_root_nofollow(root, components)?;
+        let mtime_ns =
+            (st.st_mtime as i128) * 1_000_000_000i128 + (st.st_mtime_nsec as i128);
+        Some((st.st_dev as u64, st.st_ino as u64, mtime_ns, st.st_size.max(0) as u64))
+    }
+    #[cfg(not(unix))]
+    {
+        let mut cur = root.to_path_buf();
+        for &comp in components {
+            cur.push(comp);
+            if fs::symlink_metadata(&cur).is_ok_and(|m| m.file_type().is_symlink()) {
+                return None;
+            }
+        }
+        file_sig(&cur, false)
+    }
+}
+
+fn stamp_under_root_nofollow(root: &Path, components: &[&str]) -> Option<Stamp> {
+    #[cfg(unix)]
+    {
+        let st = stat_under_root_nofollow(root, components)?;
+        let modified_ms =
+            (st.st_mtime as f64) * 1000.0 + (st.st_mtime_nsec as f64) / 1_000_000.0;
+        Some(Stamp {
+            modified_ms,
+            len: st.st_size.max(0) as u64,
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let mut cur = root.to_path_buf();
+        for &comp in components {
+            cur.push(comp);
+            if fs::symlink_metadata(&cur).is_ok_and(|m| m.file_type().is_symlink()) {
+                return None;
+            }
+        }
+        fs::symlink_metadata(&cur).ok().map(|m| stamp_from_meta(&m))
+    }
+}
+
+/// Opens an OS-managed config file (`/etc/t3code/policy.json`, `/etc/hosts`, `/etc/nsswitch.conf`)
+/// without blocking on FIFOs (`O_NONBLOCK`), validating the canonical target on OS paths so
+/// neither parent-directory symlinks nor final-component symlinks can escape into user directories,
+/// and verifying the opened descriptor is a regular file.
+fn open_system_regular(path: &Path) -> Result<(File, fs::Metadata), ReadError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let target_path: PathBuf = if is_os_config_path(path) {
+            let canon = fs::canonicalize(path).map_err(|e| {
+                if e.kind() == io::ErrorKind::NotFound {
+                    ReadError::Absent
+                } else {
+                    ReadError::Unreadable(io_kind_label(e.kind()))
+                }
+            })?;
+            if !is_trusted_system_target(&canon) {
+                return Err(ReadError::Unreadable("symlink outside system path".into()));
+            }
+            canon
+        } else {
+            path.to_path_buf()
+        };
+
+        let mut flags = libc::O_NONBLOCK | libc::O_CLOEXEC;
+        if is_os_config_path(path) {
+            flags |= libc::O_NOFOLLOW;
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(flags)
+            .open(&target_path)
+            .map_err(|e| {
+                if e.kind() == io::ErrorKind::NotFound {
+                    ReadError::Absent
+                } else if e.raw_os_error() == Some(libc::ELOOP) {
+                    ReadError::Unreadable("symlink not followed".into())
+                } else {
+                    ReadError::Unreadable(io_kind_label(e.kind()))
+                }
+            })?;
+        let meta = file
+            .metadata()
+            .map_err(|e| ReadError::Unreadable(io_kind_label(e.kind())))?;
+        if !meta.is_file() {
+            return Err(ReadError::Unreadable("not a regular file".into()));
+        }
+        Ok((file, meta))
+    }
+    #[cfg(not(unix))]
+    {
+        let file = OpenOptions::new().read(true).open(path).map_err(|e| {
+            if e.kind() == io::ErrorKind::NotFound {
+                ReadError::Absent
+            } else {
+                ReadError::Unreadable(io_kind_label(e.kind()))
+            }
+        })?;
+        let meta = file
+            .metadata()
+            .map_err(|e| ReadError::Unreadable(io_kind_label(e.kind())))?;
+        if !meta.is_file() {
+            return Err(ReadError::Unreadable("not a regular file".into()));
+        }
+        Ok((file, meta))
+    }
+}
+
+fn read_bounded_from_file(file: File, meta: fs::Metadata, cap: u64) -> Result<(String, Stamp), ReadError> {
     if meta.len() > cap {
         return Err(ReadError::TooLarge(cap));
     }
@@ -507,6 +794,20 @@ fn read_bounded_string(path: &Path, cap: u64) -> Result<(String, Stamp), ReadErr
         return Err(ReadError::TooLarge(cap));
     }
     Ok((buf, stamp))
+}
+
+fn read_bounded_system_string(path: &Path, cap: u64) -> Result<(String, Stamp), ReadError> {
+    let (file, meta) = open_system_regular(path)?;
+    read_bounded_from_file(file, meta, cap)
+}
+
+fn read_bounded_root_string(
+    root: &Path,
+    components: &[&str],
+    cap: u64,
+) -> Result<(String, Stamp), ReadError> {
+    let (file, meta) = open_under_root_nofollow(root, components)?;
+    read_bounded_from_file(file, meta, cap)
 }
 
 enum ReadError {
@@ -575,7 +876,7 @@ struct RawPolicyLimits {
 }
 
 pub(crate) fn read_policy(path: &Path) -> Read<Policy> {
-    let (raw, stamp) = match read_bounded_string(path, POLICY_CAP) {
+    let (raw, stamp) = match read_bounded_system_string(path, POLICY_CAP) {
         Ok(pair) => pair,
         Err(ReadError::Absent) => return Read::Absent,
         Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),
@@ -663,8 +964,9 @@ struct RawLoadedPolicy {
     fingerprint: String,
 }
 
-fn read_runtime(path: &Path) -> Read<Runtime> {
-    let (raw, stamp) = match read_bounded_string(path, RUNTIME_CAP) {
+fn read_runtime(data_folder: &Path) -> Read<Runtime> {
+    let (raw, stamp) =
+        match read_bounded_root_string(data_folder, &["userdata", "server-runtime.json"], RUNTIME_CAP) {
         Ok(pair) => pair,
         Err(ReadError::Absent) => return Read::Absent,
         Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),
@@ -878,8 +1180,9 @@ struct RawObservability {
     otlp_logs_url: Option<String>,
 }
 
-fn read_settings(path: &Path) -> Read<Settings> {
-    let (raw, stamp) = match read_bounded_string(path, SETTINGS_CAP) {
+fn read_settings(data_folder: &Path) -> Read<Settings> {
+    let (raw, stamp) =
+        match read_bounded_root_string(data_folder, &["userdata", "settings.json"], SETTINGS_CAP) {
         Ok(pair) => pair,
         Err(ReadError::Absent) => return Read::Absent,
         Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),
@@ -930,15 +1233,17 @@ fn read_settings(path: &Path) -> Read<Settings> {
 
 // ── service.env reader (line-by-line allowlist; drops all other keys immediately)
 
-fn read_service_env(path: &Path) -> Read<EnvSet> {
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Read::Absent,
-        Err(e) => return Read::Unreadable(io_kind_label(e.kind())),
-    };
-    let meta = match file.metadata() {
-        Ok(m) => m,
-        Err(e) => return Read::Unreadable(io_kind_label(e.kind())),
+fn read_service_env(data_folder: &Path) -> Read<EnvSet> {
+    let (file, meta) = match open_under_root_nofollow(data_folder, &["service.env"]) {
+        Ok(pair) => pair,
+        Err(ReadError::Absent) => return Read::Absent,
+        Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),
+        Err(ReadError::TooLarge(cap)) => {
+            return Read::Invalid {
+                reason: format!("exceeds {} KiB limit", cap / 1024),
+                attempted_telemetry_off: false,
+            };
+        }
     };
     if meta.len() > SERVICE_ENV_CAP {
         return Read::Invalid {
@@ -1049,14 +1354,16 @@ fn consume_quoted_body(body: &str, quote: char) -> Option<(String, bool)> {
 // ── /etc/hosts streamed scanner with byte prefilter ──────────────────────────
 
 pub(crate) fn read_hosts(path: &Path, target_host: &str) -> Read<HostsScan> {
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Read::Absent,
-        Err(e) => return Read::Unreadable(io_kind_label(e.kind())),
-    };
-    let meta = match file.metadata() {
-        Ok(m) => m,
-        Err(e) => return Read::Unreadable(io_kind_label(e.kind())),
+    let (file, meta) = match open_system_regular(path) {
+        Ok(pair) => pair,
+        Err(ReadError::Absent) => return Read::Absent,
+        Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),
+        Err(ReadError::TooLarge(cap)) => {
+            return Read::Invalid {
+                reason: format!("exceeds {} MiB limit", cap / (1024 * 1024)),
+                attempted_telemetry_off: false,
+            };
+        }
     };
     if meta.len() > HOSTS_CAP {
         return Read::Invalid {
@@ -1153,7 +1460,7 @@ fn contains_ascii_icase(haystack: &[u8], needle_lower: &[u8]) -> bool {
 // ── /etc/nsswitch.conf reader (hosts: line only) ────────────────────────────
 
 fn read_nsswitch(path: &Path) -> Read<bool> {
-    let (raw, stamp) = match read_bounded_string(path, NSSWITCH_CAP) {
+    let (raw, stamp) = match read_bounded_system_string(path, NSSWITCH_CAP) {
         Ok(pair) => pair,
         Err(ReadError::Absent) => return Read::Absent,
         Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),

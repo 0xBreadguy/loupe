@@ -509,6 +509,14 @@ fn title(c: &mut Canvas, r: Rect, a: &Agent, s: &State, p: &Palette, pc: Option<
             p.accent,
         );
         y += 1;
+    } else if s.storage_key_in_help {
+        if let Some(hint) = crate::handoff::live_nudge_hint(a, pc) {
+            let mut nx = r.x + 2;
+            nx += c.text_bold(nx, y, "M", p.accent) + 1;
+            let text = format!("{hint} · queues safely in T3");
+            c.text(nx, y, &fit(&text, r.x + r.w - nx), p.text2);
+            y += 1;
+        }
     }
     y - r.y + 1
 }
@@ -1396,6 +1404,7 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
         ("n", "next agent waiting on you"),
         ("i", "insights: Recap and Tools"),
         ("⏎ o", "open the thread in T3 Code"),
+        ("M", "message or nudge the selected thread in T3"),
         ("␣ ← →", "fold · unfold · earlier"),
         ("a", "all · active · T3 sidebar"),
         ("t", "lane 15m · 30m · 1h · 3h"),
@@ -1417,7 +1426,7 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
         .into_iter()
         .filter(|k| match k.0 {
             "c C" | "w" => s.themes,
-            "s" | "i" | "e" => s.storage_key_in_help,
+            "s" | "i" | "e" | "M" => s.storage_key_in_help,
             _ => true,
         })
         .collect();

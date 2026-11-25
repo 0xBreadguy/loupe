@@ -484,7 +484,7 @@ impl Verdict {
             Verdict::On => "TELEMETRY ON",
             Verdict::Misconfigured => "OPT-OUT NOT WORKING",
             Verdict::RestartNeeded => "RESTART T3 TO APPLY",
-            Verdict::Unverified => "CAN'T TELL",
+            Verdict::Unverified => "UNVERIFIED",
         }
     }
 
@@ -496,7 +496,7 @@ impl Verdict {
             Verdict::On => "Telemetry on",
             Verdict::Misconfigured => "Opt-out not working",
             Verdict::RestartNeeded => "Restart T3 to apply",
-            Verdict::Unverified => "Can't tell",
+            Verdict::Unverified => "Unverified",
         }
     }
 }
@@ -562,8 +562,8 @@ impl StreamState {
             StreamState::Off => "off",
             StreamState::Blocked => "blocked",
             StreamState::On | StreamState::OptOutIgnored => "on",
-            StreamState::RestartNeeded => "restart T3",
-            StreamState::Unverified => "can't tell",
+            StreamState::RestartNeeded => "restart",
+            StreamState::Unverified => "unknown",
             StreamState::None => "none",
         }
     }
@@ -747,6 +747,99 @@ pub struct Report {
 }
 
 impl Report {
+    /// Contextual heading for CLI banners. Gives specific, graceful readouts for
+    /// `Verdict::Unverified` instead of a blunt generic "can't tell".
+    pub fn verdict_heading(&self) -> &'static str {
+        if self.verdict != Verdict::Unverified {
+            return self.verdict.heading();
+        }
+        if matches!(self.inputs.platform, Platform::Other) {
+            return "NOT SUPPORTED ON THIS OS";
+        }
+        if self.inputs.macos_managed_prefs_present && !matches!(&self.inputs.policy, Read::Absent)
+        {
+            return "POLICY CONFLICT";
+        }
+        if matches!(&self.inputs.policy, Read::Invalid { .. }) {
+            return "INVALID POLICY";
+        }
+        if matches!(&self.inputs.policy, Read::Unreadable(_)) {
+            return "POLICY UNREADABLE";
+        }
+        if self.inputs.macos_managed_prefs_present
+            || self
+                .findings
+                .iter()
+                .any(|f| f.id == "macos_managed_profile")
+        {
+            return "MACOS PROFILE";
+        }
+        if self
+            .findings
+            .iter()
+            .any(|f| f.id == "invalid_telemetry_enabled")
+        {
+            return "INVALID SETTING";
+        }
+        if self
+            .findings
+            .iter()
+            .any(|f| f.id == "shell_env_unverified" || f.id == "shell_otel_unverified")
+        {
+            return "OFF IN THIS SHELL";
+        }
+        if !self.inputs.data_folder_exists && matches!(&self.inputs.policy, Read::Absent) {
+            return "NO T3 DATA HERE";
+        }
+        "UNVERIFIED"
+    }
+
+    /// Short contextual label for the interactive board verdict strip.
+    pub fn verdict_short(&self) -> &'static str {
+        if self.verdict != Verdict::Unverified {
+            return self.verdict.short_label();
+        }
+        if matches!(self.inputs.platform, Platform::Other) {
+            return "Unsupported OS";
+        }
+        if self.inputs.macos_managed_prefs_present && !matches!(&self.inputs.policy, Read::Absent)
+        {
+            return "Policy conflict";
+        }
+        if matches!(&self.inputs.policy, Read::Invalid { .. }) {
+            return "Invalid policy";
+        }
+        if matches!(&self.inputs.policy, Read::Unreadable(_)) {
+            return "Policy unreadable";
+        }
+        if self.inputs.macos_managed_prefs_present
+            || self
+                .findings
+                .iter()
+                .any(|f| f.id == "macos_managed_profile")
+        {
+            return "macOS profile";
+        }
+        if self
+            .findings
+            .iter()
+            .any(|f| f.id == "invalid_telemetry_enabled")
+        {
+            return "Invalid setting";
+        }
+        if self
+            .findings
+            .iter()
+            .any(|f| f.id == "shell_env_unverified" || f.id == "shell_otel_unverified")
+        {
+            return "Off in shell";
+        }
+        if !self.inputs.data_folder_exists && matches!(&self.inputs.policy, Read::Absent) {
+            return "No T3 data here";
+        }
+        "Unverified"
+    }
+
     /// Returns a Live dashboard warning alert only when a user-set opt-out is ignored
     /// or waiting on a T3 restart. Plain default-on never fires an alert.
     pub fn alert(&self) -> Option<Alert> {
@@ -1874,9 +1967,9 @@ pub fn evaluate(inputs: Inputs) -> Report {
     });
     if eff_env.is_unverified_for_running() && !policy_denies_telemetry {
         let reason = match &inputs.server.launch {
-            Launch::Desktop(_) => "started from desktop, not this shell",
-            Launch::Shell { .. } => "started in another shell, not this one",
-            _ => "cannot verify running T3's environment",
+            Launch::Desktop(_) => "desktop app env is private (never read)",
+            Launch::Shell { .. } => "other shell env is private (never read)",
+            _ => "running T3 env is private (never read)",
         };
         not_checked.push(NotChecked {
             id: "app_environment",
@@ -1996,6 +2089,46 @@ fn display_service_env_path(inputs: &Inputs) -> String {
         }
     }
     s.into_owned()
+}
+
+/// Quotes a filesystem path for safe inclusion in a POSIX shell command.
+/// Preserves tilde expansion (`~/...`) while single-quoting spaces, quotes, newlines,
+/// `$()`, backticks, `;`, and any other shell metacharacters.
+pub(crate) fn shell_quote_path(path: &str) -> String {
+    let safe_unquoted = |s: &str| {
+        !s.is_empty()
+            && !s.starts_with('-')
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'/' | b'+' | b'-'))
+    };
+    let single_quote = |s: &str| {
+        let mut out = String::with_capacity(s.len() + 2);
+        out.push('\'');
+        for ch in s.chars() {
+            if ch == '\0' {
+                continue;
+            }
+            if ch == '\'' {
+                out.push_str("'\\''");
+            } else {
+                out.push(ch);
+            }
+        }
+        out.push('\'');
+        out
+    };
+    let cleaned: String = path.chars().filter(|&c| c != '\0').collect();
+    if let Some(rest) = cleaned.strip_prefix("~/") {
+        if safe_unquoted(rest) {
+            return cleaned;
+        }
+        return format!("~/{}", single_quote(rest));
+    }
+    if safe_unquoted(&cleaned) {
+        cleaned
+    } else {
+        single_quote(&cleaned)
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2172,7 +2305,7 @@ fn evaluate_product_events(
             } else if eff_env.is_unverified_for_running() {
                 (
                     StreamState::Unverified,
-                    format!("T3CODE_TELEMETRY_ENABLED={raw} (this shell only)"),
+                    "in this shell · app env private".to_owned(),
                 )
             } else {
                 (
@@ -2659,7 +2792,7 @@ fn evaluate_relay_traces(
         } else if eff_env.is_unverified_for_running() {
             (
                 StreamState::Unverified,
-                format!("T3CODE_TELEMETRY_ENABLED={raw} (this shell only)"),
+                "in this shell · app env private".to_owned(),
             )
         } else {
             (
@@ -2808,7 +2941,7 @@ fn evaluate_relay_traces(
         } else if eff_env.is_unverified_for_running() {
             (
                 StreamState::Unverified,
-                "T3CODE_OTEL_SDK_DISABLED=true (this shell only)".into(),
+                "in this shell · app env private".into(),
             )
         } else {
             (
@@ -2928,7 +3061,7 @@ fn evaluate_relay_traces(
         } else if eff_env.is_unverified_for_running() {
             (
                 StreamState::Unverified,
-                "OTEL_SDK_DISABLED=true (this shell only)".into(),
+                "in this shell · app env private".into(),
             )
         } else {
             (
@@ -3227,18 +3360,24 @@ fn build_summary(
                 "Telemetry checks are supported on Linux and macOS.".into()
             } else if inputs.macos_managed_prefs_present && !matches!(&inputs.policy, Read::Absent)
             {
-                "Both macOS Managed Preferences and policy.json exist; T3 Code refuses to start."
-                    .into()
+                "Both macOS Managed Preferences and policy.json exist; T3 won't start.".into()
             } else if matches!(&inputs.policy, Read::Invalid { .. }) {
                 "Managed policy is invalid; T3 Code will not start until policy.json is fixed."
                     .into()
+            } else if matches!(&inputs.policy, Read::Unreadable(_)) {
+                "Can't read policy.json (check permissions) to verify limits.telemetry.".into()
             } else if inputs.macos_managed_prefs_present {
-                "A macOS Managed Preferences profile is present; Loupe does not open managed plists."
+                "A macOS Managed Preferences plist is active; Loupe does not open plists.".into()
+            } else if product.decided_step == "T3CODE_TELEMETRY_ENABLED"
+                && product.decided_detail.contains("invalid")
+            {
+                "T3CODE_TELEMETRY_ENABLED must be exact lowercase (like \"false\"); T3 rejects it."
                     .into()
             } else if no_t3_or_policy {
-                "No T3 data folder or managed policy found here yet.".into()
+                "No T3 data folder or policy found here — set T3CODE_HOME if it's elsewhere.".into()
             } else {
-                "Loupe cannot verify the running T3 Code server's environment from here.".into()
+                "Set in this shell; Loupe never reads the running app's env (API keys live there)."
+                    .into()
             }
         }
     }
@@ -3273,13 +3412,14 @@ fn build_fix_snippets(
         }];
     }
     let service_env_path = display_service_env_path(inputs);
+    let quoted_service_env = shell_quote_path(&service_env_path);
     let mut out = Vec::new();
     if service_managed == Some(true) {
         out.push(Snippet {
             for_kind: "service",
             heading: "TO TURN IT ALL OFF".into(),
             command: format!(
-                "echo 'T3CODE_TELEMETRY_ENABLED=false' >> {service_env_path} && t3 service restart"
+                "echo 'T3CODE_TELEMETRY_ENABLED=false' >> {quoted_service_env} && t3 service restart"
             ),
             note: format!("T3 Code is running as a service and reads {service_env_path}."),
         });
@@ -3332,6 +3472,121 @@ fn build_fix_snippets(
         note: "covers desktop, service, and shell launches; restart T3 Code after writing".into(),
     });
     out
+}
+
+/// Builds a self-contained, non-secret `(title, prompt)` pair for `t3 thread start`
+/// so a T3 Code agent can turn off or fix telemetry on this machine when the user
+/// explicitly asks Loupe to hand it off (`f` on the Telemetry board).
+///
+/// All variable metadata and recommended options are serialized inside a length-bounded
+/// JSON block labeled as untrusted observational data; nothing is interpolated into
+/// instruction prose or shell fences.
+pub fn t3_handoff_prompt(report: &Report) -> (String, String) {
+    let title = if matches!(&report.inputs.policy, Read::Invalid { .. }) {
+        "Fix T3 Code telemetry policy".to_owned()
+    } else if report.verdict == Verdict::RestartNeeded {
+        "Apply T3 Code telemetry opt-out".to_owned()
+    } else {
+        "Turn off T3 Code telemetry".to_owned()
+    };
+
+    let intro = if matches!(&report.inputs.policy, Read::Invalid { .. }) {
+        "Loupe's read-only Telemetry Check found an invalid T3 Code managed policy file on this machine (which can prevent T3 Code from starting). Please help me fix it cleanly."
+    } else if report.verdict == Verdict::RestartNeeded {
+        "Loupe's read-only Telemetry Check found a telemetry opt-out on disk that T3 Code hasn't picked up yet. Please help me verify the configuration and get it applied cleanly."
+    } else if report.verdict == Verdict::Unverified {
+        "Loupe's read-only Telemetry Check could not verify whether T3 Code's running telemetry is actually off on this machine. Please help me make the opt-out deterministic and verifiable."
+    } else {
+        "Please help me turn off T3 Code telemetry on this machine based on what Loupe's read-only Telemetry Check found."
+    };
+
+    let platform = match report.inputs.platform {
+        Platform::Linux => "Linux",
+        Platform::MacOs => "macOS",
+        Platform::Other => "Other",
+    };
+    let server_state = match report.server.state {
+        Liveness::Running => "running",
+        Liveness::Stopped => "stopped",
+        Liveness::PidReused => "pid_reused",
+        Liveness::Unknown => "unknown",
+    };
+    let streams: Vec<serde_json::Value> = report
+        .streams
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "stream": s.id.label(),
+                "state": s.state.word(),
+                "detail": crate::handoff::bound_text(&s.decided_detail, 200),
+            })
+        })
+        .collect();
+    let findings: Vec<String> = report
+        .findings
+        .iter()
+        .take(12)
+        .map(|f| crate::handoff::bound_text(&f.message, 240))
+        .collect();
+    let recommended_options: Vec<serde_json::Value> = report
+        .fix
+        .iter()
+        .take(6)
+        .map(|snip| {
+            serde_json::json!({
+                "kind": snip.for_kind,
+                "heading": crate::handoff::bound_text(&snip.heading, 80),
+                "command": crate::handoff::bound_text(&snip.command, 260),
+                "note": crate::handoff::bound_text(&snip.note, 200),
+            })
+        })
+        .collect();
+    let payload = serde_json::json!({
+        "kind": "telemetry_check",
+        "status": report.verdict_heading(),
+        "summary": crate::handoff::bound_text(&report.summary, 240),
+        "platform": platform,
+        "server": {
+            "state": server_state,
+            "launch": report.server.launch.kind_str(),
+        },
+        "streams": streams,
+        "findings": findings,
+        "recommendedOptions": recommended_options,
+    });
+
+    let mut body = String::new();
+    body.push_str(intro);
+    body.push_str("\n\n**Scope:** Machine-wide T3 Code configuration on this host. Do not edit files or make commits in the project repository where this thread was opened.\n\n");
+    body.push_str(&crate::handoff::render_untrusted_json(&payload));
+    body.push_str("\n## What I'd like you to do\n");
+    body.push_str("1. Confirm with me which option to apply (e.g., my desktop/service/shell environment vs machine-wide `policy.json`) before editing system files or running `sudo`.\n");
+    body.push_str("2. Apply the change cleanly (and fix any broken opt-out like `OTEL_SDK_DISABLED=1` or invalid `policy.json`).\n");
+    body.push_str("3. Run `loupe --telemetry-check` afterward to verify the result, and tell me if I need to restart T3 Code or log out/in for it to take effect.\n");
+
+    (title, body)
+}
+
+/// Extracts and validates `threadId` (or `id`) strictly from `t3 thread start --json` output.
+/// Rejects non-JSON output, empty values, leading `-`, whitespace/controls, and non-ASCII text.
+pub fn parse_t3_thread_id(stdout: &str) -> Option<String> {
+    let v = serde_json::from_str::<Value>(stdout.trim()).ok()?;
+    let id = v
+        .get("threadId")
+        .or_else(|| v.get("id"))
+        .and_then(|s| s.as_str())?;
+    if is_valid_thread_id(id) {
+        Some(id.to_owned())
+    } else {
+        None
+    }
+}
+
+pub(crate) fn is_valid_thread_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 160
+        && !id.starts_with('-')
+        && id.bytes().all(|b| (0x21..=0x7e).contains(&b))
 }
 
 #[cfg(test)]
@@ -3735,13 +3990,15 @@ mod tests {
         assert_eq!(rep.streams[1].state, StreamState::Off); // relay traces trim+lowercase
         assert!(rep.findings.iter().any(|f| f.id == "invalid_telemetry_enabled"));
 
-        // 3. Desktop launch with shell opt-out -> row & verdict both Unverified ("?" / "Can't tell")
+        // 3. Desktop launch with shell opt-out -> row & verdict both Unverified with graceful wording
         let mut inp = base_inputs();
         inp.server.liveness = Liveness::Running;
         inp.server.launch = Launch::Desktop("uwsm".into());
         inp.shell.set_raw(EnvKey::TelemetryEnabled, "false");
         let rep = evaluate(inp);
         assert_eq!(rep.verdict, Verdict::Unverified);
+        assert_eq!(rep.verdict_heading(), "OFF IN THIS SHELL");
+        assert_eq!(rep.verdict_short(), "Off in shell");
         assert_eq!(rep.streams[0].state, StreamState::Unverified);
         assert_eq!(rep.streams[1].state, StreamState::Unverified);
         assert!(rep.findings.iter().any(|f| f.id == "shell_env_unverified"));
@@ -3891,5 +4148,139 @@ mod tests {
             })
         ));
         let _ = fs::remove_dir_all(&dir);
+
+        // 9. T3 handoff prompt is self-contained, wraps data in JSON, and contains zero secrets
+        let demo_rep = demo::report(1_795_532_700_000.0);
+        let (title, prompt) = t3_handoff_prompt(&demo_rep);
+        assert_eq!(title, "Turn off T3 Code telemetry");
+        assert!(prompt.contains("OTEL_SDK_DISABLED"));
+        assert!(prompt.contains("loupe --telemetry-check"));
+        assert!(prompt.contains("~/.config/uwsm/env"));
+        assert!(prompt.contains("Untrusted observational data (JSON)"));
+        assert!(!prompt.contains("```sh"));
+    }
+
+    #[test]
+    fn shell_quote_path_prevents_command_injection() {
+        assert_eq!(shell_quote_path("~/.t3/service.env"), "~/.t3/service.env");
+        assert_eq!(
+            shell_quote_path("/tmp/t3 data/service.env"),
+            "'/tmp/t3 data/service.env'"
+        );
+        assert_eq!(
+            shell_quote_path("~/.t3; rm -rf /; #/service.env"),
+            "~/'/.t3; rm -rf /; #/service.env'".replace("~/'/", "~/'")
+        );
+        assert_eq!(
+            shell_quote_path("/tmp/a'b$(id)`uname`\n/service.env"),
+            "'/tmp/a'\\''b$(id)`uname`\n/service.env'"
+        );
+    }
+
+    #[test]
+    fn parse_t3_thread_id_requires_valid_json_id() {
+        assert_eq!(
+            parse_t3_thread_id(r#"{"threadId":"mcp:7832a1ed-7053-47c3-b183-a3ef46cccc85"}"#),
+            Some("mcp:7832a1ed-7053-47c3-b183-a3ef46cccc85".into())
+        );
+        assert_eq!(parse_t3_thread_id(r#"{"id":"thread_123"}"#), Some("thread_123".into()));
+        // Plain text, malformed JSON, leading dash, spaces, controls, and non-ASCII are rejected.
+        assert_eq!(parse_t3_thread_id("plain-text-line\n"), None);
+        assert_eq!(parse_t3_thread_id("not json"), None);
+        assert_eq!(parse_t3_thread_id(r#"{"threadId":"--flag"}"#), None);
+        assert_eq!(parse_t3_thread_id(r#"{"threadId":"id with space"}"#), None);
+        assert_eq!(parse_t3_thread_id(r#"{"threadId":"🚀emoji-id"}"#), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gather_refuses_symlinks_on_user_configs_and_does_not_block_on_fifo() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!(
+            "loupe-tel-sec-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        let userdata = dir.join("userdata");
+        fs::create_dir_all(&userdata).unwrap();
+
+        let secret = dir.join("secret.json");
+        fs::write(&secret, r#"{"shareUsageData": true}"#).unwrap();
+        symlink(&secret, userdata.join("settings.json")).unwrap();
+        symlink(&secret, dir.join("service.env")).unwrap();
+
+        // Create a FIFO for server-runtime.json — opening without O_NONBLOCK would deadlock forever.
+        let fifo = userdata.join("server-runtime.json");
+        let c_fifo = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        let rc = unsafe { libc::mkfifo(c_fifo.as_ptr(), 0o600) };
+        assert_eq!(rc, 0, "mkfifo failed");
+
+        let paths = gather::Paths {
+            data_folder: dir.clone(),
+            policy: dir.join("no-policy.json"),
+            macos_managed_prefs: None,
+            hosts: dir.join("no-hosts"),
+            nsswitch: None,
+            uwsm_dir: None,
+            container_markers: Vec::new(),
+        };
+        let gathered = gather::gather(
+            &paths,
+            &|_| None,
+            &gather::HostSystem,
+            1_795_532_700_000.0,
+            None,
+        );
+        assert!(matches!(
+            gathered.settings,
+            Read::Unreadable(ref msg) if msg == "symlink not followed"
+        ));
+        assert!(matches!(
+            gathered.service_env,
+            Read::Unreadable(ref msg) if msg == "symlink not followed"
+        ));
+        assert!(matches!(
+            gathered.runtime,
+            Read::Unreadable(ref msg) if msg == "not a regular file"
+        ));
+        let _ = fs::remove_dir_all(&dir);
+
+        // Also test symlinked intermediate `userdata/` directory (parent-component symlink bypass).
+        let dir2 = std::env::temp_dir().join(format!(
+            "loupe-tel-parent-sym-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir2);
+        let outside = dir2.join("outside");
+        let root2 = dir2.join("root");
+        fs::create_dir_all(&outside).unwrap();
+        fs::create_dir_all(&root2).unwrap();
+        fs::write(outside.join("settings.json"), r#"{"shareUsageData": true}"#).unwrap();
+        symlink(&outside, root2.join("userdata")).unwrap();
+        let paths2 = gather::Paths {
+            data_folder: root2,
+            policy: dir2.join("no-policy.json"),
+            macos_managed_prefs: None,
+            hosts: dir2.join("no-hosts"),
+            nsswitch: None,
+            uwsm_dir: None,
+            container_markers: Vec::new(),
+        };
+        let g2 = gather::gather(
+            &paths2,
+            &|_| None,
+            &gather::HostSystem,
+            1_795_532_700_000.0,
+            None,
+        );
+        assert!(matches!(
+            g2.settings,
+            Read::Unreadable(ref msg) if msg == "symlink not followed"
+        ));
+        assert!(gather::is_trusted_system_target(Path::new("/etc/t3code/policy.json")));
+        assert!(gather::is_trusted_system_target(Path::new("/nix/store/abc-etc/hosts")));
+        assert!(!gather::is_trusted_system_target(Path::new("/home/alice/.t3/userdata/secrets/key")));
+        assert!(!gather::is_trusted_system_target(Path::new("/tmp/evil")));
+        let _ = fs::remove_dir_all(&dir2);
     }
 }

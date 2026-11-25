@@ -53,6 +53,9 @@ pub struct Host {
     /// Run background read-only telemetry checks on the dashboard interval.
     /// Off for `--demo`, explicit `--db`, `LOUPE_NO_THEMES`, replays, and tests.
     pub watch_telemetry: bool,
+    /// Whether opening external `t3code://` links is allowed for this host.
+    /// Disabled for explicit `--db` snapshots so untrusted databases cannot trigger desktop handlers.
+    pub allow_open: bool,
     telemetry_worker: Option<TelemetryWorker>,
     last_headroom: f64,
     last_telemetry: f64,
@@ -98,6 +101,7 @@ impl Host {
             temporary: None,
             headroom_inject: None,
             watch_telemetry: false,
+            allow_open: true,
             telemetry_worker: None,
             last_headroom: -1e9,
             last_telemetry: -1e9,
@@ -146,7 +150,9 @@ impl Host {
         } else {
             s.snap.at
         };
-        Self::new(db, usage, theme, fixed, epoch)
+        let mut host = Self::new(db, usage, theme, fixed, epoch);
+        host.allow_open = host.db.is_none() || crate::theme::disabled();
+        host
     }
 }
 
@@ -417,6 +423,10 @@ fn open_agent(s: &mut State, h: &Host, agent: &model::Agent, title: &str) {
     let at = input_now(s, h);
     if s.demo {
         s.note(format!("Demo: would open {title} in T3 Code"), false, at);
+        return;
+    }
+    if !h.allow_open {
+        s.note("Cannot open in T3 when viewing --db", true, at);
         return;
     }
     let local = h.db.as_deref().and_then(integration::environment_id);
@@ -701,6 +711,7 @@ mod tests {
             temporary: None,
             headroom_inject: None,
             watch_telemetry: false,
+            allow_open: true,
             telemetry_worker: None,
             last_headroom: -1e9,
             last_telemetry: -1e9,
@@ -929,5 +940,17 @@ mod tests {
         assert!(!apply_focus(&mut s, None));
         assert_eq!((s.selected.clone(), s.collapsed.clone(), s.acked.clone()), (selected, collapsed, acked));
         assert!(!s.acked.contains("other"));
+    }
+
+    #[test]
+    fn explicit_db_blocks_external_open_link() {
+        let mut s = state(vec![agent("thread", None)]);
+        s.demo = false;
+        s.selected = Some("thread".into());
+        let mut h = Host::new(Some(PathBuf::from("/nonexistent/statev2.sqlite")), None, None, true, 0.0);
+        h.allow_open = false;
+        open_selected(&mut s, &h);
+        assert_eq!(s.notice.as_deref(), Some("Cannot open in T3 when viewing --db"));
+        assert!(s.notice_error);
     }
 }

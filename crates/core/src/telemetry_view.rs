@@ -36,6 +36,9 @@ pub enum Motion {
     End,
 }
 
+/// Interactive T3 handoff banner state (shared across Loupe views).
+pub use crate::handoff::HandoffState;
+
 /// Glyphs chosen to stay 1 terminal column wide across Unicode terminals.
 pub fn restart_glyph() -> char {
     if terminal::width("↻") == 1 {
@@ -62,8 +65,8 @@ pub fn stream_style(state: StreamState, p: &Palette) -> (char, &'static str, Rgb
         StreamState::Blocked => ('⊘', "blocked", p.text2, p.fg, false),
         StreamState::On => ('●', "on", p.warn, p.warn, false),
         StreamState::OptOutIgnored => ('✗', "on", p.hot, p.hot, true),
-        StreamState::RestartNeeded => (restart_glyph(), "restart T3", p.warn, p.warn, true),
-        StreamState::Unverified => ('?', "can't tell", p.text2, p.fg, false),
+        StreamState::RestartNeeded => (restart_glyph(), "restart", p.warn, p.warn, true),
+        StreamState::Unverified => ('?', "unknown", p.text2, p.fg, false),
         StreamState::None => ('○', "none", p.dim, p.dim, false),
     }
 }
@@ -80,11 +83,24 @@ fn custom_stream_style(stream: &Stream, p: &Palette) -> (char, String, Rgb, Rgb,
 
 fn stream_visual(stream: &Stream, p: &Palette) -> (char, String, Rgb, Rgb, bool) {
     if stream.id == StreamId::CustomExporters {
-        custom_stream_style(stream, p)
-    } else {
-        let (g, w, gi, wi, b) = stream_style(stream.state, p);
-        (g, w.to_owned(), gi, wi, b)
+        return custom_stream_style(stream, p);
     }
+    if stream.state == StreamState::Unverified {
+        if stream.decided_detail.contains("shell") {
+            return ('?', "in shell".into(), p.text2, p.fg, false);
+        }
+        if stream.decided_detail.contains("unreadable") {
+            return ('?', "locked".into(), p.warn, p.warn, false);
+        }
+        if stream.decided_detail.contains("macOS") {
+            return ('?', "profile".into(), p.text2, p.fg, false);
+        }
+        if stream.decided_detail.contains("invalid") || stream.decided_detail.contains("both") {
+            return ('?', "invalid".into(), p.warn, p.warn, false);
+        }
+    }
+    let (g, w, gi, wi, b) = stream_style(stream.state, p);
+    (g, w.to_owned(), gi, wi, b)
 }
 
 fn width(s: &str) -> i32 {
@@ -360,7 +376,7 @@ pub fn card(report: &Report, p: &Palette, _mono: bool) -> Canvas {
     c.set(1, y, '▌', v_t_ink, Some(p.panel), false);
     c.set(1, y + 1, '▌', v_t_ink, Some(p.panel), false);
     c.set(3, y, v_glyph, v_g_ink, Some(p.panel), true);
-    c.text_bg(5, y, report.verdict.heading(), v_t_ink, p.panel, true);
+    c.text_bg(5, y, &fit(report.verdict_heading(), ww - 6), v_t_ink, p.panel, true);
     c.text_bg(5, y + 1, &fit(&report.summary, ww - 6), p.fg, p.panel, false);
     y += 3;
 
@@ -513,8 +529,10 @@ pub fn wide(report: &Report, p: &Palette, _mono: bool) -> Canvas {
     c.fill(0, y, ww, 1, p.panel);
     c.set(1, y, '▌', v_t_ink, Some(p.panel), false);
     c.set(3, y, v_glyph, v_g_ink, Some(p.panel), true);
-    let vx = 5 + c.text_bg(5, y, report.verdict.heading(), v_t_ink, p.panel, true) + 3;
-    c.text_bg(vx, y, &fit(&report.summary, ww - 1 - vx), p.fg, p.panel, false);
+    let vx = 5 + c.text_bg(5, y, report.verdict_heading(), v_t_ink, p.panel, true) + 3;
+    if ww - 1 > vx {
+        c.text_bg(vx, y, &fit(&report.summary, ww - 1 - vx), p.fg, p.panel, false);
+    }
     y += 2;
 
     let left_x = 1i32;
@@ -660,7 +678,7 @@ pub fn list(report: &Report, p: &Palette, _mono: bool) -> Canvas {
     let (v_glyph, v_g_ink, v_t_ink) = verdict_style(report.verdict, p);
     c.set(0, y, '▌', v_t_ink, None, false);
     c.set(1, y, v_glyph, v_g_ink, None, true);
-    c.text_bold(3, y, &fit(report.verdict.heading(), ww - 4), v_t_ink);
+    c.text_bold(3, y, &fit(report.verdict_heading(), ww - 4), v_t_ink);
     y += 1;
     for line in wrap_lines(&report.summary, (ww - 2) as usize) {
         c.text(1, y, &line, p.fg);
@@ -797,12 +815,16 @@ fn draw_card_stream_row(
     c.text(x + 2, y, &fit(s.id.label(), 20), p.fg);
     let state_x = x + 23;
     if bold {
-        c.text_bold(state_x, y, &fit(&word, 10), w_ink);
+        c.text_bold(state_x, y, &fit(&word, 8), w_ink);
     } else {
-        c.text(state_x, y, &fit(&word, 10), w_ink);
+        c.text(state_x, y, &fit(&word, 8), w_ink);
     }
     let detail_x = state_x + 9;
-    let conf_w = if show_confidence { 8 } else { 0 };
+    let conf_w = if show_confidence {
+        width(s.confidence.label()) + 1
+    } else {
+        0
+    };
     let detail_w = (x + w - conf_w - detail_x).max(0);
     if detail_w > 0 {
         let d_ink = if s.state == StreamState::OptOutIgnored {
@@ -1083,6 +1105,31 @@ impl TelemetryView {
         cols: usize,
         rows: usize,
     ) -> Canvas {
+        self.render_with_handoff(
+            state,
+            report,
+            revision,
+            checking,
+            unavailable_db,
+            &HandoffState::Idle,
+            cols,
+            rows,
+        )
+    }
+
+    /// Paint the interactive Telemetry board with an optional T3 thread handoff status bar.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_with_handoff(
+        &mut self,
+        state: &State,
+        report: Option<&Report>,
+        revision: u64,
+        checking: bool,
+        unavailable_db: bool,
+        handoff: &HandoffState,
+        cols: usize,
+        rows: usize,
+    ) -> Canvas {
         let p = &state.palette;
         if cols < MIN_COLUMNS || rows < MIN_ROWS {
             return floor_notice(p, cols, rows);
@@ -1163,7 +1210,7 @@ impl TelemetryView {
         } else {
             ww - 1 - width(right_note)
         };
-        let label_end = 3 + c.text_bg(3, 1, report.verdict.short_label(), v_t_ink, p.panel, true);
+        let label_end = 3 + c.text_bg(3, 1, report.verdict_short(), v_t_ink, p.panel, true);
         if label_end + 4 < rx {
             let summary_text = format!(" · {}", report.summary);
             c.text_bg(
@@ -1179,8 +1226,10 @@ impl TelemetryView {
             c.right(ww - 1, 1, right_note, p.dim);
         }
 
-        // Body viewport (rows 2 .. rows - 1)
-        let view_h = rows.saturating_sub(3);
+        // Body viewport (rows 2 .. rows - 1, or rows - 2 when handoff bar is visible)
+        let show_handoff = !matches!(handoff, HandoffState::Idle);
+        let footer_reserve = if show_handoff { 4 } else { 3 };
+        let view_h = rows.saturating_sub(footer_reserve);
         self.last_viewport_h = view_h;
         if self.follow_selection && !self.help && self.tab == Tab::Telemetry && view_h > 0 {
             if let Some((hy, _)) = self.hits.iter().find(|(_, idx)| *idx == self.selected) {
@@ -1217,6 +1266,10 @@ impl TelemetryView {
             }
         }
 
+        if show_handoff && rows >= 4 {
+            crate::handoff::draw_handoff_bar(&mut c, (rows - 2) as i32, handoff, p);
+        }
+
         // Footer (row h - 1)
         draw_board_footer(&mut c, state, report, self.tab, self.help, checking, p);
         c
@@ -1249,14 +1302,37 @@ fn draw_board_footer(
     let y = c.h as i32 - 1;
     c.fill(0, y, w, 1, p.panel);
 
+    let can_fix = report.verdict != Verdict::Off;
     let keys: &[(&str, &str)] = if help {
         &[("?", "close help"), ("e", "back"), ("q", "quit")]
     } else if tab == Tab::Sources {
+        if can_fix {
+            &[
+                ("?", "help"),
+                ("e", "back"),
+                ("tab", "telemetry"),
+                ("f", "fix in T3"),
+                ("↑↓", "scroll"),
+                ("r", "recheck"),
+                ("q", "quit"),
+            ]
+        } else {
+            &[
+                ("?", "help"),
+                ("e", "back"),
+                ("tab", "telemetry"),
+                ("↑↓", "scroll"),
+                ("r", "recheck"),
+                ("q", "quit"),
+            ]
+        }
+    } else if can_fix {
         &[
             ("?", "help"),
             ("e", "back"),
-            ("tab", "telemetry"),
-            ("↑↓", "scroll"),
+            ("tab", "sources"),
+            ("f", "fix in T3"),
+            ("↑↓", "select"),
             ("r", "recheck"),
             ("q", "quit"),
         ]
@@ -1362,6 +1438,18 @@ fn build_telemetry_body(
                 ry += 1;
             }
             ry += 1;
+            if report.verdict != Verdict::Off {
+                let mut fx = right_x;
+                fx += c.text_bold(fx, ry, "f", p.accent) + 1;
+                c.text(
+                    fx,
+                    ry,
+                    &fit("have a T3 thread turn this off", right_x + right_w - fx),
+                    p.fg,
+                );
+                ry += 1;
+            }
+            ry += 1;
         }
 
         let h = ly.max(ry).max(1) as usize;
@@ -1408,6 +1496,18 @@ fn build_telemetry_body(
         }
         for line in wrap_lines(&snip.note, (ww - 2).max(16) as usize) {
             c.text(1, y, &line, p.dim);
+            y += 1;
+        }
+        if report.verdict != Verdict::Off {
+            y += 1;
+            let mut fx = 1;
+            fx += c.text_bold(fx, y, "f", p.accent) + 1;
+            c.text(
+                fx,
+                y,
+                &fit("have a T3 thread turn this off", ww - 1 - fx),
+                p.fg,
+            );
             y += 1;
         }
         y += 1;
@@ -1748,6 +1848,7 @@ fn build_help_body(cols: usize, is_demo: bool, p: &Palette) -> Canvas {
         ("tab / ⇧tab", "what T3 sends, or the files Loupe read"),
         ("↑↓ / j k", "select a stream · scroll sources"),
         ("PgUp PgDn", "a page · Home End: the ends"),
+        ("f", "start a T3 thread with fix instructions (asks first)"),
         ("r", "check again now; also rechecks when a file changes"),
         ("e / Esc", "dashboard · Esc closes help first"),
         ("c C", "theme: next · back"),
@@ -1821,6 +1922,10 @@ mod tests {
         let mut seen = std::collections::HashSet::new();
         for st in states {
             let (g, w, _, _, _) = stream_style(st, &p);
+            assert!(
+                terminal::width(w) <= 8,
+                "stream state word for {st:?} exceeds 8 cols: {w:?}"
+            );
             assert!(
                 seen.insert((g, w)),
                 "duplicate (glyph, word) pair for {st:?}: ({g:?}, {w:?})"

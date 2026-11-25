@@ -2,13 +2,17 @@
 //!
 //! Mirrors `StorageScreen` and `InsightsScreen`: borrows `State.telemetry` (or the zero-I/O
 //! demo report in `--demo` mode) and renders through `TelemetryView`'s cached body canvas.
+//! Pressing `f` hands off to the shared [`T3Handoff`] controller to start a T3 Code thread
+//! with Loupe's non-secret findings and fix options.
 
+use crate::t3_handoff::T3Handoff;
 use loupe_core::{
     clock,
+    handoff::{self, HandoffState},
     host::{self, Host},
     model::State,
     product::{Database, Origin},
-    telemetry::{self, Report},
+    telemetry::{self, Report, Verdict},
     telemetry_view::{Motion, TelemetryView},
     terminal::Canvas,
 };
@@ -85,6 +89,7 @@ impl TelemetryScreen {
         &mut self,
         state: &State,
         host: &Host,
+        handoff: &HandoffState,
         (cols, rows): (usize, usize),
     ) -> Option<Canvas> {
         if self.view.is_none() {
@@ -98,19 +103,26 @@ impl TelemetryScreen {
             TelemetrySource::Unavailable => (None, 0),
         };
         let view = self.view.as_mut()?;
-        Some(view.render(
+        Some(view.render_with_handoff(
             state,
             report_ref,
             rev,
             checking,
             unavailable,
+            handoff,
             cols.max(1),
             rows.max(1),
         ))
     }
 
     /// Returns `true` when the user pressed `q` to quit Loupe.
-    pub(super) fn key(&mut self, name: &str, state: &State, host: &mut Host) -> bool {
+    pub(super) fn key(
+        &mut self,
+        name: &str,
+        state: &State,
+        host: &mut Host,
+        handoff: &mut T3Handoff,
+    ) -> bool {
         let Some(view) = self.view.as_mut() else {
             return false;
         };
@@ -126,11 +138,13 @@ impl TelemetryScreen {
                     view.help = false;
                     view.scroll = 0;
                 } else {
+                    handoff.dismiss();
                     self.close();
                 }
                 return false;
             }
             "e" => {
+                handoff.dismiss();
                 self.close();
                 return false;
             }
@@ -145,6 +159,26 @@ impl TelemetryScreen {
                     _ => {}
                 }
                 return false;
+            }
+            "f" => {
+                let Some(report) = self.active_report(state).0.cloned() else {
+                    return false;
+                };
+                if report.verdict == Verdict::Off {
+                    return false;
+                }
+                let (title, prompt) = handoff::telemetry_prompt(&report);
+                let base_dir = report.inputs.data_folder.is_absolute().then_some(report.inputs.data_folder);
+                handoff.begin_start(
+                    "turn off telemetry",
+                    title,
+                    prompt,
+                    None,
+                    base_dir,
+                    host.db.as_deref(),
+                    true,
+                    state,
+                );
             }
             "tab" | "shift-tab" => {
                 view.toggle_tab();
@@ -211,7 +245,13 @@ impl TelemetryScreen {
         }
     }
 
-    pub(super) fn wheel(&mut self, down: bool, state: &State, host: &mut Host) {
-        self.key(if down { "down" } else { "up" }, state, host);
+    pub(super) fn wheel(
+        &mut self,
+        down: bool,
+        state: &State,
+        host: &mut Host,
+        handoff: &mut T3Handoff,
+    ) {
+        self.key(if down { "down" } else { "up" }, state, host, handoff);
     }
 }

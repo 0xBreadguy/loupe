@@ -16,6 +16,7 @@ pub enum Effect {
     Back,
     Rescan,
     OpenInT3(String),
+    CleanInT3,
     Quit,
 }
 
@@ -258,10 +259,84 @@ impl StorageView {
                 return None;
             }
             "enter" | "o" => return row.open_target().map(|id| Effect::OpenInT3(id.to_owned())),
+            "f" => return Some(Effect::CleanInT3),
             _ => return None,
         };
         self.select(&rows, to, lines);
         None
+    }
+
+    /// Build a non-secret cleanup context for the currently selected Storage row.
+    /// Returns `(context, preferred_project_id)`.
+    pub fn selected_context(
+        &self,
+        inventory: &Inventory,
+        w: usize,
+        h: usize,
+    ) -> Option<(crate::handoff::StorageContext, Option<String>)> {
+        let layout = draw::Layout::new(inventory, w, h);
+        if !layout.fits() {
+            return None;
+        }
+        let rows = Rows::new(inventory, &self.folded);
+        let row = rows.items.get(self.index.min(rows.items.len().saturating_sub(1)))?;
+        let (target, entries, preferred_project): (
+            crate::handoff::StorageTarget,
+            Vec<&Entry>,
+            Option<String>,
+        ) = match row {
+            Row::Group(group) => match &group.id {
+                GroupId::Project(id) => (
+                    crate::handoff::StorageTarget::Project {
+                        id: id.clone(),
+                        title: group.title.to_owned(),
+                        thread_count: group.entries.len(),
+                        sizes: group.sizes,
+                    },
+                    group.entries.clone(),
+                    Some(id.clone()),
+                ),
+                GroupId::SettledOrGone => (
+                    crate::handoff::StorageTarget::SettledOrGone {
+                        count: group.entries.len(),
+                        sizes: group.sizes,
+                    },
+                    group.entries.clone(),
+                    None,
+                ),
+            },
+            Row::Entry { entry, .. } => {
+                let project_id = inventory
+                    .projects
+                    .iter()
+                    .find(|p| p.threads.iter().any(|t| t.id == entry.id))
+                    .map(|p| p.id.clone())
+                    .or_else(|| inventory.settled_projects.get(&entry.id).cloned());
+                (
+                    crate::handoff::StorageTarget::Entry {
+                        title: entry.title.clone(),
+                        path: entry.worktree_path.clone(),
+                        state: entry.state,
+                        sizes: entry.sizes,
+                    },
+                    vec![*entry],
+                    project_id,
+                )
+            }
+            Row::Other(sizes) => (
+                crate::handoff::StorageTarget::Other {
+                    sizes: *sizes,
+                    temp_label: inventory
+                        .temporary_volume
+                        .as_ref()
+                        .map(|v| v.label.clone()),
+                },
+                Vec::new(),
+                None,
+            ),
+        };
+        let ctx = crate::handoff::storage_context_from_inventory(inventory, target, &entries);
+        Some((ctx, preferred_project))
     }
 
     /// Select a visible row from a zero-based terminal click. Section headers, summary

@@ -12,6 +12,7 @@ pub mod cache_path;
 pub mod probe;
 pub mod cli;
 pub mod frame_bench;
+pub mod handoff;
 pub mod clock;
 pub mod cluster;
 pub mod demo;

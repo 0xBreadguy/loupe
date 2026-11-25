@@ -15,7 +15,7 @@ use loupe_core::{
     host::{Clock, Host},
     integration, live,
     model::{Snapshot, State},
-    product::{self, Command, Database},
+    product::{self, Command, Database, Origin},
     recap, source, terminal, theme, trace, trace_live, trace_view,
 };
 use loupe_term::platform::{self, Wake, Waker};
@@ -29,6 +29,8 @@ mod insights_screen;
 use insights_screen::{Effect as InsightsEffect, InsightsScreen, InsightsSource};
 mod storage_screen;
 use storage_screen::StorageScreen;
+mod t3_handoff;
+use t3_handoff::{HandoffKey, HandoffSource, T3Handoff};
 mod telemetry_screen;
 use telemetry_screen::{TelemetryScreen, TelemetrySource};
 #[cfg(feature = "frame-stream")]
@@ -155,7 +157,14 @@ fn trace_open_thread(s: &mut State, host: &Host, thread: &str, at: f64) {
 }
 
 /// A key while Trace is open. Returns whether to quit; `None` when the dashboard handles it.
-fn trace_key(s: &mut State, host: &Host, tracing: &mut Option<trace_live::Screen>, wake: &Wake, name: &str) -> Option<bool> {
+fn trace_key(
+    s: &mut State,
+    host: &Host,
+    tracing: &mut Option<trace_live::Screen>,
+    handoff: &mut T3Handoff,
+    wake: &Wake,
+    name: &str,
+) -> Option<bool> {
     let t = tracing.as_mut()?;
     if s.help {
         return None;
@@ -168,10 +177,42 @@ fn trace_key(s: &mut State, host: &Host, tracing: &mut Option<trace_live::Screen
     }
     let at = host::input_now(s, host);
     match t.key(name) {
-        trace_live::Outcome::Close => *tracing = None,
+        trace_live::Outcome::Close => {
+            handoff.dismiss();
+            *tracing = None;
+        }
         trace_live::Outcome::OpenThread(thread) => trace_open_thread(s, host, &thread, at),
         trace_live::Outcome::Say(text) => s.note(text, false, at),
         trace_live::Outcome::Read => trace_read(t, s, host, wake),
+        trace_live::Outcome::InvestigateInT3 => {
+            if let Some(tr) = t.trace() {
+                let agent = s
+                    .snap
+                    .agents
+                    .iter()
+                    .find(|a| a.thread_id == tr.thread || a.id == tr.thread);
+                let project_name = agent.map(|a| a.project.as_str());
+                let project_id = agent.and_then(|a| {
+                    a.storage
+                        .as_ref()
+                        .map(|st| st.project_id.as_str())
+                        .filter(|id| !id.is_empty())
+                        .or_else(|| (!a.cwd.is_empty()).then_some(a.cwd.as_str()))
+                });
+                let (title, prompt) =
+                    loupe_core::handoff::trace_prompt(tr, t.selected.as_deref(), project_name);
+                handoff.begin_start(
+                    "diagnose trace",
+                    title,
+                    prompt,
+                    project_id,
+                    None,
+                    host.db.as_deref(),
+                    false,
+                    s,
+                );
+            }
+        }
         trace_live::Outcome::Stay => {}
     }
     Some(false)
@@ -336,13 +377,14 @@ fn paint(
     host: &Host,
     storage: &mut StorageScreen,
     telemetry: &mut TelemetryScreen,
+    handoff: &T3Handoff,
     cols: usize,
     rows: usize,
     enc: &mut Encoder,
     full: &mut bool,
     tracing: &mut Option<trace_live::Screen>,
 ) -> io::Result<()> {
-    paint_with(s, host, storage, telemetry, cols, rows, enc, full, tracing, &mut |_, bytes, _| {
+    paint_with(s, host, storage, telemetry, handoff, cols, rows, enc, full, tracing, &mut |_, bytes, _| {
         if !bytes.is_empty() {
             platform::write_stdout(bytes)?;
         }
@@ -360,6 +402,7 @@ fn paint_with(
     host: &Host,
     storage: &mut StorageScreen,
     telemetry: &mut TelemetryScreen,
+    handoff: &T3Handoff,
     cols: usize,
     rows: usize,
     enc: &mut Encoder,
@@ -367,17 +410,20 @@ fn paint_with(
     tracing: &mut Option<trace_live::Screen>,
     sink: &mut Sink<'_>,
 ) -> io::Result<()> {
-    let canvas = match tracing.as_mut() {
+    let mut canvas = match tracing.as_mut() {
         Some(t) => {
             let mut canvas = draw_trace(s, t, cols.max(1), rows.max(1));
             if s.help { trace_view::help(&mut canvas, &s.palette); }
             canvas
         },
         _ => telemetry
-            .render(s, host, (cols, rows))
+            .render(s, host, handoff.state(), (cols, rows))
             .or_else(|| storage.render(s, (cols, rows)))
             .unwrap_or_else(|| compose(s, cols, rows)),
     };
+    if !telemetry.is_open() {
+        handoff.overlay(&mut canvas, &s.palette);
+    }
     let was_full = *full;
     let bytes = enc.encode(&canvas, *full);
     *full = false;
@@ -389,9 +435,15 @@ type Launch = (State, Host, StorageSource, Option<InsightsSource>, TelemetrySour
 fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Error>> {
     let _restore = platform::enter_raw()?;
     let (mut state, mut host, source, insights_source, telemetry_source) = launch;
+    let handoff_source = match telemetry_source {
+        TelemetrySource::Demo => HandoffSource::Demo,
+        TelemetrySource::Machine => HandoffSource::Machine,
+        TelemetrySource::Unavailable => HandoffSource::ExplicitDb,
+    };
     let mut insights = InsightsScreen::default();
     let mut storage = StorageScreen::new(source, Arc::clone(&wake));
     let mut telemetry = TelemetryScreen::new(telemetry_source);
+    let mut handoff = T3Handoff::new(handoff_source, Some(Arc::clone(&wake)));
     // Ask the terminal what it can do before anything slow, and never wait for the answer: it
     // arrives while the first frame is being composed. See `caps.rs`. A theme that follows the
     // terminal's light or dark mode also asks for its background and for color scheme reports.
@@ -449,6 +501,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
     // Trace, while it is open over the dashboard (the product's `w`).
     let mut tracing: Option<trace_live::Screen> = None;
     loop {
+        parser.set_text_mode(handoff.wants_text_input());
         let ready = platform::wait(&wake, timeout(next_wake, parser.deadline()))?;
         if ready.wake {
             wake.drain();
@@ -538,6 +591,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
             host::poll_host(&mut state, clock.now, &mut clock, &mut host)
         };
         storage.poll(&state);
+        let handoff_changed = handoff.poll();
         if let Some(t) = tracing.as_mut() {
             t.poll();
             trace_read(t, &state, &host, &wake);
@@ -551,13 +605,48 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
         if insights.is_open() {
             let source = insights_source.unwrap();
             let completed = ready.wake && insights.poll(source);
-            insights_dirty = completed || full || background_changed || host_changed;
+            insights_dirty = completed || handoff_changed || full || background_changed || host_changed;
         } else if !hold {
-            paint(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
+            paint(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
             painted = true;
         }
         let mut quit = eof || signals.quit;
         for event in events {
+            // Route interactive handoff confirmation / quick-reply events first (works across every screen).
+            if handoff.is_active() {
+                let handled = match &event {
+                    Event::Quit => {
+                        quit = true;
+                        break;
+                    }
+                    Event::Char(ch) if handoff.wants_text_input() => {
+                        handoff.char(*ch);
+                        true
+                    }
+                    Event::Key(name) => match handoff.key(name, &host, size) {
+                        HandoffKey::Quit => {
+                            quit = true;
+                            break;
+                        }
+                        HandoffKey::Consumed => true,
+                        HandoffKey::NotHandled => false,
+                    },
+                    _ if handoff.captures_keys() => true,
+                    _ => false,
+                };
+                parser.set_text_mode(handoff.wants_text_input());
+                if handled {
+                    if insights.is_open() {
+                        let source = insights_source.unwrap();
+                        insights.paint(&state, source, size, handoff.state(), &mut encoder, &mut full)?;
+                        insights_dirty = false;
+                    } else {
+                        paint(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
+                        painted = true;
+                    }
+                    continue;
+                }
+            }
             if insights.is_open() {
                 if quit {
                     break;
@@ -575,11 +664,28 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                         break;
                     }
                     InsightsEffect::Back => {
+                        handoff.dismiss();
                         insights.close();
-                        paint(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
+                        paint(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
+                    }
+                    InsightsEffect::OptimizeInT3 => {
+                        if let Some((action_label, title, prompt)) = insights.active_handoff_prompt() {
+                            handoff.begin_start(
+                                action_label,
+                                title,
+                                prompt,
+                                None,
+                                None,
+                                host.db.as_deref(),
+                                false,
+                                &state,
+                            );
+                            insights.paint(&state, source, size, handoff.state(), &mut encoder, &mut full)?;
+                            insights_dirty = false;
+                        }
                     }
                     InsightsEffect::Paint => {
-                        insights.present_key(&state, source, host.db.as_deref(), size, &mut encoder, &mut full, &wake)?;
+                        insights.present_key(&state, source, host.db.as_deref(), size, handoff.state(), &mut encoder, &mut full, &wake)?;
                         insights_dirty = false;
                     }
                     InsightsEffect::Stay => {}
@@ -588,11 +694,13 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
             }
             let stop = match event {
                 Event::Quit => true,
+                Event::Char(_) => false,
                 Event::Key("e") if state.storage_key_in_help && tracing.is_none()
                     && !storage.is_open() && !telemetry.is_open() && !quit => {
                     if state.help {
                         on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
                     }
+                    handoff.dismiss();
                     telemetry.open(&state, &mut host);
                     false
                 }
@@ -600,7 +708,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                     if matches!(name, "c" | "C") {
                         on_key(&mut state, &mut host, &mut clock, name, replay.is_some())
                     } else {
-                        telemetry.key(name, &state, &mut host)
+                        telemetry.key(name, &state, &mut host, &mut handoff)
                     }
                 }
                 Event::Key("i") if state.storage_key_in_help && tracing.is_none()
@@ -608,8 +716,9 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                     if state.help {
                         on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
                     }
+                    handoff.dismiss();
                     insights.open();
-                    insights.present_key(&state, source, host.db.as_deref(), size, &mut encoder, &mut full, &wake)?;
+                    insights.present_key(&state, source, host.db.as_deref(), size, handoff.state(), &mut encoder, &mut full, &wake)?;
                     insights_dirty = false;
                     painted = true;
                     continue;
@@ -619,6 +728,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                     if state.help {
                         on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
                     }
+                    handoff.dismiss();
                     storage.open(&state);
                     false
                 }
@@ -626,10 +736,10 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                     if matches!(name, "c" | "C") {
                         on_key(&mut state, &mut host, &mut clock, name, replay.is_some())
                     } else {
-                        storage.key(name, &mut state, &host, size)
+                        storage.key(name, &mut state, &host, &mut handoff, size)
                     }
                 }
-                Event::Key(name) => match trace_key(&mut state, &host, &mut tracing, &wake, name) {
+                Event::Key(name) => match trace_key(&mut state, &host, &mut tracing, &mut handoff, &wake, name) {
                     Some(quit) => quit,
                     // `w` opens Trace on the selected agent: the product's key, like `c`. Without
                     // the product's options it is not a key, as in the original.
@@ -637,6 +747,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                         if host.themes.is_some() && !state.help && replay.is_none() {
                             match trace_target(&state) {
                                 Ok(target) => {
+                                    handoff.dismiss();
                                     let mut t = trace_live::Screen::new(target);
                                     trace_read(&mut t, &state, &host, &wake);
                                     tracing = Some(t);
@@ -645,6 +756,25 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                                     let at = host::input_now(&state, &host);
                                     state.note(message, false, at);
                                 }
+                            }
+                        }
+                        false
+                    }
+                    // `M` opens quick-reply / nudge (`t3 thread send`) on the selected local thread.
+                    // Product-only (`storage_key_in_help`), so `LOUPE_NO_THEMES=1` ignores it.
+                    None if name == "M" => {
+                        if state.storage_key_in_help && !state.help && replay.is_none() {
+                            if let Some(agent) = state
+                                .selected
+                                .as_ref()
+                                .and_then(|id| state.snap.agents.iter().find(|a| &a.id == id))
+                            {
+                                let paces = state.paces();
+                                let pace = paces.get(&agent.id);
+                                handoff.begin_send(agent, pace);
+                            } else {
+                                let at = host::input_now(&state, &host);
+                                state.note("Select a thread to message it in T3", false, at);
                             }
                         }
                         false
@@ -665,8 +795,8 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                         Some(t) if !state.help => {
                             t.key(if down { "down" } else { "up" });
                         }
-                        _ if telemetry.is_open() => telemetry.wheel(down, &state, &mut host),
-                        _ if storage.is_open() => { storage.key(if down { "down" } else { "up" }, &mut state, &host, size); }
+                        _ if telemetry.is_open() => telemetry.wheel(down, &state, &mut host, &mut handoff),
+                        _ if storage.is_open() => { storage.key(if down { "down" } else { "up" }, &mut state, &host, &mut handoff, size); }
                         _ => on_wheel(&mut state, &host, x, y, down),
                     }
                     false
@@ -674,7 +804,8 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                 // Answers were taken above.
                 Event::Report(_) => false,
             };
-            paint(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
+            parser.set_text_mode(handoff.wants_text_input());
+            paint(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
             painted = true;
             if stop {
                 quit = true;
@@ -686,7 +817,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
         }
         // Fold a host wake into the key's paint when both arrived together.
         if insights_dirty && insights.is_open() {
-            insights.paint(&state, insights_source.unwrap(), size, &mut encoder, &mut full)?;
+            insights.paint(&state, insights_source.unwrap(), size, handoff.state(), &mut encoder, &mut full)?;
         }
         next_wake = clock.wake.map(|after| Instant::now() + after);
         if !painted {
@@ -807,7 +938,7 @@ fn product_launch(
             };
             (state, Host::demo(now))
         }
-        Database::Path { path, .. } => {
+        Database::Path { path, origin } => {
             let mut initial_reader = None;
             let result = if std::env::var_os("LOUPE_SYNC_READ").is_some() {
                 source::snapshot(&path, now)
@@ -838,6 +969,9 @@ fn product_launch(
             state.demo = false;
             state.usage.clear();
             let mut host = Host::live(path, now);
+            // Block external `t3code://` link activation when viewing an explicit `--db` in product mode;
+            // keep `oracle/` parity when `LOUPE_NO_THEMES=1` is set by parity checks.
+            host.allow_open = origin != Origin::Db || theme::disabled();
             if let Some(reader) = initial_reader {
                 host = host.with_live_reader(reader);
             }

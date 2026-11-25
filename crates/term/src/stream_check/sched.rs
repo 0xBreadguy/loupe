@@ -391,6 +391,7 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
     let wake = Arc::new(Wake::new()?);
     let mut storage = StorageScreen::new(source, Arc::clone(&wake));
     let mut telemetry = TelemetryScreen::new(telemetry_source);
+    let mut handoff = T3Handoff::new(HandoffSource::Demo, None);
     let mut insights = InsightsScreen::default();
     if let Some(themes) = &host.themes {
         state.palette = themes.palette();
@@ -531,7 +532,7 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
         if insights.is_open() {
             insights_dirty = full || background_changed || host_changed;
         } else {
-            paint_with(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
+            paint_with(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
         }
         for input in &p.inputs {
             if let Input::Key(name) = input {
@@ -549,15 +550,15 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
                 match effect {
                     InsightsEffect::Back => {
                         insights.close();
-                        paint_with(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
+                        paint_with(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
                     }
                     InsightsEffect::Paint => {
-                        insights.present_key_with(&state, source, host.db.as_deref(), size, &mut primary, &mut full, &wake, &mut |c, b, f| tally.take(c, b, f))?;
+                        insights.present_key_with(&state, source, host.db.as_deref(), size, handoff.state(), &mut primary, &mut full, &wake, &mut |c, b, f| tally.take(c, b, f))?;
                         insights_frames += 1;
-                        settle(&mut insights, &state, source, size, &mut primary, &mut full, &mut tally)?;
+                        settle(&mut insights, &state, source, size, handoff.state(), &mut primary, &mut full, &mut tally)?;
                         insights_dirty = false;
                     }
-                    InsightsEffect::Quit | InsightsEffect::Stay => {}
+                    InsightsEffect::Quit | InsightsEffect::Stay | InsightsEffect::OptimizeInT3 => {}
                 }
                 continue;
             }
@@ -571,14 +572,14 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
                         on_key(&mut state, &mut host, &mut clock, "escape", false);
                     }
                     insights.open();
-                    insights.present_key_with(&state, source, host.db.as_deref(), size, &mut primary, &mut full, &wake, &mut |c, b, f| tally.take(c, b, f))?;
+                    insights.present_key_with(&state, source, host.db.as_deref(), size, handoff.state(), &mut primary, &mut full, &wake, &mut |c, b, f| tally.take(c, b, f))?;
                     insights_frames += 1;
-                    settle(&mut insights, &state, source, size, &mut primary, &mut full, &mut tally)?;
+                    settle(&mut insights, &state, source, size, handoff.state(), &mut primary, &mut full, &mut tally)?;
                     insights_dirty = false;
                     continue;
                 }
                 Input::Key("tab" | "shift-tab") if !telemetry.is_open() => continue,
-                Input::Key(name) => dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut telemetry, &mut tracing, name, size),
+                Input::Key(name) => dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut telemetry, &mut handoff, &mut tracing, name, size),
                 Input::PressAt(..) | Input::PressRow(_) | Input::PressNeedsYou => {
                     let (x, y) = point(input, &state, size);
                     match tracing.as_mut() {
@@ -594,19 +595,19 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
                         Some(t) if !state.help => {
                             t.key(if down { "down" } else { "up" });
                         }
-                        _ if telemetry.is_open() => telemetry.wheel(down, &state, &mut host),
+                        _ if telemetry.is_open() => telemetry.wheel(down, &state, &mut host, &mut handoff),
                         _ if storage.is_open() => {
-                            storage.key(if down { "down" } else { "up" }, &mut state, &host, size);
+                            storage.key(if down { "down" } else { "up" }, &mut state, &host, &mut handoff, size);
                         }
                         _ => on_wheel(&mut state, &host, x, y, down),
                     }
                 }
             }
-            paint_with(&mut state, &host, &mut storage, &mut telemetry, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
+            paint_with(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
         }
         if insights_dirty && insights.is_open() {
             let source = insights_source.expect("open only with a source");
-            insights.paint_with(&state, source, size, &mut primary, &mut full, &mut |c, b, f| tally.take(c, b, f))?;
+            insights.paint_with(&state, source, size, handoff.state(), &mut primary, &mut full, &mut |c, b, f| tally.take(c, b, f))?;
             insights_frames += 1;
         }
         let wake_ms = clock.wake.map_or(-1., |d| d.as_secs_f64() * 1000.);
@@ -666,11 +667,13 @@ fn point(input: &Input, state: &State, size: (usize, usize)) -> (i32, i32) {
 
 /// Wait for Insights' read (made up in memory on the demo) and paint what it brought, as the
 /// loop does when the reader's wake arrives. The scripted clock does not move meanwhile.
+#[allow(clippy::too_many_arguments)]
 fn settle(
     insights: &mut InsightsScreen,
     state: &State,
     source: InsightsSource,
     size: (usize, usize),
+    handoff: &loupe_core::handoff::HandoffState,
     primary: &mut Encoder,
     full: &mut bool,
     tally: &mut Tally,
@@ -678,7 +681,7 @@ fn settle(
     let started = Instant::now();
     while insights.loading() {
         if insights.poll(source) {
-            insights.paint_with(state, source, size, primary, full, &mut |c, b, f| tally.take(c, b, f))?;
+            insights.paint_with(state, source, size, handoff, primary, full, &mut |c, b, f| tally.take(c, b, f))?;
             continue;
         }
         if started.elapsed() > Duration::from_secs(120) {

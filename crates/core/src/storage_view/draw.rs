@@ -308,6 +308,7 @@ fn help(c: &mut Canvas, p: &Palette) {
         ("PgUp / PgDn", "move a page · Home / End jump to an end"),
         ("␣ / ⏎", "fold or unfold the selected group"),
         ("⏎ / o", "open in T3 when the thread is available"),
+        ("f", "start a T3 thread to inspect & clean up this selection"),
         ("r", "measure again when no scan is running"),
         ("s / Esc", "dashboard · Esc closes this help first"),
     ];
@@ -325,7 +326,7 @@ fn help(c: &mut Canvas, p: &Palette) {
     .into_iter()
     .enumerate()
     {
-        c.text(2, 8 + i as i32, &fit(text, c.w as i32 - 3), p.dim);
+        c.text(2, 9 + i as i32, &fit(text, c.w as i32 - 3), p.dim);
     }
     draw_footer(c, p, &[("?", "close help"), ("s", "back"), ("q", "quit")]);
 }
@@ -474,6 +475,9 @@ pub(super) fn render(
             keys.push(("⏎", if cols.short { "open" } else { "open in T3" }))
         }
         _ => {}
+    }
+    if !rows.items.is_empty() {
+        keys.push(("f", if cols.short { "clean" } else { "clean in T3" }));
     }
     match inventory.scan {
         Scan::Scanning(_) => {}

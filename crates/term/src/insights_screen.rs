@@ -4,6 +4,7 @@ use std::{io, path::Path, sync::Arc};
 
 use loupe_core::{
     clock,
+    handoff::{self, HandoffState},
     insights_view::{self as view, Body, InsightsView, Motion, Tab},
     model::State,
     platform::local_time,
@@ -49,6 +50,7 @@ pub(super) enum Effect {
     Stay,
     Paint,
     Back,
+    OptimizeInT3,
     Quit,
 }
 
@@ -107,12 +109,35 @@ impl InsightsScreen {
             self.data.refresh(clock::wall_now());
             self.staged = true;
             self.notice = None;
+        } else if name == "f" {
+            if self.active_handoff_prompt().is_some() {
+                return Effect::OptimizeInT3;
+            }
+            return Effect::Stay;
         } else if let Some(motion) = motion(name) {
             self.view.as_mut().unwrap().scroll(motion);
         } else {
             return Effect::Stay;
         }
         Effect::Paint
+    }
+
+    /// Build a non-secret optimization handoff `(action_label, title, prompt)` for the currently
+    /// visible Insights report (Tools or Recap), or `None` while loading / empty.
+    pub(super) fn active_handoff_prompt(&self) -> Option<(&'static str, String, String)> {
+        let visible = self.data.visible()?;
+        let ok = visible.outcome.as_ref().ok()?;
+        match &ok.value {
+            Value::Tools(report) if !report.is_empty() => {
+                let (title, prompt) = handoff::tools_prompt(report);
+                Some(("optimize slow & failing tools", title, prompt))
+            }
+            Value::Recap(report) if !report.is_empty() => {
+                let (title, prompt) = handoff::recap_prompt(report);
+                Some(("optimize workflow from Recap", title, prompt))
+            }
+            _ => None,
+        }
     }
 
     pub(super) fn poll(&mut self, source: InsightsSource) -> bool {
@@ -216,11 +241,22 @@ impl InsightsScreen {
         source: InsightsSource,
         path: Option<&Path>,
         size: (usize, usize),
+        handoff: &HandoffState,
         encoder: &mut Encoder,
         full: &mut bool,
         wake: &Arc<Wake>,
     ) -> io::Result<()> {
-        self.present_key_with(state, source, path, size, encoder, full, wake, &mut write_frame)
+        self.present_key_with(
+            state,
+            source,
+            path,
+            size,
+            handoff,
+            encoder,
+            full,
+            wake,
+            &mut write_frame,
+        )
     }
 
     /// [`InsightsScreen::present_key`] with each frame handed to `sink` (the stream check hashes
@@ -232,15 +268,16 @@ impl InsightsScreen {
         source: InsightsSource,
         path: Option<&Path>,
         size: (usize, usize),
+        handoff: &HandoffState,
         encoder: &mut Encoder,
         full: &mut bool,
         wake: &Arc<Wake>,
         sink: &mut FrameSink<'_>,
     ) -> io::Result<()> {
         // write_stdout writes directly to the tty before dispatch, even on demo.
-        self.paint_with(state, source, size, encoder, full, sink)?;
+        self.paint_with(state, source, size, handoff, encoder, full, sink)?;
         if self.dispatch(source, path, wake) {
-            self.paint_with(state, source, size, encoder, full, sink)?;
+            self.paint_with(state, source, size, handoff, encoder, full, sink)?;
         }
         Ok(())
     }
@@ -250,25 +287,52 @@ impl InsightsScreen {
         state: &State,
         source: InsightsSource,
         size: (usize, usize),
+        handoff: &HandoffState,
         encoder: &mut Encoder,
         full: &mut bool,
     ) -> io::Result<()> {
-        self.paint_with(state, source, size, encoder, full, &mut write_frame)
+        self.paint_with(state, source, size, handoff, encoder, full, &mut write_frame)
     }
 
     /// [`InsightsScreen::paint`] with the canvas, its bytes and whether it was a full repaint
     /// handed to `sink`.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn paint_with(
         &mut self,
         state: &State,
         source: InsightsSource,
         size: (usize, usize),
+        handoff: &HandoffState,
         encoder: &mut Encoder,
         full: &mut bool,
         sink: &mut FrameSink<'_>,
     ) -> io::Result<()> {
         let was_full = *full;
+        let tab = self
+            .data
+            .selection()
+            .map(|sel| match sel.report {
+                Report::Recap => Tab::Recap,
+                Report::Tools => Tab::Tools,
+            })
+            .unwrap_or(Tab::Recap);
+        let help = self.help;
+        let actionable = self.active_handoff_prompt().is_some();
         let canvas = self.frame(state, source, size);
+        if help || actionable || !handoff.is_idle() {
+            let mut decorated = canvas.clone();
+            handoff::decorate_insights_canvas(
+                &mut decorated,
+                tab,
+                help,
+                actionable,
+                handoff,
+                &state.palette,
+            );
+            let bytes = encoder.encode(&decorated, was_full);
+            *full = false;
+            return sink(&decorated, &bytes, was_full);
+        }
         let bytes = encoder.encode(canvas, was_full);
         *full = false;
         sink(canvas, &bytes, was_full)

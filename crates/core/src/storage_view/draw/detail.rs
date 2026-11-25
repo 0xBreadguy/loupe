@@ -50,12 +50,25 @@ pub(super) fn draw(c: &mut Canvas, p: &Palette, y: i32, row: &Row<'_>, inventory
             } else {
                 "␣ or ⏎ folds it"
             };
+            let clean_hint = if matches!(group.id, super::super::GroupId::SettledOrGone) {
+                " · f clean in T3"
+            } else {
+                " · sizes are allocated bytes"
+            };
             detail_line(
                 c,
                 y + 2,
                 &[
                     (fold, p.dim, false),
-                    (" · sizes are allocated bytes", p.dim, false),
+                    (
+                        clean_hint,
+                        if matches!(group.id, super::super::GroupId::SettledOrGone) {
+                            p.accent
+                        } else {
+                            p.dim
+                        },
+                        false,
+                    ),
                 ],
             );
         }
@@ -116,6 +129,12 @@ pub(super) fn draw(c: &mut Canvas, p: &Palette, y: i32, row: &Row<'_>, inventory
             };
             let open = if row.open_target().is_some() {
                 " · ⏎ opens it in T3"
+            } else if matches!(
+                entry.state,
+                crate::storage_view::data::ThreadState::Gone
+                    | crate::storage_view::data::ThreadState::Settled
+            ) {
+                " · f clean in T3"
             } else {
                 ""
             };

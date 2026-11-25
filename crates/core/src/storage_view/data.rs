@@ -180,6 +180,9 @@ pub struct Inventory {
     /// Used bytes only when the caller verified temp is a separate tmpfs root.
     #[doc(hidden)]
     pub temp_volume_used: Option<u64>,
+    /// Owning project ID for entries placed in `settled_or_gone`, keyed by `Entry::id`.
+    #[doc(hidden)]
+    pub settled_projects: std::collections::BTreeMap<String, String>,
 }
 
 impl Inventory {

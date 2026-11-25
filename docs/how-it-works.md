@@ -154,9 +154,27 @@ writes to it, and it makes no network connections.
 - **Following T3:** under Hyprland it listens on Hyprland's event socket for
   the T3 Code window's title, which T3 sets to `project / thread`. It queries
   the window list when connecting and keeps only T3 windows' titles.
-- **Opening threads:** `Enter` passes a `t3code://threads/…` link to
-  `xdg-open` on Linux or `open` on macOS. Local links use the environment ID
-  T3 keeps beside the database. Remote links use the recorded destination.
+- **Opening and handing off to T3 Code:** `Enter` passes a `t3code://threads/…`
+  link to `xdg-open` on Linux or `open` on macOS (disabled when viewing an
+  explicit `--db`). Local links use the environment ID T3 keeps beside the
+  database; remote links use the recorded destination. Pressing `f` in
+  Telemetry, Storage, Trace or Insights (Tools and Recap) opens an exact
+  payload preview (`p` to toggle, `j`/`k` to scroll) with a project picker
+  (`←`/`→`) and model picker (`↑`/`↓`) showing provider and provenance, and
+  invokes `t3 thread start` only after confirmation (two-step confirmation for
+  Storage and Telemetry). All variable metadata is serialized inside a bounded,
+  explicitly labeled untrusted JSON block built strictly from non-secret
+  findings, timings, program names or paths already shown on screen (never
+  secrets, auth files, message bodies or command arguments). When a project has
+  no default model set in T3, Loupe inherits that project's most recent local
+  `(providerInstanceId, model)` read-only, or requires you to pick a model
+  explicitly if the project has no local runs yet.
+  Pressing `M` on a local thread in Live shows contextual nudge presets and a
+  single-line reply box and, after you confirm with `Enter`, invokes
+  `t3 thread send` (which queues safely on busy threads without interrupting).
+  Both resolve `t3` only from trusted `PATH` directories, suppress desktop
+  auto-open over SSH (including X11 forwarding), never run in `--demo` or with
+  an explicit `--db`, and leave Loupe's database reader strictly read-only.
 - **Usage limits:** read from Omarchy's agent usage records in
   `~/.local/state/omarchy/agents/usage/`, if they exist.
 - **Themes:** it reads the theme it's told to use, once a second so edits
