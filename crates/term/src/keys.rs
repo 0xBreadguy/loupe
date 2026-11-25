@@ -372,7 +372,9 @@ fn take_plain(buf: &mut Vec<u8>, text_mode: bool) -> Plain {
         }
         let bytes: Vec<u8> = buf.drain(..need).collect();
         return match std::str::from_utf8(&bytes).ok().and_then(|s| s.chars().next()) {
-            Some(ch) if !ch.is_control() => Plain::Event(Event::Char(ch)),
+            Some(ch) if !ch.is_control() && !loupe_core::terminal::is_hidden(ch) => {
+                Plain::Event(Event::Char(ch))
+            }
             _ => Plain::Ignore,
         };
     }
@@ -1170,7 +1172,7 @@ mod tests {
 
         p.set_text_mode(true);
         assert_eq!(
-            p.push("hi! 🍞\x7f\x15\r\x03".as_bytes(), t0),
+            p.push("hi!\u{202E}\u{200B} 🍞\x7f\x15\r\x03".as_bytes(), t0),
             vec![
                 Event::Char('h'),
                 Event::Char('i'),

@@ -2091,6 +2091,46 @@ fn display_service_env_path(inputs: &Inputs) -> String {
     s.into_owned()
 }
 
+/// Quotes a filesystem path for safe inclusion in a POSIX shell command.
+/// Preserves tilde expansion (`~/...`) while single-quoting spaces, quotes, newlines,
+/// `$()`, backticks, `;`, and any other shell metacharacters.
+pub(crate) fn shell_quote_path(path: &str) -> String {
+    let safe_unquoted = |s: &str| {
+        !s.is_empty()
+            && !s.starts_with('-')
+            && s.bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'/' | b'+' | b'-'))
+    };
+    let single_quote = |s: &str| {
+        let mut out = String::with_capacity(s.len() + 2);
+        out.push('\'');
+        for ch in s.chars() {
+            if ch == '\0' {
+                continue;
+            }
+            if ch == '\'' {
+                out.push_str("'\\''");
+            } else {
+                out.push(ch);
+            }
+        }
+        out.push('\'');
+        out
+    };
+    let cleaned: String = path.chars().filter(|&c| c != '\0').collect();
+    if let Some(rest) = cleaned.strip_prefix("~/") {
+        if safe_unquoted(rest) {
+            return cleaned;
+        }
+        return format!("~/{}", single_quote(rest));
+    }
+    if safe_unquoted(&cleaned) {
+        cleaned
+    } else {
+        single_quote(&cleaned)
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn evaluate_product_events(
     inputs: &Inputs,
@@ -3372,13 +3412,14 @@ fn build_fix_snippets(
         }];
     }
     let service_env_path = display_service_env_path(inputs);
+    let quoted_service_env = shell_quote_path(&service_env_path);
     let mut out = Vec::new();
     if service_managed == Some(true) {
         out.push(Snippet {
             for_kind: "service",
             heading: "TO TURN IT ALL OFF".into(),
             command: format!(
-                "echo 'T3CODE_TELEMETRY_ENABLED=false' >> {service_env_path} && t3 service restart"
+                "echo 'T3CODE_TELEMETRY_ENABLED=false' >> {quoted_service_env} && t3 service restart"
             ),
             note: format!("T3 Code is running as a service and reads {service_env_path}."),
         });
@@ -3436,6 +3477,10 @@ fn build_fix_snippets(
 /// Builds a self-contained, non-secret `(title, prompt)` pair for `t3 thread start`
 /// so a T3 Code agent can turn off or fix telemetry on this machine when the user
 /// explicitly asks Loupe to hand it off (`f` on the Telemetry board).
+///
+/// All variable metadata and recommended options are serialized inside a length-bounded
+/// JSON block labeled as untrusted observational data; nothing is interpolated into
+/// instruction prose or shell fences.
 pub fn t3_handoff_prompt(report: &Report) -> (String, String) {
     let title = if matches!(&report.inputs.policy, Read::Invalid { .. }) {
         "Fix T3 Code telemetry policy".to_owned()
@@ -3445,7 +3490,6 @@ pub fn t3_handoff_prompt(report: &Report) -> (String, String) {
         "Turn off T3 Code telemetry".to_owned()
     };
 
-    let mut body = String::new();
     let intro = if matches!(&report.inputs.policy, Read::Invalid { .. }) {
         "Loupe's read-only Telemetry Check found an invalid T3 Code managed policy file on this machine (which can prevent T3 Code from starting). Please help me fix it cleanly."
     } else if report.verdict == Verdict::RestartNeeded {
@@ -3455,50 +3499,66 @@ pub fn t3_handoff_prompt(report: &Report) -> (String, String) {
     } else {
         "Please help me turn off T3 Code telemetry on this machine based on what Loupe's read-only Telemetry Check found."
     };
+
+    let platform = match report.inputs.platform {
+        Platform::Linux => "Linux",
+        Platform::MacOs => "macOS",
+        Platform::Other => "Other",
+    };
+    let server_state = match report.server.state {
+        Liveness::Running => "running",
+        Liveness::Stopped => "stopped",
+        Liveness::PidReused => "pid_reused",
+        Liveness::Unknown => "unknown",
+    };
+    let streams: Vec<serde_json::Value> = report
+        .streams
+        .iter()
+        .map(|s| {
+            serde_json::json!({
+                "stream": s.id.label(),
+                "state": s.state.word(),
+                "detail": crate::handoff::bound_text(&s.decided_detail, 200),
+            })
+        })
+        .collect();
+    let findings: Vec<String> = report
+        .findings
+        .iter()
+        .take(12)
+        .map(|f| crate::handoff::bound_text(&f.message, 240))
+        .collect();
+    let recommended_options: Vec<serde_json::Value> = report
+        .fix
+        .iter()
+        .take(6)
+        .map(|snip| {
+            serde_json::json!({
+                "kind": snip.for_kind,
+                "heading": crate::handoff::bound_text(&snip.heading, 80),
+                "command": crate::handoff::bound_text(&snip.command, 260),
+                "note": crate::handoff::bound_text(&snip.note, 200),
+            })
+        })
+        .collect();
+    let payload = serde_json::json!({
+        "kind": "telemetry_check",
+        "status": report.verdict_heading(),
+        "summary": crate::handoff::bound_text(&report.summary, 240),
+        "platform": platform,
+        "server": {
+            "state": server_state,
+            "launch": report.server.launch.kind_str(),
+        },
+        "streams": streams,
+        "findings": findings,
+        "recommendedOptions": recommended_options,
+    });
+
+    let mut body = String::new();
     body.push_str(intro);
     body.push_str("\n\n**Scope:** Machine-wide T3 Code configuration on this host. Do not edit files or make commits in the project repository where this thread was opened.\n\n");
-    body.push_str("## Current Telemetry Check summary\n");
-    body.push_str(&format!(
-        "- Status: {} — {}\n",
-        report.verdict_heading(),
-        report.summary
-    ));
-    body.push_str(&format!(
-        "- Platform: {} · T3 server: {:?} (launch: {})\n",
-        match report.inputs.platform {
-            Platform::Linux => "Linux",
-            Platform::MacOs => "macOS",
-            Platform::Other => "Other",
-        },
-        report.server.state,
-        report.server.launch.kind_str()
-    ));
-    for s in &report.streams {
-        body.push_str(&format!(
-            "- {}: {} ({})\n",
-            s.id.label(),
-            s.state.word(),
-            s.decided_detail
-        ));
-    }
-
-    if !report.findings.is_empty() {
-        body.push_str("\n## Findings\n");
-        for f in &report.findings {
-            body.push_str(&format!("- {}\n", f.message));
-        }
-    }
-
-    if !report.fix.is_empty() {
-        body.push_str("\n## Recommended options from Loupe\n");
-        for snip in &report.fix {
-            body.push_str(&format!(
-                "- {}:\n  ```sh\n  {}\n  ```\n  ({})\n",
-                snip.heading, snip.command, snip.note
-            ));
-        }
-    }
-
+    body.push_str(&crate::handoff::render_untrusted_json(&payload));
     body.push_str("\n## What I'd like you to do\n");
     body.push_str("1. Confirm with me which option to apply (e.g., my desktop/service/shell environment vs machine-wide `policy.json`) before editing system files or running `sudo`.\n");
     body.push_str("2. Apply the change cleanly (and fix any broken opt-out like `OTEL_SDK_DISABLED=1` or invalid `policy.json`).\n");
@@ -3507,23 +3567,26 @@ pub fn t3_handoff_prompt(report: &Report) -> (String, String) {
     (title, body)
 }
 
-/// Extracts `threadId` (or plain-text thread ID) from `t3 thread start` stdout.
+/// Extracts and validates `threadId` (or `id`) strictly from `t3 thread start --json` output.
+/// Rejects non-JSON output, empty values, leading `-`, whitespace/controls, and non-ASCII text.
 pub fn parse_t3_thread_id(stdout: &str) -> Option<String> {
-    if let Ok(v) = serde_json::from_str::<Value>(stdout.trim()) {
-        if let Some(id) = v
-            .get("threadId")
-            .or_else(|| v.get("id"))
-            .and_then(|s| s.as_str())
-            .filter(|s| !s.is_empty())
-        {
-            return Some(id.to_owned());
-        }
+    let v = serde_json::from_str::<Value>(stdout.trim()).ok()?;
+    let id = v
+        .get("threadId")
+        .or_else(|| v.get("id"))
+        .and_then(|s| s.as_str())?;
+    if is_valid_thread_id(id) {
+        Some(id.to_owned())
+    } else {
+        None
     }
-    stdout
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .map(str::to_owned)
+}
+
+pub(crate) fn is_valid_thread_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 160
+        && !id.starts_with('-')
+        && id.bytes().all(|b| (0x21..=0x7e).contains(&b))
 }
 
 #[cfg(test)]
@@ -4086,12 +4149,100 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&dir);
 
-        // 9. T3 handoff prompt is self-contained and contains zero secrets
+        // 9. T3 handoff prompt is self-contained, wraps data in JSON, and contains zero secrets
         let demo_rep = demo::report(1_795_532_700_000.0);
         let (title, prompt) = t3_handoff_prompt(&demo_rep);
         assert_eq!(title, "Turn off T3 Code telemetry");
         assert!(prompt.contains("OTEL_SDK_DISABLED"));
         assert!(prompt.contains("loupe --telemetry-check"));
         assert!(prompt.contains("~/.config/uwsm/env"));
+        assert!(prompt.contains("Untrusted observational data (JSON)"));
+        assert!(!prompt.contains("```sh"));
+    }
+
+    #[test]
+    fn shell_quote_path_prevents_command_injection() {
+        assert_eq!(shell_quote_path("~/.t3/service.env"), "~/.t3/service.env");
+        assert_eq!(
+            shell_quote_path("/tmp/t3 data/service.env"),
+            "'/tmp/t3 data/service.env'"
+        );
+        assert_eq!(
+            shell_quote_path("~/.t3; rm -rf /; #/service.env"),
+            "~/'/.t3; rm -rf /; #/service.env'".replace("~/'/", "~/'")
+        );
+        assert_eq!(
+            shell_quote_path("/tmp/a'b$(id)`uname`\n/service.env"),
+            "'/tmp/a'\\''b$(id)`uname`\n/service.env'"
+        );
+    }
+
+    #[test]
+    fn parse_t3_thread_id_requires_valid_json_id() {
+        assert_eq!(
+            parse_t3_thread_id(r#"{"threadId":"mcp:7832a1ed-7053-47c3-b183-a3ef46cccc85"}"#),
+            Some("mcp:7832a1ed-7053-47c3-b183-a3ef46cccc85".into())
+        );
+        assert_eq!(parse_t3_thread_id(r#"{"id":"thread_123"}"#), Some("thread_123".into()));
+        // Plain text, malformed JSON, leading dash, spaces, controls, and non-ASCII are rejected.
+        assert_eq!(parse_t3_thread_id("plain-text-line\n"), None);
+        assert_eq!(parse_t3_thread_id("not json"), None);
+        assert_eq!(parse_t3_thread_id(r#"{"threadId":"--flag"}"#), None);
+        assert_eq!(parse_t3_thread_id(r#"{"threadId":"id with space"}"#), None);
+        assert_eq!(parse_t3_thread_id(r#"{"threadId":"🚀emoji-id"}"#), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn gather_refuses_symlinks_on_user_configs_and_does_not_block_on_fifo() {
+        use std::os::unix::fs::symlink;
+        let dir = std::env::temp_dir().join(format!(
+            "loupe-tel-sec-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        let userdata = dir.join("userdata");
+        fs::create_dir_all(&userdata).unwrap();
+
+        let secret = dir.join("secret.json");
+        fs::write(&secret, r#"{"shareUsageData": true}"#).unwrap();
+        symlink(&secret, userdata.join("settings.json")).unwrap();
+        symlink(&secret, dir.join("service.env")).unwrap();
+
+        // Create a FIFO for server-runtime.json — opening without O_NONBLOCK would deadlock forever.
+        let fifo = userdata.join("server-runtime.json");
+        let c_fifo = std::ffi::CString::new(fifo.to_str().unwrap()).unwrap();
+        let rc = unsafe { libc::mkfifo(c_fifo.as_ptr(), 0o600) };
+        assert_eq!(rc, 0, "mkfifo failed");
+
+        let paths = gather::Paths {
+            data_folder: dir.clone(),
+            policy: dir.join("no-policy.json"),
+            macos_managed_prefs: None,
+            hosts: dir.join("no-hosts"),
+            nsswitch: None,
+            uwsm_dir: None,
+            container_markers: Vec::new(),
+        };
+        let gathered = gather::gather(
+            &paths,
+            &|_| None,
+            &gather::HostSystem,
+            1_795_532_700_000.0,
+            None,
+        );
+        assert!(matches!(
+            gathered.settings,
+            Read::Unreadable(ref msg) if msg == "symlink not followed"
+        ));
+        assert!(matches!(
+            gathered.service_env,
+            Read::Unreadable(ref msg) if msg == "symlink not followed"
+        ));
+        assert!(matches!(
+            gathered.runtime,
+            Read::Unreadable(ref msg) if msg == "not a regular file"
+        ));
+        let _ = fs::remove_dir_all(&dir);
     }
 }

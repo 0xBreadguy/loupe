@@ -176,6 +176,7 @@ impl TelemetryScreen {
                     None,
                     base_dir,
                     host.db.as_deref(),
+                    true,
                     state,
                 );
             }

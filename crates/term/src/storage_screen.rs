@@ -290,6 +290,7 @@ impl StorageScreen {
                         preferred_project.as_deref(),
                         None,
                         host.db.as_deref(),
+                        true,
                         dashboard,
                     );
                 }

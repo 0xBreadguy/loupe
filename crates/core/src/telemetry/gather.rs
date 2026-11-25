@@ -16,7 +16,7 @@ use crate::platform::{ProcStat, ProcessAlive};
 use crate::product::{self, Environment, PLATFORM_HOME_RULES};
 use serde::Deserialize;
 use std::ffi::OsString;
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read as _};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
@@ -145,13 +145,13 @@ pub struct Fingerprint {
 }
 
 pub fn fingerprint(paths: &Paths, runtime_pid: Option<u32>, sys: &dyn System) -> Fingerprint {
-    // Follow symlinks on readable config files (e.g. symlinked /etc/hosts or policy.json),
-    // but keep `symlink_metadata` on `anonymous-id` and macOS managed prefs (stat-only).
+    // Follow symlinks only on OS-managed system files (e.g. NixOS `/etc/hosts` or `/etc/t3code/policy.json`);
+    // never follow symlinks on user-controlled T3 config files (`runtime`, `settings`, `service.env`) or stat-only files.
     let mut files = vec![
         file_sig(&paths.policy, true),
-        file_sig(&paths.runtime(), true),
-        file_sig(&paths.settings(), true),
-        file_sig(&paths.service_env(), true),
+        file_sig(&paths.runtime(), false),
+        file_sig(&paths.settings(), false),
+        file_sig(&paths.service_env(), false),
         file_sig(&paths.anonymous_id(), false),
         file_sig(&paths.hosts, true),
     ];
@@ -484,17 +484,90 @@ fn record_for<T>(
     }
 }
 
-fn read_bounded_string(path: &Path, cap: u64) -> Result<(String, Stamp), ReadError> {
-    let file = File::open(path).map_err(|e| {
-        if e.kind() == io::ErrorKind::NotFound {
-            ReadError::Absent
-        } else {
-            ReadError::Unreadable(io_kind_label(e.kind()))
+/// Opens a config file without blocking on FIFOs/devices (`O_NONBLOCK`), refusing symlinks
+/// on user-controlled paths (`O_NOFOLLOW`), and verifying the opened descriptor is a regular file.
+fn open_safe_regular(path: &Path, follow_symlinks: bool) -> Result<(File, fs::Metadata), ReadError> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+
+        // If system-file symlinks are allowed (e.g. NixOS `/etc/hosts` or `/etc/t3code/policy.json`),
+        // reject symlinks placed under OS config dirs that escape into user/secret directories.
+        if follow_symlinks
+            && fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+        {
+            let is_os_dir = path.starts_with("/etc") || path.starts_with("/Library");
+            if is_os_dir {
+                let canon = fs::canonicalize(path)
+                    .map_err(|e| ReadError::Unreadable(io_kind_label(e.kind())))?;
+                let trusted_target = canon.starts_with("/etc")
+                    || canon.starts_with("/private/etc")
+                    || canon.starts_with("/nix/store")
+                    || canon.starts_with("/run")
+                    || canon.starts_with("/usr")
+                    || canon.starts_with("/Library")
+                    || canon.starts_with("/System");
+                if !trusted_target {
+                    return Err(ReadError::Unreadable("symlink outside system path".into()));
+                }
+            }
         }
-    })?;
-    let meta = file
-        .metadata()
-        .map_err(|e| ReadError::Unreadable(io_kind_label(e.kind())))?;
+
+        let mut flags = libc::O_NONBLOCK;
+        if !follow_symlinks {
+            flags |= libc::O_NOFOLLOW;
+        }
+        let file = OpenOptions::new()
+            .read(true)
+            .custom_flags(flags)
+            .open(path)
+            .map_err(|e| {
+                if e.kind() == io::ErrorKind::NotFound {
+                    ReadError::Absent
+                } else if !follow_symlinks && e.raw_os_error() == Some(libc::ELOOP) {
+                    ReadError::Unreadable("symlink not followed".into())
+                } else {
+                    ReadError::Unreadable(io_kind_label(e.kind()))
+                }
+            })?;
+        let meta = file
+            .metadata()
+            .map_err(|e| ReadError::Unreadable(io_kind_label(e.kind())))?;
+        if !meta.is_file() {
+            return Err(ReadError::Unreadable("not a regular file".into()));
+        }
+        Ok((file, meta))
+    }
+    #[cfg(not(unix))]
+    {
+        if !follow_symlinks
+            && fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+        {
+            return Err(ReadError::Unreadable("symlink not followed".into()));
+        }
+        let file = OpenOptions::new().read(true).open(path).map_err(|e| {
+            if e.kind() == io::ErrorKind::NotFound {
+                ReadError::Absent
+            } else {
+                ReadError::Unreadable(io_kind_label(e.kind()))
+            }
+        })?;
+        let meta = file
+            .metadata()
+            .map_err(|e| ReadError::Unreadable(io_kind_label(e.kind())))?;
+        if !meta.is_file() {
+            return Err(ReadError::Unreadable("not a regular file".into()));
+        }
+        Ok((file, meta))
+    }
+}
+
+fn read_bounded_string(
+    path: &Path,
+    cap: u64,
+    follow_symlinks: bool,
+) -> Result<(String, Stamp), ReadError> {
+    let (file, meta) = open_safe_regular(path, follow_symlinks)?;
     if meta.len() > cap {
         return Err(ReadError::TooLarge(cap));
     }
@@ -575,7 +648,7 @@ struct RawPolicyLimits {
 }
 
 pub(crate) fn read_policy(path: &Path) -> Read<Policy> {
-    let (raw, stamp) = match read_bounded_string(path, POLICY_CAP) {
+    let (raw, stamp) = match read_bounded_string(path, POLICY_CAP, true) {
         Ok(pair) => pair,
         Err(ReadError::Absent) => return Read::Absent,
         Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),
@@ -664,7 +737,7 @@ struct RawLoadedPolicy {
 }
 
 fn read_runtime(path: &Path) -> Read<Runtime> {
-    let (raw, stamp) = match read_bounded_string(path, RUNTIME_CAP) {
+    let (raw, stamp) = match read_bounded_string(path, RUNTIME_CAP, false) {
         Ok(pair) => pair,
         Err(ReadError::Absent) => return Read::Absent,
         Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),
@@ -879,7 +952,7 @@ struct RawObservability {
 }
 
 fn read_settings(path: &Path) -> Read<Settings> {
-    let (raw, stamp) = match read_bounded_string(path, SETTINGS_CAP) {
+    let (raw, stamp) = match read_bounded_string(path, SETTINGS_CAP, false) {
         Ok(pair) => pair,
         Err(ReadError::Absent) => return Read::Absent,
         Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),
@@ -931,14 +1004,16 @@ fn read_settings(path: &Path) -> Read<Settings> {
 // ── service.env reader (line-by-line allowlist; drops all other keys immediately)
 
 fn read_service_env(path: &Path) -> Read<EnvSet> {
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Read::Absent,
-        Err(e) => return Read::Unreadable(io_kind_label(e.kind())),
-    };
-    let meta = match file.metadata() {
-        Ok(m) => m,
-        Err(e) => return Read::Unreadable(io_kind_label(e.kind())),
+    let (file, meta) = match open_safe_regular(path, false) {
+        Ok(pair) => pair,
+        Err(ReadError::Absent) => return Read::Absent,
+        Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),
+        Err(ReadError::TooLarge(cap)) => {
+            return Read::Invalid {
+                reason: format!("exceeds {} KiB limit", cap / 1024),
+                attempted_telemetry_off: false,
+            };
+        }
     };
     if meta.len() > SERVICE_ENV_CAP {
         return Read::Invalid {
@@ -1049,14 +1124,16 @@ fn consume_quoted_body(body: &str, quote: char) -> Option<(String, bool)> {
 // ── /etc/hosts streamed scanner with byte prefilter ──────────────────────────
 
 pub(crate) fn read_hosts(path: &Path, target_host: &str) -> Read<HostsScan> {
-    let file = match File::open(path) {
-        Ok(f) => f,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Read::Absent,
-        Err(e) => return Read::Unreadable(io_kind_label(e.kind())),
-    };
-    let meta = match file.metadata() {
-        Ok(m) => m,
-        Err(e) => return Read::Unreadable(io_kind_label(e.kind())),
+    let (file, meta) = match open_safe_regular(path, true) {
+        Ok(pair) => pair,
+        Err(ReadError::Absent) => return Read::Absent,
+        Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),
+        Err(ReadError::TooLarge(cap)) => {
+            return Read::Invalid {
+                reason: format!("exceeds {} MiB limit", cap / (1024 * 1024)),
+                attempted_telemetry_off: false,
+            };
+        }
     };
     if meta.len() > HOSTS_CAP {
         return Read::Invalid {
@@ -1153,7 +1230,7 @@ fn contains_ascii_icase(haystack: &[u8], needle_lower: &[u8]) -> bool {
 // ── /etc/nsswitch.conf reader (hosts: line only) ────────────────────────────
 
 fn read_nsswitch(path: &Path) -> Read<bool> {
-    let (raw, stamp) = match read_bounded_string(path, NSSWITCH_CAP) {
+    let (raw, stamp) = match read_bounded_string(path, NSSWITCH_CAP, true) {
         Ok(pair) => pair,
         Err(ReadError::Absent) => return Read::Absent,
         Err(ReadError::Unreadable(k)) => return Read::Unreadable(k),

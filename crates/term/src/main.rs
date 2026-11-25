@@ -15,7 +15,7 @@ use loupe_core::{
     host::{Clock, Host},
     integration, live,
     model::{Snapshot, State},
-    product::{self, Command, Database},
+    product::{self, Command, Database, Origin},
     recap, source, terminal, theme, trace, trace_live, trace_view,
 };
 use loupe_term::platform::{self, Wake, Waker};
@@ -208,6 +208,7 @@ fn trace_key(
                     project_id,
                     None,
                     host.db.as_deref(),
+                    false,
                     s,
                 );
             }
@@ -676,6 +677,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                                 None,
                                 None,
                                 host.db.as_deref(),
+                                false,
                                 &state,
                             );
                             insights.paint(&state, source, size, handoff.state(), &mut encoder, &mut full)?;
@@ -936,7 +938,7 @@ fn product_launch(
             };
             (state, Host::demo(now))
         }
-        Database::Path { path, .. } => {
+        Database::Path { path, origin } => {
             let mut initial_reader = None;
             let result = if std::env::var_os("LOUPE_SYNC_READ").is_some() {
                 source::snapshot(&path, now)
@@ -967,6 +969,7 @@ fn product_launch(
             state.demo = false;
             state.usage.clear();
             let mut host = Host::live(path, now);
+            host.allow_open = origin != Origin::Db;
             if let Some(reader) = initial_reader {
                 host = host.with_live_reader(reader);
             }
