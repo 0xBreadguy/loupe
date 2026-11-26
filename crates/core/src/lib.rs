@@ -26,6 +26,7 @@ pub mod overview;
 pub mod platform;
 pub mod product;
 pub mod program;
+mod report_json;
 pub mod recap;
 pub mod recap_view;
 pub mod insights_view;
