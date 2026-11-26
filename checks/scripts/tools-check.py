@@ -953,6 +953,7 @@ def ref_period(w, p, together_rule=True):
     if busy > merged([(c['start'], c['end']) for c in ended]):
         note('overlapping calls in two threads')
     return dict(
+        schema=1,  # printed version, not a count from the records
         period=p['span'], **{'from': zone.date(p['start'])}, to=zone.date(p['last_day']), so_far=p['so_far'],
         days=p['n'], days_elapsed=elapsed, days_recorded=recorded,
         calls=len(cs), ms=sum(c['length'] for c in ended), busy_ms=busy,
@@ -1194,6 +1195,9 @@ def check_case(ctx, name, seed, w, db, together_rule):
                 got = json.loads(stdout)
             except ValueError as e:
                 ctx.fail(label, 'stdout is not JSON: %s' % e)
+                continue
+            if list(got)[:1] != ['schema'] or got['schema'] != 1:
+                ctx.fail(label, 'schema is not 1 as the first key; starts %r' % stdout[:48])
                 continue
             want = expected_for(w, opt, together_rule)
             calls = max(calls, want['calls'])

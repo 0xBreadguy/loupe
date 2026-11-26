@@ -28,6 +28,18 @@ pub enum Target {
     Thread(String),
     Run(String),
 }
+/// Version of the `--trace --json` object.
+///
+/// Bump this when a field is removed, renamed, or changes meaning or unit.
+/// Adding a field does not bump it. The trace screen and its step cache use
+/// [`Trace`] itself; this number is added only when the object is printed.
+pub const JSON_SCHEMA: u32 = 1;
+
+/// `--trace --json`, with [`JSON_SCHEMA`] as the first key.
+pub fn printed_json(report: &Trace) -> Result<String, serde_json::Error> {
+    crate::report_json::with_schema(report, JSON_SCHEMA)
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Trace {
     pub thread: String,

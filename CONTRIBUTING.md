@@ -4,6 +4,20 @@ Loupe is a terminal dashboard for T3 Code agents, with a bar widget for Omarchy.
 
 That is the rule that shapes most contributions. A change that makes the Rust program behave differently from `oracle/` is either a bug or a decision. If it is a decision, say so in the pull request and change the reference or the check with it.
 
+## Before you start
+
+- **A bug:** open an issue with what you ran, what you expected and what you got, and the release you installed (`loupe --version`) or the commit you built. Reproduce it with `--demo` if you can. Never attach T3 Code's database or paste real thread titles; describe them instead.
+- **A small fix** (a typo, a crash, a wrong number): send the pull request.
+- **A feature, a new read from T3's database, or a new dependency:** open an issue first and say what it's for. A new read has to fit the privacy rules below, and some ideas don't.
+
+## Working with an agent
+
+Agent-written pull requests are welcome, under the same rules as any other. [AGENTS.md](AGENTS.md) is the agent's brief: the rules in order, the commands, and the definition of done. Point your agent at it before it starts.
+
+- Say in the pull request that an agent wrote the change, and which model.
+- You are the author. Read the diff before you open the pull request, and make sure the checks it claims were run on the final commit.
+- Results an agent reports without the command that produced them don't count as checks. Paste the command and its outcome, or say it wasn't run.
+
 ## Layout
 
 ```text
@@ -109,7 +123,7 @@ The widget lives at the repository root (`manifest.json`, `Service.qml`, `BarWid
 
 ## Documentation
 
-`README.md` stays short: what it is, where it runs, the quickest install, and a feature list. Instructions and detail go in `docs/`: `install.md`, `usage.md`, `features.md` and `how-it-works.md`. When a release changes the version, the `v=` lines are in `README.md`, `docs/install.md` and `AGENTS.md`.
+`README.md` stays short: what it is, where it runs, the quickest install, and a feature list. Instructions and detail go in `docs/`: `install.md`, `usage.md`, `features.md`, `how-it-works.md`, and `agents.md` for programs that read Loupe's output. A change to a command's output, its fields or its exit codes goes in `agents.md` too. When a release changes the version, the `v=` lines are in `README.md`, `docs/install.md` and `AGENTS.md`.
 
 ## Rules
 
@@ -132,11 +146,52 @@ Document the purpose of any new source field in the pull request. Check the exec
 
 **Do not edit generated files by hand.** `crates/core/src/cluster_tables.rs` comes from `checks/scripts/generate-clusters.ts`; the recorded results under `checks/fixtures/golden/` come from the `export-*` scripts; `checks/fixtures/asks-counts.json` comes from `checks/scripts/asks-corpus.py --write`; the schema fixtures come from `checks/scripts/schema-extract.py`.
 
+## What to run for what you changed
+
+`checks/scripts/ci.sh` runs most of what's below. It doesn't run the bar widget's tests or its plugin check, `asks-corpus.py --check`, the notices comparison, the window comparison or the benchmarks, so run those yourself when the row names them. While you work, the narrower commands are enough. Before the pull request, run `ci.sh` unless the change is documentation only.
+
+| You changed | Run at least |
+| --- | --- |
+| Documentation only (`*.md`, `docs/`) | `git diff --check`, and follow every link you added. A version number changes in all three `v=` places together. |
+| The screen, keys or layout (`crates/core/src/ui.rs`, `*_view.rs`, `terminal.rs`, `crates/term/`) | The core's tests and the recorded fixtures (see [Checks](#checks)), then `ci.sh` for the grid, behavior and terminal comparisons. |
+| The T3 reader (`crates/core/src/source*`, `live*`, and the readers in `recap.rs`, `tools.rs`, `trace.rs`) | `ci.sh`, which compares readers on synthetic databases at every supported schema. List each new field in the pull request. |
+| The status line (`crates/core/src/status.rs`) | `ci.sh` (status parity and the status watcher), and `node --test test/`, since the widget reads it. |
+| The ask count (`crates/core/src/asks.rs`) | `checks/scripts/asks-count.sh`, `checks/scripts/asks-privacy.sh` and `python3 checks/scripts/asks-corpus.py --check`. |
+| Storage (`crates/core/src/storage*`) | The core's tests and `checks/scripts/storage-walker.sh`, on Linux. |
+| Telemetry Check (`crates/core/src/telemetry*`) | The core's tests and `loupe --telemetry-check --demo`. Nothing in it may open a file outside the list under [Rules](#rules). |
+| A theme (`themes/`) | The core's tests and `loupe --theme-check NAME`. |
+| The installer (`install.sh`, `dashboard/install.sh`, `loupe.svg`) | `node --experimental-ffi checks/scripts/install-parity.mjs` after `npm ci` in `oracle/`, or `ci.sh`. Never the real account. |
+| The bar widget (`manifest.json`, `*.qml`, `Status.js`, `ui/`, `i18n/`) | `node --test test/`, and `omarchy plugin validate .` on a clean clone. |
+| A dependency (`Cargo.toml`, `Cargo.lock`) | `ci.sh`, and compare `THIRD-PARTY-NOTICES.md` with `checks/scripts/list-notice-crates.sh`. |
+| A command's output, its fields or its exit codes | The tests for that command, and `docs/agents.md` in the same pull request. For Recap, Tools or Trace JSON, bump the report's `JSON_SCHEMA` when a field is removed, renamed, or changes meaning or unit. |
+| A generated file | Its generator, named under [Rules](#rules), never a hand edit. |
+
 ## Pull requests
 
-- Run `checks/scripts/ci.sh` and say that it passed, or which step did not and why.
-- Say what you checked beyond it, and what you could not check.
 - Keep a pull request to one change.
+- Run `checks/scripts/ci.sh` on the final commit and say that it passed, or which step didn't and why.
+- Say what you checked beyond it, and what you couldn't check.
+- State any deliberate difference from `oracle/`, and the check that now covers it.
+- List each new field read from T3's database, and what it's for.
+- For a performance claim, give the median and range of at least five alternating trials on built binaries, and say what wasn't measured.
+
+The pull request template asks for these.
+
+## How a pull request is evaluated
+
+A reviewer, a person or an agent, works through these in order and stops at the first that fails. Each one says what counts as evidence.
+
+1. **Privacy.** The change opens no real T3 database in a test, check or benchmark, and adds no read of the data the reader must never return: authentication tables, prompts, message text, tool output, subagent results or reasoning text. Evidence: the diff, and the fields the pull request lists.
+2. **Read-only.** The reader still opens T3's database with `query_only`, and nothing writes to it or to the person's files outside what the installer documents. Evidence: the diff.
+3. **Matches the reference.** `ci.sh` passed on the final commit, or the pull request names the step that didn't and why that's right. A difference from `oracle/` is stated and covered by a check. Evidence: the CI run on that commit, or the pasted output.
+4. **Safe to run.** The change opens no window on a real desktop, runs no installer against a real account, and stops no process it didn't start. Evidence: the diff of any script or test.
+5. **Rules from source.** A terminal rule cites the OpenTUI file it comes from. Evidence: a comment with the path.
+6. **Generated files regenerated.** No hand edits to the files under [Rules](#rules). Evidence: the generator's output matches the committed file.
+7. **Claims backed.** Every "passed", "faster" or "fixed" in the description has a command or a measurement behind it. Evidence: the description.
+8. **Documented.** A change people can see is in `docs/`. A version change touches every place that names the version. Evidence: the diff.
+9. **One change.** Evidence: the diff tells one story.
+
+The first eight block a merge. The last is a request to split the pull request. Taste, naming and structure come after all nine, as suggestions.
 
 Contributions are under the repository's license, MIT.
 

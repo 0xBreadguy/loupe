@@ -23,6 +23,19 @@ pub const MIN_FOR_RATE: u32 = 20;
 pub const FOUND_NOTHING: [&str; 2] = ["rg", "grep"];
 pub const FILES_DIFFER: [&str; 1] = ["diff"];
 
+/// Version of the `--tools --json` object.
+///
+/// Bump this when a field is removed, renamed, or changes meaning or unit.
+/// Adding a field does not bump it. This is not the cache entry version: the
+/// Insights screen and the opt-in cache use [`Tools`] itself, and the number
+/// is added only when the object is printed.
+pub const JSON_SCHEMA: u32 = 1;
+
+/// `--tools --json`, with [`JSON_SCHEMA`] as the first key.
+pub fn printed_json(report: &Tools) -> Result<String, serde_json::Error> {
+    crate::report_json::with_schema(report, JSON_SCHEMA)
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Tools {
     pub period: Span,

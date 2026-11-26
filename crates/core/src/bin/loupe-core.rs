@@ -1,6 +1,8 @@
 //! Headless core binary. It speaks the product command line (`--once`, `--status`, `--help`)
 //! and, when an experiment flag is present, the parity and benchmark modes. No presenter is
 //! linked, so the interactive dashboard is not available here.
+use std::io::{self, Write};
+
 use loupe_core::{cli, product};
 
 fn main() {
@@ -22,7 +24,8 @@ fn main() {
             std::process::exit(2);
         }
         Err(e) => {
-            eprintln!("loupe-core: {e}");
+            // Stderr may share stdout's closed pipe (2>&1).
+            let _ = writeln!(io::stderr().lock(), "loupe-core: {e}");
             std::process::exit(1);
         }
     }
