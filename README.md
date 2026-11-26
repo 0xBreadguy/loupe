@@ -91,7 +91,7 @@ removing are all in [docs/install.md](docs/install.md).
   flagged.
 - **Failed calls you can inspect,** with the command and the exit code.
 - **Long threads stay short.** Old subagents fold into one row.
-- **Three scopes:** everything, active only, or what's in T3's sidebar.
+- **Three scopes:** starts on what's in T3's sidebar, or switch to everything or active only.
 - **Follows T3.** On Hyprland it selects the thread you have open in T3.
 - **Usage-limit meters** from Omarchy's usage records.
 - **Every Omarchy theme:** all 23 built in, plus any you've installed, and it
@@ -120,7 +120,8 @@ removing are all in [docs/install.md](docs/install.md).
   working, and the exact fix for how T3 was launched — local files only, never
   opens secrets or auth files.
 - **Hand off straight to T3 Code.** Press `f` in Telemetry, Storage, Trace, or
-  Insights (Tools & Recap) to spin up a T3 thread with Loupe's non-secret
+  Insights (Tools & Recap) to open a preview popup, pick a project (or
+  `"No project"`) and model, and spin up a T3 thread with Loupe's non-secret
   findings so an agent can turn telemetry off, clean up heavy worktrees,
   diagnose a slow trace, or optimize your top failing/slow commands. Press `M`
   on Live to nudge a stalled thread or queue a quick reply over SSH. Always

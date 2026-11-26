@@ -142,7 +142,12 @@ writes to it, and it makes no network connections.
   `T3CODE_OTEL_SDK_DISABLED`, `OTEL_SDK_DISABLED`, `T3CODE_POSTHOG_HOST`,
   `OTEL_*_EXPORTER`, `OTEL_EXPORTER_OTLP_*PROTOCOL`,
   `OTEL_EXPORTER_OTLP_*ENDPOINT` and `T3CODE_OTLP_*_URL` with
-  userinfo/path/query stripped). It calls `symlink_metadata()` only on
+  userinfo/path/query stripped). It also scans desktop launcher env files
+  (`~/.config/hypr/hyprland.lua`, `~/.config/uwsm/env`,
+  `~/.config/environment.d/*.conf`, `/etc/environment`) and shell rc files
+  (`~/.bashrc`, `~/.zshrc`, `~/.profile`) for those same allowlisted keys,
+  strictly read-only with `O_NOFOLLOW`, never exposing unrelated filenames or
+  values. It calls `symlink_metadata()` only on
   `userdata/anonymous-id` (and on macOS `/Library/Managed Preferences/com.t3tools.t3code.plist`)
   to check existence and modification date without opening them, and checks PID liveness/ancestry with
   `kill(pid, 0)` and `/proc/<pid>/stat` on Linux. It never opens
@@ -159,8 +164,11 @@ writes to it, and it makes no network connections.
   explicit `--db`). Local links use the environment ID T3 keeps beside the
   database; remote links use the recorded destination. Pressing `f` in
   Telemetry, Storage, Trace or Insights (Tools and Recap) opens an exact
-  payload preview (`p` to toggle, `j`/`k` to scroll) with a project picker
-  (`←`/`→`) and model picker (`↑`/`↓`) showing provider and provenance, and
+  payload preview (`p` to toggle, `j`/`k` to scroll) displaying clean project
+  and model names (without raw IDs or CLI flags), a project picker (`←`/`→`,
+  including T3's `"No project"` scratch workspace read-only from
+  `projection_projects` — the default for machine-wide Telemetry and Insights
+  handoffs), and a model picker (`↑`/`↓`) showing provider and provenance, and
   invokes `t3 thread start` only after confirmation (two-step confirmation for
   Storage and Telemetry). All variable metadata is serialized inside a bounded,
   explicitly labeled untrusted JSON block built strictly from non-secret
