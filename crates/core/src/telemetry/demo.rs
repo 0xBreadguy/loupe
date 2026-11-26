@@ -97,6 +97,7 @@ pub fn inputs(now: f64) -> Inputs {
         checked_at: now,
         data_folder_exists: true,
         uwsm_detected: true,
+        omarchy_hypr_detected: false,
         in_container: false,
         shell,
         service_env: Read::Absent,

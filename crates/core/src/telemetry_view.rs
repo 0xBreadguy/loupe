@@ -9,8 +9,9 @@
 use crate::model::State;
 use crate::overview::{self, HeaderBadge};
 use crate::telemetry::{
-    Finding, NotChecked, ReadOutcome, Report, Severity, Source, Stream, StreamId, StreamState,
-    Verdict, format_header_time, format_short_date,
+    AuthFilesHashed, Confidence, Finding, Liveness, NotChecked, Read, ReadOutcome, Report,
+    Severity, Snippet, Source, Stream, StreamId, StreamState, Verdict, format_header_time,
+    format_short_date,
 };
 use crate::terminal::{self, Canvas, Palette, Rgb};
 use std::hash::{Hash, Hasher};
@@ -50,7 +51,7 @@ pub fn restart_glyph() -> char {
 
 pub fn verdict_style(verdict: Verdict, p: &Palette) -> (char, Rgb, Rgb) {
     match verdict {
-        Verdict::Off => ('✓', p.text2, p.fg),
+        Verdict::Off => ('✓', p.accent, p.bright),
         Verdict::Blocked => ('⊘', p.text2, p.fg),
         Verdict::On | Verdict::Partial => ('●', p.warn, p.warn),
         Verdict::Misconfigured => ('✗', p.hot, p.hot),
@@ -61,10 +62,10 @@ pub fn verdict_style(verdict: Verdict, p: &Palette) -> (char, Rgb, Rgb) {
 
 pub fn stream_style(state: StreamState, p: &Palette) -> (char, &'static str, Rgb, Rgb, bool) {
     match state {
-        StreamState::Off => ('✓', "off", p.text2, p.fg, true),
+        StreamState::Off => ('✓', "off", p.accent, p.bright, true),
         StreamState::Blocked => ('⊘', "blocked", p.text2, p.fg, false),
         StreamState::On => ('●', "on", p.warn, p.warn, false),
-        StreamState::OptOutIgnored => ('✗', "on", p.hot, p.hot, true),
+        StreamState::OptOutIgnored => ('✗', "ignored", p.hot, p.hot, true),
         StreamState::RestartNeeded => (restart_glyph(), "restart", p.warn, p.warn, true),
         StreamState::Unverified => ('?', "unknown", p.text2, p.fg, false),
         StreamState::None => ('○', "none", p.dim, p.dim, false),
@@ -77,7 +78,7 @@ fn custom_stream_style(stream: &Stream, p: &Palette) -> (char, String, Rgb, Rgb,
     } else if stream.state == StreamState::Off {
         ('○', "off".into(), p.dim, p.text2, false)
     } else {
-        ('○', "on".into(), p.text2, p.fg, false)
+        ('○', "on".into(), p.accent, p.fg, false)
     }
 }
 
@@ -87,7 +88,7 @@ fn stream_visual(stream: &Stream, p: &Palette) -> (char, String, Rgb, Rgb, bool)
     }
     if stream.state == StreamState::Unverified {
         if stream.decided_detail.contains("shell") {
-            return ('?', "in shell".into(), p.text2, p.fg, false);
+            return ('?', "unverif".into(), p.text2, p.fg, false);
         }
         if stream.decided_detail.contains("unreadable") {
             return ('?', "locked".into(), p.warn, p.warn, false);
@@ -96,11 +97,37 @@ fn stream_visual(stream: &Stream, p: &Palette) -> (char, String, Rgb, Rgb, bool)
             return ('?', "profile".into(), p.text2, p.fg, false);
         }
         if stream.decided_detail.contains("invalid") || stream.decided_detail.contains("both") {
-            return ('?', "invalid".into(), p.warn, p.warn, false);
+            return ('✗', "invalid".into(), p.warn, p.warn, false);
         }
     }
     let (g, w, gi, wi, b) = stream_style(stream.state, p);
     (g, w.to_owned(), gi, wi, b)
+}
+
+fn board_stream_badge(stream: &Stream, p: &Palette) -> (char, &'static str, Rgb, Rgb, bool) {
+    if stream.id == StreamId::CustomExporters {
+        return if stream.exporters.is_empty() {
+            ('○', "none", p.dim, p.dim, false)
+        } else if stream.state == StreamState::Off {
+            ('○', "off", p.dim, p.text2, false)
+        } else {
+            ('○', "active", p.accent, p.fg, false)
+        };
+    }
+    if stream.state == StreamState::Unverified {
+        if stream.decided_detail.contains("unreadable") {
+            return ('?', "locked", p.warn, p.warn, true);
+        }
+        if stream.decided_detail.contains("macOS") {
+            return ('?', "profile", p.text2, p.fg, false);
+        }
+        if stream.decided_detail.contains("invalid") || stream.decided_detail.contains("both") {
+            return ('✗', "invalid", p.warn, p.warn, true);
+        }
+        return ('?', "unverified", p.text2, p.fg, false);
+    }
+    let (g, w, gi, wi, b) = stream_style(stream.state, p);
+    (g, w, gi, wi, b || stream.state == StreamState::On)
 }
 
 fn width(s: &str) -> i32 {
@@ -967,6 +994,7 @@ fn crop_canvas(src: &Canvas, w: usize, h: usize, p: &Palette) -> Canvas {
 struct BodyKey {
     revision: u64,
     cols: usize,
+    compact_height: bool,
     tab: Tab,
     selected: usize,
     help: bool,
@@ -980,6 +1008,8 @@ fn palette_tag(p: &Palette) -> u64 {
     p.fg.hash(&mut h);
     p.text2.hash(&mut h);
     p.dim.hash(&mut h);
+    p.faint.hash(&mut h);
+    p.track.hash(&mut h);
     p.rule.hash(&mut h);
     p.bright.hash(&mut h);
     p.accent.hash(&mut h);
@@ -994,7 +1024,7 @@ fn row_ink(p: &Palette, role: Rgb, selected: bool) -> Rgb {
     if !selected {
         return role;
     }
-    if role == p.hot || role == p.warn {
+    if role == p.hot || role == p.warn || role == p.accent {
         let target = if p.dark { 0xffffff } else { 0 };
         return crate::integration::reach(role, target, 4.5, &[p.sel]);
     }
@@ -1078,10 +1108,10 @@ impl TelemetryView {
     }
 
     pub fn press(&mut self, y: i32) -> bool {
-        if self.help || self.tab != Tab::Telemetry || y < 2 {
+        if self.help || self.tab != Tab::Telemetry || y < 1 {
             return false;
         }
-        let body_y = (y - 2) + self.scroll as i32;
+        let body_y = (y - 1) + self.scroll as i32;
         if let Some((_, idx)) = self.hits.iter().find(|(hy, _)| *hy == body_y) {
             self.selected = *idx;
             return true;
@@ -1089,7 +1119,7 @@ impl TelemetryView {
         false
     }
 
-    /// Number of selectable rows on the TELEMETRY tab: 3 streams + other settings + activity sharing.
+    /// Number of selectable rows on the TELEMETRY tab: 3 streams + other settings + not checked.
     pub fn selectable_count(report: &Report) -> usize {
         report.streams.len() + report.other.len() + report.not_checked.len()
     }
@@ -1163,9 +1193,11 @@ impl TelemetryView {
             self.selected = total_rows - 1;
         }
 
+        let compact_height = rows < 20;
         let key = BodyKey {
             revision,
             cols,
+            compact_height,
             tab: self.tab,
             selected: self.selected,
             help: self.help,
@@ -1176,7 +1208,9 @@ impl TelemetryView {
                 (build_help_body(cols, report.inputs.source == Source::Demo, p), Vec::new())
             } else {
                 match self.tab {
-                    Tab::Telemetry => build_telemetry_body(report, cols, self.selected, p),
+                    Tab::Telemetry => {
+                        build_telemetry_body(report, cols, compact_height, self.selected, p)
+                    }
                     Tab::Sources => (build_sources_body(report, cols, p), Vec::new()),
                 }
             };
@@ -1196,40 +1230,10 @@ impl TelemetryView {
         ];
         overview::draw_header_badge(&mut c, state, p, None, Some(HeaderBadge::Tabs(&tabs)));
 
-        // Row 1: Verdict strip (keep demo/checking status in header+footer to avoid repetition)
-        c.fill(0, 1, ww, 1, p.panel);
-        let (v_glyph, v_g_ink, v_t_ink) = verdict_style(report.verdict, p);
-        c.set(1, 1, v_glyph, v_g_ink, Some(p.panel), true);
-        let right_note = if report.inputs.source == Source::Demo || checking {
-            ""
-        } else {
-            "read-only · local only"
-        };
-        let rx = if right_note.is_empty() {
-            ww - 1
-        } else {
-            ww - 1 - width(right_note)
-        };
-        let label_end = 3 + c.text_bg(3, 1, report.verdict_short(), v_t_ink, p.panel, true);
-        if label_end + 4 < rx {
-            let summary_text = format!(" · {}", report.summary);
-            c.text_bg(
-                label_end,
-                1,
-                &fit(&summary_text, rx - label_end - 2),
-                p.text2,
-                p.panel,
-                false,
-            );
-        }
-        if !right_note.is_empty() && rx > label_end + 1 {
-            c.right(ww - 1, 1, right_note, p.dim);
-        }
-
-        // Body viewport (rows 2 .. rows - 1, or rows - 2 when handoff bar is visible)
+        // Body viewport (rows 1 .. rows - 1, or rows - 2 when handoff bar is visible)
         let show_handoff = !matches!(handoff, HandoffState::Idle);
-        let footer_reserve = if show_handoff { 4 } else { 3 };
-        let view_h = rows.saturating_sub(footer_reserve);
+        let chrome_rows = if show_handoff { 3 } else { 2 };
+        let view_h = rows.saturating_sub(chrome_rows);
         self.last_viewport_h = view_h;
         if self.follow_selection && !self.help && self.tab == Tab::Telemetry && view_h > 0 {
             if let Some((hy, _)) = self.hits.iter().find(|(_, idx)| *idx == self.selected) {
@@ -1248,21 +1252,23 @@ impl TelemetryView {
             let copy_h = view_h.min(body.h.saturating_sub(self.scroll));
             for dy in 0..copy_h {
                 let src_row = self.scroll + dy;
-                let dst_row = 2 + dy;
+                let dst_row = 1 + dy;
                 let src_off = src_row * body.w;
                 let dst_off = dst_row * c.w;
                 let n = body.w.min(c.w);
                 c.cells[dst_off..dst_off + n].copy_from_slice(&body.cells[src_off..src_off + n]);
             }
-            // Scroll indicators (`▲ N above` / `▼ N more`)
+            // Scroll indicators (`▲ N above` / `▼ N more`) with clean panel backdrop
             if self.scroll > 0 && view_h > 0 {
-                let cue = format!("▲ {} above", self.scroll);
-                c.right(ww - 1, 2, &cue, p.dim);
+                let cue = format!(" ▲ {} above ", self.scroll);
+                let cx = (ww - width(&cue)).max(0);
+                c.text_bg(cx, 1, &cue, p.text2, p.panel, false);
             }
             let remaining = body.h.saturating_sub(self.scroll + view_h);
             if remaining > 0 && view_h > 0 {
-                let cue = format!("▼ {} more", remaining);
-                c.right(ww - 1, (2 + view_h - 1) as i32, &cue, p.dim);
+                let cue = format!(" ▼ {} more ", remaining);
+                let cx = (ww - width(&cue)).max(0);
+                c.text_bg(cx, (1 + view_h - 1) as i32, &cue, p.text2, p.panel, false);
             }
         }
 
@@ -1367,179 +1373,443 @@ fn draw_board_footer(
     c.right(w - 1, y, &status, p.dim);
 }
 
+fn confidence_glyph(conf: Confidence) -> char {
+    match conf {
+        Confidence::Verified => '●',
+        Confidence::Likely => '◐',
+        Confidence::Unverified => '◌',
+        Confidence::Read => '·',
+    }
+}
+
+fn stream_meter(stream: &Stream, p: &Palette) -> (f64, Rgb) {
+    match stream.state {
+        StreamState::Off => {
+            let frac = if stream.confidence == Confidence::Verified { 1.0 } else { 0.85 };
+            (frac, p.accent)
+        }
+        StreamState::Blocked => (0.65, p.text2),
+        StreamState::Unverified => {
+            let warn = stream.decided_detail.contains("unreadable")
+                || stream.decided_detail.contains("invalid")
+                || stream.decided_detail.contains("both");
+            (0.35, if warn { p.warn } else { p.dim })
+        }
+        StreamState::RestartNeeded => (0.6, p.warn),
+        StreamState::On => (1.0, p.warn),
+        StreamState::OptOutIgnored => (1.0, p.hot),
+        StreamState::None => (0.0, p.dim),
+    }
+}
+
+fn verdict_meter(report: &Report, p: &Palette) -> (f64, Rgb, String) {
+    let tracked: Vec<&Stream> = report
+        .streams
+        .iter()
+        .filter(|s| s.counts_toward_verdict)
+        .collect();
+    let total = tracked.len().max(1);
+    let off_verified = tracked
+        .iter()
+        .filter(|s| s.state == StreamState::Off && s.confidence == Confidence::Verified)
+        .count();
+    let off_any = tracked.iter().filter(|s| s.state == StreamState::Off).count();
+    let blocked = tracked.iter().filter(|s| s.state == StreamState::Blocked).count();
+    let unverified = tracked
+        .iter()
+        .filter(|s| s.state == StreamState::Unverified)
+        .count();
+
+    match report.verdict {
+        Verdict::Off => (
+            1.0,
+            p.accent,
+            if off_verified == total {
+                format!("{off_verified}/{total} verified off")
+            } else {
+                format!("{off_any}/{total} off")
+            },
+        ),
+        Verdict::Blocked => (
+            0.7,
+            p.text2,
+            format!("{}/{} blocked/off", off_any + blocked, total),
+        ),
+        Verdict::Partial => (
+            (off_any + blocked) as f64 / total as f64,
+            p.warn,
+            format!("{}/{} off · {} on", off_any + blocked, total, total - off_any - blocked),
+        ),
+        Verdict::On => (1.0, p.warn, format!("0/{total} off")),
+        Verdict::Misconfigured => (1.0, p.hot, "opt-out broken".into()),
+        Verdict::RestartNeeded => (0.6, p.warn, "restart T3".into()),
+        Verdict::Unverified => {
+            if report
+                .findings
+                .iter()
+                .any(|f| f.id == "shell_env_unverified" || f.id == "shell_otel_unverified")
+            {
+                (0.35, p.dim, format!("0/{total} verified"))
+            } else if unverified > 0 {
+                (0.25, p.warn, format!("{unverified}/{total} unverified"))
+            } else {
+                (0.25, p.dim, "unverified".into())
+            }
+        }
+    }
+}
+
+fn verdict_accent_ink(report: &Report, p: &Palette) -> Rgb {
+    match report.verdict {
+        Verdict::Off => p.accent,
+        Verdict::Misconfigured => p.hot,
+        Verdict::On | Verdict::Partial | Verdict::RestartNeeded => p.warn,
+        Verdict::Unverified
+            if matches!(
+                &report.inputs.policy,
+                Read::Invalid { .. } | Read::Unreadable(_)
+            ) || report
+                .findings
+                .iter()
+                .any(|f| f.id == "invalid_telemetry_enabled" || f.id == "macos_dual_policy_conflict") =>
+        {
+            p.warn
+        }
+        Verdict::Blocked | Verdict::Unverified => p.text2,
+    }
+}
+
+fn draw_panel_box(c: &mut Canvas, x: i32, y: i32, w: i32, h: i32, bar_ink: Rgb, p: &Palette) {
+    if w <= 0 || h <= 0 {
+        return;
+    }
+    c.fill(x, y, w, h, p.panel);
+    for row in 0..h {
+        c.set(x, y + row, '▌', bar_ink, Some(p.panel), false);
+    }
+}
+
+/// Top visual summary tile strip (4 raised `p.panel` cards on wide screens, 3 on medium,
+/// 1 Verdict card on narrow, or a compact 2-row strip when viewport height < 20).
+fn draw_summary_tiles(
+    c: &mut Canvas,
+    x0: i32,
+    y0: i32,
+    cw: i32,
+    compact_height: bool,
+    report: &Report,
+    p: &Palette,
+) -> i32 {
+    let (v_glyph, v_g_ink, v_t_ink) = verdict_style(report.verdict, p);
+    let v_bar = verdict_accent_ink(report, p);
+
+    // Very short terminal (< 20 rows): sleek 2-row summary panel so the list fits immediately.
+    if compact_height {
+        draw_panel_box(c, x0, y0, cw, 2, v_bar, p);
+        let mut x = x0 + 2;
+        c.set(x, y0, v_glyph, v_g_ink, Some(p.panel), true);
+        x += 2;
+        x += c.text_bg(x, y0, report.verdict_heading(), v_t_ink, p.panel, true) + 2;
+        if let (Some(prod), Some(relay)) = (report.streams.first(), report.streams.get(1)) {
+            let (pg, pw, pgi, _, _) = board_stream_badge(prod, p);
+            let (rg, rw, rgi, _, _) = board_stream_badge(relay, p);
+            let pill_str = format!("events {pg} {pw}  ·  traces {rg} {rw}");
+            if x + width(&pill_str) + 2 <= x0 + cw {
+                let mut rx = x0 + cw - 1 - width(&pill_str);
+                rx += c.text_bg(rx, y0, "events ", p.dim, p.panel, false);
+                c.set(rx, y0, pg, pgi, Some(p.panel), true);
+                rx += 2;
+                rx += c.text_bg(rx, y0, pw, p.fg, p.panel, false);
+                rx += c.text_bg(rx, y0, "  ·  traces ", p.dim, p.panel, false);
+                c.set(rx, y0, rg, rgi, Some(p.panel), true);
+                rx += 2;
+                c.text_bg(rx, y0, rw, p.fg, p.panel, false);
+            }
+        }
+        c.text_bg(
+            x0 + 2,
+            y0 + 1,
+            &fit(&report.summary, cw - 3),
+            p.text2,
+            p.panel,
+            false,
+        );
+        return y0 + 3;
+    }
+
+    // Narrow (52..79 cols): single full-width Verdict card with stream indicators.
+    if cw < 78 {
+        let h = 4;
+        draw_panel_box(c, x0, y0, cw, h, v_bar, p);
+        c.text_bg(x0 + 2, y0, "VERDICT", p.dim, p.panel, true);
+        let tag = if report.inputs.source == Source::Demo {
+            "demo"
+        } else {
+            "read-only"
+        };
+        c.right_with(x0 + cw - 1, y0, tag, p.dim, Some(p.panel), false);
+        c.set(x0 + 2, y0 + 1, v_glyph, v_g_ink, Some(p.panel), true);
+        c.text_bg(
+            x0 + 4,
+            y0 + 1,
+            &fit(report.verdict_heading(), cw - 5),
+            v_t_ink,
+            p.panel,
+            true,
+        );
+        let (frac, bar_ink, label) = verdict_meter(report, p);
+        let bar_w = (cw - 6 - width(&label)).clamp(6, 18);
+        terminal::hbar(c, x0 + 2, y0 + 2, bar_w, frac, bar_ink, p.track);
+        c.text_bg(
+            x0 + 2 + bar_w + 2,
+            y0 + 2,
+            &fit(&label, cw - 4 - bar_w - 2),
+            p.text2,
+            p.panel,
+            false,
+        );
+        c.text_bg(
+            x0 + 2,
+            y0 + 3,
+            &fit(&report.summary, cw - 3),
+            p.text2,
+            p.panel,
+            false,
+        );
+        return y0 + h + 1;
+    }
+
+    // Wide (>= 98 inner cols): 4 raised tiles (Verdict, Product Events, Relay Traces, T3 Server).
+    // Medium (78..97 inner cols): 3 raised tiles (Verdict, Product Events, Relay Traces).
+    let four_tiles = cw >= 98;
+    let tile_h = 5i32;
+    let gap = 1i32;
+    let (w0, w1, w2, w3) = if four_tiles {
+        let avail = cw - 3 * gap;
+        let t0 = ((avail * 31) / 100).max(28);
+        let rest = avail - t0;
+        let t1 = rest / 3;
+        let t2 = rest / 3;
+        let t3 = rest - t1 - t2;
+        (t0, t1, t2, t3)
+    } else {
+        let avail = cw - 2 * gap;
+        let t0 = ((avail * 38) / 100).max(26);
+        let rest = avail - t0;
+        let t1 = rest / 2;
+        let t2 = rest - t1;
+        (t0, t1, t2, 0)
+    };
+
+    // Tile 1: VERDICT
+    let t0_x = x0;
+    draw_panel_box(c, t0_x, y0, w0, tile_h, v_bar, p);
+    c.text_bg(t0_x + 2, y0, "VERDICT", p.dim, p.panel, true);
+    let scope_tag = if report.inputs.source == Source::Demo {
+        "demo"
+    } else {
+        "local only"
+    };
+    if w0 >= 24 {
+        c.right_with(t0_x + w0 - 1, y0, scope_tag, p.dim, Some(p.panel), false);
+    }
+    c.set(t0_x + 2, y0 + 1, v_glyph, v_g_ink, Some(p.panel), true);
+    c.text_bg(
+        t0_x + 4,
+        y0 + 1,
+        &fit(report.verdict_heading(), w0 - 5),
+        v_t_ink,
+        p.panel,
+        true,
+    );
+    let (v_frac, v_m_ink, v_m_label) = verdict_meter(report, p);
+    let label_w = width(&v_m_label);
+    let v_bar_w = (w0 - 5 - label_w).clamp(4, 16);
+    if v_bar_w >= 4 && w0 >= label_w + 10 {
+        terminal::hbar(c, t0_x + 2, y0 + 2, v_bar_w, v_frac, v_m_ink, p.track);
+        c.text_bg(
+            t0_x + 2 + v_bar_w + 2,
+            y0 + 2,
+            &fit(&v_m_label, w0 - 4 - v_bar_w - 1),
+            p.text2,
+            p.panel,
+            false,
+        );
+    } else {
+        c.text_bg(t0_x + 2, y0 + 2, &fit(&v_m_label, w0 - 3), p.text2, p.panel, false);
+    }
+    let sum_lines = wrap_lines(&report.summary, (w0 - 3).max(12) as usize);
+    if let Some(first) = sum_lines.first() {
+        c.text_bg(t0_x + 2, y0 + 3, &fit(first, w0 - 3), p.text2, p.panel, false);
+    }
+    if sum_lines.len() >= 2 {
+        let second = if sum_lines.len() == 2 {
+            sum_lines[1].clone()
+        } else {
+            sum_lines[1..].join(" ")
+        };
+        c.text_bg(t0_x + 2, y0 + 4, &fit(&second, w0 - 3), p.dim, p.panel, false);
+    }
+
+    // Tile 2 & Tile 3: PRODUCT EVENTS & RELAY TRACES
+    let min_stream_w = w1.min(w2);
+    let stream_tiles = [
+        (t0_x + w0 + gap, w1, "PRODUCT EVENTS", report.streams.first()),
+        (t0_x + w0 + gap + w1 + gap, w2, "RELAY TRACES", report.streams.get(1)),
+    ];
+    for (tx, tw, title, stream_opt) in stream_tiles {
+        let Some(s) = stream_opt else { continue };
+        let (g, word, g_ink, w_ink, bold) = board_stream_badge(s, p);
+        let (m_frac, m_ink) = stream_meter(s, p);
+        let stripe_ink = match s.state {
+            StreamState::OptOutIgnored => p.hot,
+            StreamState::On | StreamState::RestartNeeded => p.warn,
+            StreamState::Off => p.accent,
+            _ => g_ink,
+        };
+        draw_panel_box(c, tx, y0, tw, tile_h, stripe_ink, p);
+        c.text_bg(tx + 2, y0, &fit(title, tw - 3), p.dim, p.panel, true);
+        if min_stream_w >= 31 {
+            let conf_str = format!("{} {}", confidence_glyph(s.confidence), s.confidence.label());
+            c.right_with(tx + tw - 1, y0, &conf_str, p.dim, Some(p.panel), false);
+        } else if min_stream_w >= 22 {
+            let conf_str = format!("{}", confidence_glyph(s.confidence));
+            c.right_with(tx + tw - 1, y0, &conf_str, p.dim, Some(p.panel), false);
+        }
+        c.set(tx + 2, y0 + 1, g, g_ink, Some(p.panel), true);
+        let upper_word = word.to_ascii_uppercase();
+        c.text_bg(tx + 4, y0 + 1, &fit(&upper_word, tw - 5), w_ink, p.panel, bold || true);
+        let bar_w = (tw - 4).clamp(6, 24);
+        terminal::hbar(c, tx + 2, y0 + 2, bar_w, m_frac, m_ink, p.track);
+        c.text_bg(tx + 2, y0 + 3, &fit(&s.destination, tw - 3), p.text2, p.panel, false);
+        c.text_bg(tx + 2, y0 + 4, &fit(&s.decided_detail, tw - 3), p.dim, p.panel, false);
+    }
+
+    // Tile 4: T3 SERVER (wide only)
+    if four_tiles {
+        let tx = t0_x + w0 + gap + w1 + gap + w2 + gap;
+        let tw = w3;
+        let auth_warn = report.server.auth_files_hashed == AuthFilesHashed::Yes;
+        let (srv_glyph, srv_word, srv_ink) = match report.server.state {
+            Liveness::Running => ('◉', "RUNNING", p.accent),
+            Liveness::Stopped => ('○', "STOPPED", p.dim),
+            Liveness::PidReused => ('△', "PID REUSED", p.warn),
+            Liveness::Unknown => ('?', "UNKNOWN", p.dim),
+        };
+        let stripe_ink = if auth_warn || report.verdict == Verdict::RestartNeeded {
+            p.warn
+        } else if report.server.state == Liveness::Running {
+            p.accent
+        } else {
+            p.rule
+        };
+        draw_panel_box(c, tx, y0, tw, tile_h, stripe_ink, p);
+        c.text_bg(tx + 2, y0, "T3 SERVER", p.dim, p.panel, true);
+        let launch_tag = report.server.launch.kind_str();
+        if tw >= 18 {
+            c.right_with(tx + tw - 1, y0, launch_tag, p.dim, Some(p.panel), false);
+        }
+        c.set(tx + 2, y0 + 1, srv_glyph, srv_ink, Some(p.panel), true);
+        c.text_bg(tx + 4, y0 + 1, &fit(srv_word, tw - 5), p.fg, p.panel, true);
+
+        let ver_text = match (report.server.version.as_deref(), report.server.auth_files_hashed) {
+            (Some(v), AuthFilesHashed::Yes) => (format!("v{v} · hashes auth"), p.warn),
+            (Some(v), AuthFilesHashed::No) => (format!("v{v} · auth safe"), p.text2),
+            (Some(v), AuthFilesHashed::Unknown) => (format!("v{v}"), p.text2),
+            (None, _) => ("version unknown".into(), p.dim),
+        };
+        c.text_bg(
+            tx + 2,
+            y0 + 2,
+            &fit(&ver_text.0, tw - 3),
+            ver_text.1,
+            p.panel,
+            auth_warn,
+        );
+
+        let (pol_text, pol_ink): (&str, Rgb) = match (&report.inputs.policy, &report.server.policy_loaded) {
+            (Read::Invalid { .. }, _) => ("policy.json · invalid", p.warn),
+            (Read::Unreadable(_), _) => ("policy.json · locked", p.warn),
+            (Read::Ok { value, .. }, Some(_)) if value.telemetry == Some(false) => {
+                ("policy.json · loaded", p.accent)
+            }
+            (Read::Ok { value, .. }, None) if value.telemetry == Some(false) => {
+                ("policy.json · restart T3", p.warn)
+            }
+            (Read::Ok { .. }, _) => ("policy.json · telemetry unset", p.dim),
+            (Read::Absent, _) => ("policy.json · none", p.dim),
+        };
+        c.text_bg(tx + 2, y0 + 3, &fit(pol_text, tw - 3), pol_ink, p.panel, false);
+        c.text_bg(
+            tx + 2,
+            y0 + 4,
+            &fit(&sources_badge(report), tw - 3),
+            p.dim,
+            p.panel,
+            false,
+        );
+    }
+
+    y0 + tile_h + 1
+}
+
 fn build_telemetry_body(
     report: &Report,
     cols: usize,
+    compact_height: bool,
     selected: usize,
     p: &Palette,
 ) -> (Canvas, Vec<(i32, usize)>) {
-    let mut c = Canvas::cleared(cols, 120, p.bg, p.fg);
+    let mut c = Canvas::cleared(cols, 180, p.bg, p.fg);
     let ww = cols as i32;
     let mut hits = Vec::new();
 
-    if cols >= WIDE_COLUMNS {
-        let left_x = 1i32;
-        let left_w = 73i32;
-        let right_x = left_x + left_w + 2;
-        let right_w = ww - right_x - 1;
+    // Cap content width at 184 cols on ultrawide monitors so tables & pipelines stay scannable.
+    let x0 = 1i32;
+    let cw = (ww - 2).min(184).max(MIN_COLUMNS as i32 - 2);
+    let top_y = draw_summary_tiles(&mut c, x0, 0, cw, compact_height, report, p);
 
-        let mut ly = 0i32;
-        terminal::section_with(&mut c, left_x, ly, left_w, "WHAT T3 CODE SENDS", p, "how sure", p.dim);
-        ly += 1;
-        ly = draw_selectable_rows(&mut c, left_x, ly, left_w, report, selected, p, true, &mut hits);
-        ly += 1;
+    if cw >= 114 {
+        let left_w = ((cw * 46) / 100).clamp(54, 86);
+        let div_x = x0 + left_w + 1;
+        let right_x = div_x + 2;
+        let right_w = (x0 + cw - right_x).max(40);
 
-        if !report.findings.is_empty() {
-            let to_fix = report.findings.iter().filter(|f| f.severity.is_to_fix()).count();
-            let right = if to_fix > 0 {
-                format!("{to_fix} to fix")
-            } else {
-                "notes".into()
-            };
-            let right_ink = if report.findings.iter().any(|f| f.severity == Severity::OptOutIgnored) {
-                p.hot
-            } else if to_fix > 0 {
-                p.warn
-            } else {
-                p.dim
-            };
-            terminal::section_with(&mut c, left_x, ly, left_w, "FINDINGS", p, &right, right_ink);
-            ly += 1;
-            for f in &report.findings {
-                ly = draw_finding(&mut c, left_x, ly, left_w, f, p);
-            }
-            ly += 1;
-        }
+        // ── Left Column: Grouped Audit Lists + Findings ───────────────
+        let mut ly = top_y;
+        ly = draw_grouped_rows(&mut c, x0, ly, left_w, report, selected, p, true, &mut hits);
+        ly = draw_findings_block(&mut c, x0, ly, left_w, report, p);
 
-        // Right column: detail of selected row + fix snippet
-        let mut ry = 0i32;
+        // ── Right Column: Visual Decision Pipeline + Fix Cards + Sources
+        let mut ry = top_y;
         ry = draw_selected_detail(&mut c, right_x, ry, right_w, report, selected, p);
         ry += 1;
-        if let Some(snip) = report.fix.first() {
-            let right = if right_w >= 54 {
-                "Loupe changes nothing"
-            } else {
-                "read-only"
-            };
-            terminal::section_with(&mut c, right_x, ry, right_w, &snip.heading, p, right, p.dim);
-            ry += 1;
-            let (cmd_lines, clipped) = format_command_lines(&snip.command, (right_w - 2) as usize);
-            c.fill(right_x, ry, right_w, cmd_lines.len() as i32, p.panel);
-            for line in &cmd_lines {
-                c.text_bg(right_x + 1, ry, line, p.fg, p.panel, false);
-                ry += 1;
-            }
-            if clipped {
-                c.text(right_x, ry, &fit("full command: --telemetry-check --json", right_w), p.dim);
-                ry += 1;
-            }
-            for line in wrap_lines(&snip.note, right_w as usize) {
-                c.text(right_x, ry, &line, p.dim);
-                ry += 1;
-            }
-            ry += 1;
-            if report.verdict != Verdict::Off {
-                let mut fx = right_x;
-                fx += c.text_bold(fx, ry, "f", p.accent) + 1;
-                c.text(
-                    fx,
-                    ry,
-                    &fit("have a T3 thread turn this off", right_x + right_w - fx),
-                    p.fg,
-                );
-                ry += 1;
-            }
-            ry += 1;
+        ry = draw_action_panel(&mut c, right_x, ry, right_w, report, p);
+        ry = draw_compact_sources_panel(&mut c, right_x, ry, right_w, report, p);
+
+        let bottom_y = ly.max(ry);
+        for dy in top_y..bottom_y.saturating_sub(1) {
+            c.set(div_x, dy, '│', p.faint, None, false);
         }
 
-        let h = ly.max(ry).max(1) as usize;
+        let h = bottom_y.max(1) as usize;
         return (crop_canvas(&c, cols, h, p), hits);
     }
 
-    // Stacked layout (52..119 columns)
-    let compact = cols < CARD_COLUMNS;
-    let mut y = 0i32;
-    terminal::section_with(
-        &mut c,
-        1,
-        y,
-        ww - 2,
-        "WHAT T3 CODE SENDS",
-        p,
-        if compact { "" } else { "how sure" },
-        p.dim,
-    );
+    // Stacked layout (52..115 columns)
+    let wide_cols = cw >= 76;
+    let mut y = top_y;
+    y = draw_grouped_rows(&mut c, x0, y, cw, report, selected, p, wide_cols, &mut hits);
+    y = draw_selected_detail(&mut c, x0, y, cw, report, selected, p);
     y += 1;
-    y = draw_selectable_rows(&mut c, 1, y, ww - 2, report, selected, p, !compact, &mut hits);
-    y += 1;
-
-    y = draw_selected_detail(&mut c, 1, y, ww - 2, report, selected, p);
-    y += 1;
-
-    if let Some(snip) = report.fix.first() {
-        let right = if compact {
-            "read-only"
-        } else {
-            "Loupe changes nothing"
-        };
-        terminal::section_with(&mut c, 1, y, ww - 2, &snip.heading, p, right, p.dim);
-        y += 1;
-        let (cmd_lines, clipped) = format_command_lines(&snip.command, (ww - 4).max(16) as usize);
-        c.fill(1, y, ww - 2, cmd_lines.len() as i32, p.panel);
-        for line in &cmd_lines {
-            c.text_bg(2, y, line, p.fg, p.panel, false);
-            y += 1;
-        }
-        if clipped {
-            c.text(1, y, &fit("full command: loupe --telemetry-check --json", ww - 2), p.dim);
-            y += 1;
-        }
-        for line in wrap_lines(&snip.note, (ww - 2).max(16) as usize) {
-            c.text(1, y, &line, p.dim);
-            y += 1;
-        }
-        if report.verdict != Verdict::Off {
-            y += 1;
-            let mut fx = 1;
-            fx += c.text_bold(fx, y, "f", p.accent) + 1;
-            c.text(
-                fx,
-                y,
-                &fit("have a T3 thread turn this off", ww - 1 - fx),
-                p.fg,
-            );
-            y += 1;
-        }
-        y += 1;
-    }
-
-    if !report.findings.is_empty() {
-        let to_fix = report.findings.iter().filter(|f| f.severity.is_to_fix()).count();
-        let right = if to_fix > 0 {
-            format!("{to_fix} to fix")
-        } else {
-            "notes".into()
-        };
-        let right_ink = if report.findings.iter().any(|f| f.severity == Severity::OptOutIgnored) {
-            p.hot
-        } else if to_fix > 0 {
-            p.warn
-        } else {
-            p.dim
-        };
-        terminal::section_with(&mut c, 1, y, ww - 2, "FINDINGS", p, &right, right_ink);
-        y += 1;
-        for f in &report.findings {
-            y = draw_finding(&mut c, 1, y, ww - 2, f, p);
-        }
-        y += 1;
-    }
+    y = draw_action_panel(&mut c, x0, y, cw, report, p);
+    y = draw_findings_block(&mut c, x0, y, cw, report, p);
 
     (crop_canvas(&c, cols, y.max(1) as usize, p), hits)
 }
 
 #[allow(clippy::too_many_arguments)]
-fn draw_selectable_rows(
+fn draw_grouped_rows(
     c: &mut Canvas,
     x: i32,
     mut y: i32,
@@ -1553,52 +1823,73 @@ fn draw_selectable_rows(
     let mut row_idx = 0usize;
 
     // 1. Streams
+    terminal::section_with(
+        c,
+        x,
+        y,
+        w,
+        "TELEMETRY STREAMS",
+        p,
+        if wide_cols { "↑↓ inspect · how sure" } else { "↑↓ inspect" },
+        p.dim,
+    );
+    y += 1;
     for s in &report.streams {
         let is_sel = row_idx == selected;
         hits.push((y, row_idx));
         let bg = is_sel.then_some(p.sel);
         if is_sel {
-            c.fill(x - 1, y, w + 1, 1, p.sel);
-            c.set(x - 1, y, '▸', p.bright, bg, true);
+            c.fill(x, y, w, 1, p.sel);
+            c.set(x, y, '▌', p.bright, bg, false);
         }
-        let (glyph, word, g_ink, w_ink, bold) = stream_visual(s, p);
-        c.set(x + 1, y, glyph, row_ink(p, g_ink, is_sel), bg, bold);
+        let (glyph, word, g_ink, w_ink, bold) = board_stream_badge(s, p);
+        c.set(x + 2, y, glyph, row_ink(p, g_ink, is_sel), bg, bold);
+        let badge_w = 10i32;
         c.text_with(
-            x + 3,
+            x + 4,
             y,
-            &fit(s.id.label(), 20),
-            row_ink(p, p.fg, is_sel),
-            bg,
-            is_sel,
-            usize::MAX,
-        );
-        let state_x = x + 24;
-        c.text_with(
-            state_x,
-            y,
-            &fit(&word, 9),
+            &fit(word, badge_w),
             row_ink(p, w_ink, is_sel),
             bg,
             bold,
             usize::MAX,
         );
+        let name_x = x + 4 + badge_w + 2;
+        let name_w = 20.min((w - (name_x - x) - 2).max(12));
+        c.text_with(
+            name_x,
+            y,
+            &fit(s.id.label(), name_w),
+            row_ink(p, p.fg, is_sel),
+            bg,
+            is_sel,
+            usize::MAX,
+        );
         if wide_cols {
-            let conf = s.confidence.label();
-            let conf_w = width(conf) + 1;
-            let detail_x = state_x + 10;
-            let detail_w = (x + w - conf_w - detail_x).max(0);
-            if detail_w > 0 {
+            let conf = format!("{} {}", confidence_glyph(s.confidence), s.confidence.label());
+            let conf_col_w = width(&conf).max(12) + 2;
+            let detail_x = name_x + name_w + 2;
+            let detail_w = (x + w - conf_col_w - detail_x).max(0);
+            if detail_w >= 14 {
                 let d_ink = if s.state == StreamState::OptOutIgnored {
                     row_ink(p, p.hot, is_sel)
                 } else {
                     row_ink(p, p.text2, is_sel)
                 };
-                c.text_with(detail_x, y, &fit(&s.decided_detail, detail_w), d_ink, bg, false, usize::MAX);
+                c.text_with(
+                    detail_x,
+                    y,
+                    &fit(&s.decided_detail, detail_w),
+                    d_ink,
+                    bg,
+                    false,
+                    usize::MAX,
+                );
             }
             c.text_with(
-                x + w - width(conf),
+                x + w - width(&conf),
                 y,
-                conf,
+                &conf,
                 row_ink(p, p.dim, is_sel),
                 bg,
                 false,
@@ -1607,72 +1898,251 @@ fn draw_selectable_rows(
         }
         y += 1;
         if !wide_cols && is_sel {
-            c.text(x + 3, y, &fit(&s.decided_detail, w - 4), p.dim);
+            c.text(x + 4, y, &fit(&s.decided_detail, w - 5), p.dim);
             y += 1;
         }
         row_idx += 1;
     }
+    y += 1;
 
-    // 2. Other settings
-    for o in &report.other {
-        let is_sel = row_idx == selected;
-        hits.push((y, row_idx));
-        let bg = is_sel.then_some(p.sel);
-        if is_sel {
-            c.fill(x - 1, y, w + 1, 1, p.sel);
-            c.set(x - 1, y, '▸', p.bright, bg, true);
+    // 2. Other local settings (separated cleanly from what T3 sends)
+    if !report.other.is_empty() {
+        terminal::section_with(
+            c,
+            x,
+            y,
+            w,
+            "OTHER SETTINGS",
+            p,
+            if wide_cols { "settings.json · informational" } else { "informational" },
+            p.dim,
+        );
+        y += 1;
+        for o in &report.other {
+            let is_sel = row_idx == selected;
+            hits.push((y, row_idx));
+            let bg = is_sel.then_some(p.sel);
+            if is_sel {
+                c.fill(x, y, w, 1, p.sel);
+                c.set(x, y, '▌', p.bright, bg, false);
+            }
+            c.set(x + 2, y, '·', row_ink(p, p.text2, is_sel), bg, false);
+            let (state_text, note_text): (String, String) = if o.id == "install_id" {
+                ("present".into(), format!("{} · stat only", o.value))
+            } else {
+                (
+                    o.value.clone(),
+                    o.note.as_deref().unwrap_or("settings.json").to_owned(),
+                )
+            };
+            let badge_w = 10i32;
+            c.text_with(
+                x + 4,
+                y,
+                &fit(&state_text, badge_w),
+                row_ink(p, p.text2, is_sel),
+                bg,
+                false,
+                usize::MAX,
+            );
+            let name_x = x + 4 + badge_w + 2;
+            let name_w = 20.min((w - (name_x - x) - 2).max(12));
+            c.text_with(
+                name_x,
+                y,
+                &fit(o.label, name_w),
+                row_ink(p, p.fg, is_sel),
+                bg,
+                is_sel,
+                usize::MAX,
+            );
+            if wide_cols {
+                let conf = "· read";
+                let detail_x = name_x + name_w + 2;
+                let detail_w = (x + w - (width(conf) + 2) - detail_x).max(0);
+                if detail_w >= 14 {
+                    c.text_with(
+                        detail_x,
+                        y,
+                        &fit(&note_text, detail_w),
+                        row_ink(p, p.dim, is_sel),
+                        bg,
+                        false,
+                        usize::MAX,
+                    );
+                }
+                c.text_with(
+                    x + w - width(conf),
+                    y,
+                    conf,
+                    row_ink(p, p.dim, is_sel),
+                    bg,
+                    false,
+                    usize::MAX,
+                );
+            }
+            y += 1;
+            row_idx += 1;
         }
-        c.set(x + 1, y, '·', row_ink(p, p.text2, is_sel), bg, false);
-        c.text_with(x + 3, y, &fit(o.label, 20), row_ink(p, p.fg, is_sel), bg, is_sel, usize::MAX);
-        let state_x = x + 24;
-        let (state_text, note_text): (String, String) = if o.id == "install_id" {
-            ("present".into(), format!("{} · stat only", o.value))
-        } else {
-            (
-                o.value.clone(),
-                o.note.as_deref().unwrap_or("settings.json").to_owned(),
-            )
+        y += 1;
+    }
+
+    // 3. Not read by Loupe (explicit privacy boundary)
+    if !report.not_checked.is_empty() {
+        terminal::section_with(
+            c,
+            x,
+            y,
+            w,
+            "NOT READ BY LOUPE",
+            p,
+            "privacy boundary",
+            p.dim,
+        );
+        y += 1;
+        for nc in &report.not_checked {
+            let is_sel = row_idx == selected;
+            hits.push((y, row_idx));
+            let bg = is_sel.then_some(p.sel);
+            if is_sel {
+                c.fill(x, y, w, 1, p.sel);
+                c.set(x, y, '▌', p.bright, bg, false);
+            }
+            c.set(x + 2, y, '⊘', row_ink(p, p.dim, is_sel), bg, false);
+            let badge_w = 10i32;
+            c.text_with(
+                x + 4,
+                y,
+                "private",
+                row_ink(p, p.dim, is_sel),
+                bg,
+                false,
+                usize::MAX,
+            );
+            let name_x = x + 4 + badge_w + 2;
+            let name_w = 20.min((w - (name_x - x) - 2).max(12));
+            c.text_with(
+                name_x,
+                y,
+                &fit(nc.label, name_w),
+                row_ink(p, p.fg, is_sel),
+                bg,
+                is_sel,
+                usize::MAX,
+            );
+            if wide_cols {
+                let detail_x = name_x + name_w + 2;
+                let detail_w = (x + w - detail_x).max(0);
+                if detail_w >= 8 {
+                    c.text_with(
+                        detail_x,
+                        y,
+                        &fit(&nc.detail, detail_w),
+                        row_ink(p, p.dim, is_sel),
+                        bg,
+                        false,
+                        usize::MAX,
+                    );
+                }
+            }
+            y += 1;
+            row_idx += 1;
+        }
+        y += 1;
+    }
+
+    y
+}
+
+fn draw_findings_block(
+    c: &mut Canvas,
+    x: i32,
+    mut y: i32,
+    w: i32,
+    report: &Report,
+    p: &Palette,
+) -> i32 {
+    if report.findings.is_empty() {
+        if report.verdict == Verdict::Off {
+            terminal::section_with(c, x, y, w, "FINDINGS", p, "all clear", p.accent);
+            y += 1;
+            draw_panel_box(c, x, y, w, 1, p.accent, p);
+            c.text_bg(
+                x + 2,
+                y,
+                &fit("✓ No issues found — both T3 telemetry streams are off.", w - 3),
+                p.fg,
+                p.panel,
+                false,
+            );
+            y += 2;
+        }
+        return y;
+    }
+
+    let to_fix = report.findings.iter().filter(|f| f.severity.is_to_fix()).count();
+    let right = if to_fix > 0 {
+        format!("{to_fix} to fix")
+    } else if report.findings.len() == 1 {
+        "1 note".into()
+    } else {
+        format!("{} notes", report.findings.len())
+    };
+    let right_ink = if report
+        .findings
+        .iter()
+        .any(|f| f.severity == Severity::OptOutIgnored)
+    {
+        p.hot
+    } else if to_fix > 0 {
+        p.warn
+    } else {
+        p.dim
+    };
+    terminal::section_with(c, x, y, w, "FINDINGS", p, &right, right_ink);
+    y += 1;
+
+    for f in &report.findings {
+        let (bar_ink, tag, elevated) = match f.severity {
+            Severity::OptOutIgnored => (p.hot, Some("OPT-OUT IGNORED"), true),
+            Severity::Restart => (p.warn, Some("RESTART NEEDED"), true),
+            Severity::Warn => (p.warn, Some("WARNING"), true),
+            Severity::Caveat => (p.rule, None, false),
+            Severity::Info => (p.faint, None, false),
         };
-        c.text_with(state_x, y, &fit(&state_text, 9), row_ink(p, p.text2, is_sel), bg, false, usize::MAX);
-        if wide_cols {
-            let conf = "read";
-            let detail_x = state_x + 10;
-            let detail_w = (x + w - (width(conf) + 1) - detail_x).max(0);
-            if detail_w > 0 {
-                c.text_with(detail_x, y, &fit(&note_text, detail_w), row_ink(p, p.dim, is_sel), bg, false, usize::MAX);
-            }
-            c.text_with(x + w - width(conf), y, conf, row_ink(p, p.dim, is_sel), bg, false, usize::MAX);
-        }
-        y += 1;
-        row_idx += 1;
-    }
+        let body_lines = wrap_lines(&f.message, (w - 3).max(16) as usize);
+        let fix_lines = f
+            .fix
+            .as_deref()
+            .map(|fx| wrap_lines(&format!("→ {fx}"), (w - 3).max(16) as usize))
+            .unwrap_or_default();
+        let card_h =
+            (i32::from(tag.is_some()) + body_lines.len() as i32 + fix_lines.len() as i32).max(1);
 
-    // 3. Not checked here
-    for nc in &report.not_checked {
-        let is_sel = row_idx == selected;
-        hits.push((y, row_idx));
-        let bg = is_sel.then_some(p.sel);
-        if is_sel {
-            c.fill(x - 1, y, w + 1, 1, p.sel);
-            c.set(x - 1, y, '▸', p.bright, bg, true);
-        }
-        c.set(x + 1, y, '?', row_ink(p, p.text2, is_sel), bg, false);
-        c.text_with(x + 3, y, &fit(nc.label, 20), row_ink(p, p.fg, is_sel), bg, is_sel, usize::MAX);
-        let state_x = x + 24;
-        c.text_with(state_x, y, "not read", row_ink(p, p.dim, is_sel), bg, false, usize::MAX);
-        if wide_cols {
-            let conf = "—";
-            let detail_x = state_x + 10;
-            let detail_w = (x + w - (width(conf) + 1) - detail_x).max(0);
-            if detail_w > 0 {
-                c.text_with(detail_x, y, &fit(&nc.detail, detail_w), row_ink(p, p.dim, is_sel), bg, false, usize::MAX);
+        if elevated {
+            draw_panel_box(c, x, y, w, card_h, bar_ink, p);
+            let mut cy = y;
+            if let Some(t) = tag {
+                c.text_bg(x + 2, cy, t, bar_ink, p.panel, true);
+                cy += 1;
             }
-            c.text_with(x + w - width(conf), y, conf, row_ink(p, p.dim, is_sel), bg, false, usize::MAX);
+            for line in &body_lines {
+                c.text_bg(x + 2, cy, &fit(line, w - 3), p.fg, p.panel, false);
+                cy += 1;
+            }
+            for line in &fix_lines {
+                c.text_bg(x + 2, cy, &fit(line, w - 3), p.accent, p.panel, false);
+                cy += 1;
+            }
+            y = cy + 1;
+        } else {
+            for (idx, line) in body_lines.iter().enumerate() {
+                c.set(x, y + idx as i32, '▌', bar_ink, None, false);
+                c.text(x + 2, y + idx as i32, &fit(line, w - 3), p.text2);
+            }
+            y += body_lines.len() as i32 + 1;
         }
-        y += 1;
-        row_idx += 1;
     }
-
     y
 }
 
@@ -1686,13 +2156,17 @@ fn draw_selected_detail(
     p: &Palette,
 ) -> i32 {
     if let Some(s) = report.streams.get(selected) {
-        let title = s.id.label().to_ascii_uppercase();
-        terminal::section_with(c, x, y, w, &title, p, &fit(&s.destination, w / 2), p.dim);
+        let heading = format!("HOW T3 DECIDES · {}", s.id.short_label().to_ascii_uppercase());
+        terminal::section_with(c, x, y, w, &fit(&heading, w - 16), p, &fit(&s.destination, w / 2), p.dim);
         y += 1;
-        y = draw_ladder(c, x, y, w, s, p);
+        y = draw_visual_pipeline(c, x, y, w, s, p);
         if let Some(caveat) = &s.caveat {
-            for line in wrap_lines(caveat, (w - 2).max(16) as usize) {
-                c.text(x + 2, y, &line, p.dim);
+            let lines = wrap_lines(caveat, (w - 4).max(16) as usize);
+            for (idx, line) in lines.iter().enumerate() {
+                if idx == 0 {
+                    c.text(x + 1, y, "↳", p.dim);
+                }
+                c.text(x + 3, y, &fit(line, w - 4), p.dim);
                 y += 1;
             }
         }
@@ -1706,59 +2180,373 @@ fn draw_selected_detail(
         y += 1;
         let desc = match o.id {
             "agent_feedback" => "Controls whether agents can send T3 Code bug reports (Settings › Labs). Never sends prompts unless you click Send on a card.",
-            "provider_update_checks" => "Controls whether T3 Code checks for provider CLI updates on startup (settings.json).",
+            "provider_update_checks" => "Controls whether T3 Code checks for provider CLI updates on startup (userdata/settings.json).",
             "install_id" => "T3's local random installation ID file (userdata/anonymous-id). Loupe checks only its modification date and never opens it.",
-            "share_usage_data" => "Reserved slot for T3 Code's upcoming Settings toggle.",
+            "share_usage_data" => "Reserved slot for T3 Code's upcoming Settings toggle; not read by T3 yet.",
             _ => "Informational setting read from userdata/settings.json; does not affect the telemetry verdict.",
         };
-        for line in wrap_lines(desc, (w - 2).max(16) as usize) {
-            c.text(x + 1, y, &line, p.text2);
-            y += 1;
+        let lines = wrap_lines(desc, (w - 3).max(16) as usize);
+        let h = 1 + lines.len() as i32;
+        draw_panel_box(c, x, y, w, h, p.accent, p);
+        c.text_bg(
+            x + 2,
+            y,
+            &fit(&format!("Current value: {}", o.value), w - 3),
+            p.fg,
+            p.panel,
+            true,
+        );
+        for (i, line) in lines.iter().enumerate() {
+            c.text_bg(x + 2, y + 1 + i as i32, &fit(line, w - 3), p.text2, p.panel, false);
         }
-        return y;
+        return y + h;
     }
 
     let nc_idx = selected.saturating_sub(report.streams.len() + report.other.len());
     if let Some(nc) = report.not_checked.get(nc_idx) {
         let title = nc.label.to_ascii_uppercase();
-        terminal::section_with(c, x, y, w, &title, p, "outside Loupe's scope", p.dim);
+        terminal::section_with(c, x, y, w, &title, p, "not read by Loupe", p.dim);
         y += 1;
         let policy_path = match report.inputs.platform {
             crate::telemetry::Platform::MacOs => "/Library/Application Support/T3Code/policy.json",
             _ => "/etc/t3code/policy.json",
         };
         let app_env_desc = format!(
-            "Loupe never reads /proc/<pid>/environ because provider API keys live there. Use managed policy ({policy_path}) to guarantee opt-out across every launch path."
+            "Loupe never reads /proc/<pid>/environ because provider API keys live there. Write managed policy ({policy_path}) below to lock telemetry off across every launch path and let Loupe verify it."
         );
         let extra = match nc.id {
             "activity_sharing" => "Publish agent activity is stored inside T3's secret store (userdata/secrets/), which Loupe deliberately never opens. Check Settings › Sharing & access or run `t3 connect status`.",
             "app_environment" => app_env_desc.as_str(),
             _ => nc.detail.as_str(),
         };
-        for line in wrap_lines(extra, (w - 2).max(16) as usize) {
-            c.text(x + 1, y, &line, p.text2);
-            y += 1;
+        let lines = wrap_lines(extra, (w - 3).max(16) as usize);
+        let h = 1 + lines.len() as i32;
+        draw_panel_box(c, x, y, w, h, p.rule, p);
+        c.text_bg(
+            x + 2,
+            y,
+            &fit(&format!("Privacy boundary: {}", nc.detail), w - 3),
+            p.fg,
+            p.panel,
+            true,
+        );
+        for (i, line) in lines.iter().enumerate() {
+            c.text_bg(x + 2, y + 1 + i as i32, &fit(line, w - 3), p.text2, p.panel, false);
         }
+        return y + h;
     }
     y
 }
 
+/// Visual connected vertical decision pipeline with fixed readable column spacing
+/// (never drifts 80 spaces apart on wide screens).
+fn draw_visual_pipeline(
+    c: &mut Canvas,
+    x: i32,
+    mut y: i32,
+    w: i32,
+    s: &Stream,
+    p: &Palette,
+) -> i32 {
+    if s.ladder.is_empty() {
+        draw_panel_box(c, x, y, w, 1, p.rule, p);
+        c.text_bg(x + 2, y, &fit("○ No custom OTLP exporters configured.", w - 3), p.dim, p.panel, false);
+        return y + 1;
+    }
+
+    let step_w = 30.min((w - 26).max(14));
+    let val_x = x + 7 + step_w + 2;
+
+    for (idx, step) in s.ladder.iter().enumerate() {
+        let num = format!("{}.", idx + 1);
+        if step.decisive {
+            let effective_state = step.state_hint.unwrap_or(s.state);
+            let (g, word, g_ink, w_ink, bold) = if effective_state == s.state {
+                board_stream_badge(s, p)
+            } else {
+                stream_style(effective_state, p)
+            };
+            let stripe = match effective_state {
+                StreamState::OptOutIgnored => p.hot,
+                StreamState::On | StreamState::RestartNeeded => p.warn,
+                StreamState::Off => p.accent,
+                _ => g_ink,
+            };
+            let shell_expl = s.state == StreamState::Unverified && s.decided_detail.contains("shell");
+            let card_h = if shell_expl { 2 } else { 1 };
+            draw_panel_box(c, x, y, w, card_h, stripe, p);
+            c.set(x + 2, y, '◆', stripe, Some(p.panel), true);
+            c.text_bg(x + 4, y, &num, p.dim, p.panel, false);
+            c.text_bg(x + 7, y, &fit(&step.step, step_w), p.fg, p.panel, true);
+
+            let badge = format!("{g} {word}");
+            let badge_w = width(&badge);
+            let val_room = (x + w - 1 - badge_w - 2 - val_x).max(0);
+            if val_room >= 6 {
+                c.text_bg(val_x, y, &fit(&step.value, val_room), p.fg, p.panel, false);
+            }
+            c.right_with(x + w - 1, y, &badge, w_ink, Some(p.panel), bold);
+
+            if shell_expl {
+                c.text_bg(
+                    x + 7,
+                    y + 1,
+                    &fit(
+                        "└─ Set in this shell; desktop T3's own env is private (never read).",
+                        w - 8,
+                    ),
+                    p.text2,
+                    p.panel,
+                    false,
+                );
+            }
+            y += card_h;
+        } else {
+            c.set(x + 2, y, '○', p.dim, None, false);
+            c.text(x + 4, y, &num, p.dim);
+            c.text(x + 7, y, &fit(&step.step, step_w), p.text2);
+            let val_room = (x + w - 4 - val_x).max(0);
+            if val_room >= 6 {
+                c.text(val_x, y, &fit(&step.value, val_room), p.dim);
+            }
+            c.right(x + w - 1, y, "·", p.faint);
+            y += 1;
+        }
+    }
+
+    if !s.ladder.iter().any(|l| l.decisive) && s.counts_toward_verdict {
+        let (g, word, g_ink, w_ink, bold) = board_stream_badge(s, p);
+        draw_panel_box(c, x, y, w, 1, g_ink, p);
+        c.set(x + 2, y, g, g_ink, Some(p.panel), true);
+        c.text_bg(x + 7, y, &fit("Default (no opt-out)", step_w), p.fg, p.panel, true);
+        let badge = format!("{g} {word}");
+        let val_room = (x + w - 1 - width(&badge) - 2 - val_x).max(0);
+        if val_room >= 6 {
+            c.text_bg(val_x, y, &fit(&s.decided_detail, val_room), p.text2, p.panel, false);
+        }
+        c.right_with(x + w - 1, y, &badge, w_ink, Some(p.panel), bold);
+        y += 1;
+    }
+    y
+}
+
+fn snippet_label_and_badge(snip: &Snippet) -> (&'static str, &'static str) {
+    match snip.for_kind {
+        "managed_policy" => ("Managed policy (all launches)", "VERIFIED · NO LOGOUT"),
+        "desktop_omarchy" => ("Omarchy Hyprland env", "NO SUDO · UNVERIFIED"),
+        "desktop_uwsm" => ("uwsm session env", "NO SUDO · UNVERIFIED"),
+        "desktop_linux" => ("Systemd environment.d", "NO SUDO · UNVERIFIED"),
+        "service" => ("Service environment file", "VERIFIED · NO SUDO"),
+        "shell_macos" => ("Login shell profile (~/.zshrc)", "NO SUDO"),
+        "shell" => ("Shell profile", "NO SUDO"),
+        "policy_fix" => ("Validate managed policy", "REQUIRED TO START"),
+        "restart" => ("Restart T3 Code", "APPLY SAVED CONFIG"),
+        _ => ("Recommended step", "LOCAL"),
+    }
+}
+
+fn draw_action_panel(
+    c: &mut Canvas,
+    x: i32,
+    mut y: i32,
+    w: i32,
+    report: &Report,
+    p: &Palette,
+) -> i32 {
+    if report.verdict == Verdict::Off {
+        terminal::section_with(c, x, y, w, "STATUS", p, "read-only · verified", p.dim);
+        y += 1;
+        let msg = if report.server.policy_loaded.is_some() {
+            "Telemetry is locked off via managed policy and loaded by T3 Code. Nothing to fix."
+        } else {
+            "Product usage events and relay traces are both off. Nothing to fix."
+        };
+        let lines = wrap_lines(msg, (w - 3).max(16) as usize);
+        draw_panel_box(c, x, y, w, lines.len() as i32, p.accent, p);
+        for (i, line) in lines.iter().enumerate() {
+            c.text_bg(x + 2, y + i as i32, &fit(line, w - 3), p.text2, p.panel, false);
+        }
+        return y + lines.len() as i32 + 1;
+    }
+
+    if report.fix.is_empty() {
+        return y;
+    }
+
+    let heading = match report.verdict {
+        Verdict::Unverified if matches!(&report.inputs.policy, Read::Invalid { .. }) => "HOW TO FIX POLICY",
+        Verdict::Unverified => "HOW TO LOCK & VERIFY OFF",
+        Verdict::RestartNeeded => "HOW TO APPLY IT",
+        Verdict::Misconfigured => "HOW TO FIX IT",
+        _ => "HOW TO TURN IT OFF",
+    };
+    let right_tag = if w >= 56 {
+        "f fix in T3 · Loupe edits nothing"
+    } else {
+        "f fix in T3"
+    };
+    terminal::section_with(c, x, y, w, heading, p, right_tag, p.dim);
+    y += 1;
+
+    for (idx, snip) in report.fix.iter().take(2).enumerate() {
+        let (title_text, badge_text) = snippet_label_and_badge(snip);
+        let numbered_title = format!("{}. {title_text}", idx + 1);
+        let (cmd_lines, clipped) = format_command_lines(&snip.command, (w - 4).max(16) as usize);
+        let note_lines = wrap_lines(&snip.note, (w - 4).max(16) as usize);
+        let card_h = 1 + cmd_lines.len() as i32 + i32::from(clipped) + note_lines.len() as i32;
+
+        let stripe = if idx == 0 {
+            match report.verdict {
+                Verdict::Misconfigured => p.hot,
+                Verdict::RestartNeeded => p.warn,
+                _ => p.accent,
+            }
+        } else {
+            p.rule
+        };
+        draw_panel_box(c, x, y, w, card_h, stripe, p);
+
+        // Card header: numbered option title + concise right-aligned tag
+        let badge_ink = if idx == 0 { stripe } else { p.dim };
+        let title_room = (w - 4 - width(badge_text) - 2).max(12);
+        c.text_bg(x + 2, y, &fit(&numbered_title, title_room), p.bright, p.panel, true);
+        if w >= width(&numbered_title).min(title_room) + width(badge_text) + 5 {
+            c.right_with(x + w - 1, y, badge_text, badge_ink, Some(p.panel), idx == 0);
+        }
+        let mut cy = y + 1;
+
+        for line in &cmd_lines {
+            c.text_bg(x + 2, cy, &fit(line, w - 3), p.fg, p.panel, false);
+            cy += 1;
+        }
+        if clipped {
+            c.text_bg(
+                x + 2,
+                cy,
+                &fit("full command: loupe --telemetry-check --json", w - 3),
+                p.dim,
+                p.panel,
+                false,
+            );
+            cy += 1;
+        }
+        for line in &note_lines {
+            c.text_bg(
+                x + 2,
+                cy,
+                &fit(line, w - 3),
+                if idx == 0 { p.text2 } else { p.dim },
+                p.panel,
+                false,
+            );
+            cy += 1;
+        }
+        y = cy + 1;
+    }
+    y
+}
+
+fn draw_compact_sources_panel(
+    c: &mut Canvas,
+    x: i32,
+    mut y: i32,
+    w: i32,
+    report: &Report,
+    p: &Palette,
+) -> i32 {
+    let right = if w >= 52 {
+        format!("{} · tab for details", sources_badge(report))
+    } else {
+        sources_badge(report)
+    };
+    terminal::section_with(c, x, y, w, "LOCAL SOURCES", p, &right, p.dim);
+    y += 1;
+    for rec in &report.inputs.reads {
+        draw_source_compact_row(c, x, y, w, rec, p);
+        y += 1;
+    }
+    y + 1
+}
+
 fn build_sources_body(report: &Report, cols: usize, p: &Palette) -> Canvas {
-    let mut c = Canvas::cleared(cols, 80, p.bg, p.fg);
+    let mut c = Canvas::cleared(cols, 96, p.bg, p.fg);
     let ww = cols as i32;
+    let cw = (ww - 2).min(184).max(MIN_COLUMNS as i32 - 2);
     let mut y = 0i32;
 
-    let right = format!("{} · nothing sent", sources_badge(report));
-    terminal::section_with(&mut c, 1, y, ww - 2, "LOCAL SOURCES INSPECTED", p, &right, p.dim);
+    // Server Metadata & Privacy summary panel
+    let ver = report.server.version.as_deref().unwrap_or("unknown");
+    let st = match report.server.state {
+        Liveness::Running => "running",
+        Liveness::Stopped => "stopped",
+        Liveness::PidReused => "pid reused",
+        Liveness::Unknown => "unknown",
+    };
+    let launch = report.server.launch.kind_str();
+    let auth_note = match report.server.auth_files_hashed {
+        AuthFilesHashed::Yes => "hashes ~/.codex/auth.json & ~/.claude.json (< 2026-11-24.5209)",
+        AuthFilesHashed::No => "does not hash provider auth files (#42299)",
+        AuthFilesHashed::Unknown => "auth-file hashing status unknown for this version",
+    };
+    let has_pol = report.server.policy_loaded.is_some();
+    let card_h = 3 + i32::from(has_pol);
+    let stripe = if report.server.auth_files_hashed == AuthFilesHashed::Yes {
+        p.warn
+    } else {
+        p.accent
+    };
+    draw_panel_box(&mut c, 1, y, cw, card_h, stripe, p);
+    c.text_bg(3, y, "T3 SERVER & AUDIT SUMMARY", p.dim, p.panel, true);
+    c.right_with(1 + cw - 1, y, "read-only · nothing sent", p.dim, Some(p.panel), false);
+    c.text_bg(
+        3,
+        y + 1,
+        &fit(&format!("state: {st}  ·  launch: {launch}  ·  version: {ver}"), cw - 3),
+        p.fg,
+        p.panel,
+        true,
+    );
+    c.text_bg(
+        3,
+        y + 2,
+        &fit(auth_note, cw - 3),
+        if report.server.auth_files_hashed == AuthFilesHashed::Yes {
+            p.warn
+        } else {
+            p.text2
+        },
+        p.panel,
+        false,
+    );
+    if let Some(pol) = &report.server.policy_loaded {
+        c.text_bg(
+            3,
+            y + 3,
+            &fit(
+                &format!(
+                    "loaded policy: {} ({}) · fingerprint {}",
+                    pol.organization, pol.source, pol.fingerprint
+                ),
+                cw - 3,
+            ),
+            p.accent,
+            p.panel,
+            false,
+        );
+    }
+    y += card_h + 1;
+
+    let right = format!("{} · nothing written", sources_badge(report));
+    terminal::section_with(&mut c, 1, y, cw, "LOCAL SOURCES INSPECTED", p, &right, p.dim);
     y += 1;
 
     let mtime_w = 8;
-    let path_w = ((ww - 18 - mtime_w) / 2).max(16);
+    let path_w = ((cw - 18 - mtime_w) / 2).max(16);
     let detail_x = 16 + path_w + 2;
-    let detail_w = (ww - 1 - mtime_w - detail_x).max(0);
+    let detail_w = (1 + cw - mtime_w - detail_x).max(0);
     for rec in &report.inputs.reads {
         let (glyph, state_word, g_ink) = match rec.outcome {
-            ReadOutcome::Read => ('✓', "read", p.text2),
+            ReadOutcome::Read => ('✓', "read", p.accent),
             ReadOutcome::StatOnly => ('✓', "stat only", p.text2),
             ReadOutcome::Absent => ('·', "absent", p.dim),
             ReadOutcome::Unreadable => ('△', "unreadable", p.warn),
@@ -1776,63 +2564,9 @@ fn build_sources_body(report: &Report, cols: usize, p: &Palette) -> Canvas {
             c.text(detail_x, y, &fit(&rec.detail, detail_w), p.dim);
         }
         if !mtime_str.is_empty() {
-            c.right(ww - 1, y, &mtime_str, p.dim);
+            c.right(1 + cw, y, &mtime_str, p.dim);
         }
         y += 1;
-    }
-
-    y += 1;
-    terminal::section_with(&mut c, 1, y, ww - 2, "SERVER METADATA", p, "server-runtime.json", p.dim);
-    y += 1;
-    let ver = report.server.version.as_deref().unwrap_or("unknown");
-    let st = match report.server.state {
-        crate::telemetry::Liveness::Running => "running",
-        crate::telemetry::Liveness::Stopped => "stopped",
-        crate::telemetry::Liveness::PidReused => "pid reused",
-        crate::telemetry::Liveness::Unknown => "unknown",
-    };
-    let launch = report.server.launch.kind_str();
-    c.text(
-        1,
-        y,
-        &fit(&format!("state: {st} · launch: {launch} · version: {ver}"), ww - 2),
-        p.text2,
-    );
-    y += 1;
-    if let Some(pol) = &report.server.policy_loaded {
-        c.text(
-            1,
-            y,
-            &fit(
-                &format!(
-                    "loaded policy: {} ({}) · fingerprint {}",
-                    pol.organization, pol.source, pol.fingerprint
-                ),
-                ww - 2,
-            ),
-            p.dim,
-        );
-        y += 1;
-    }
-    if report.fix.len() > 1 {
-        y += 1;
-        let snip = &report.fix[1];
-        terminal::section_with(&mut c, 1, y, ww - 2, &snip.heading, p, "Loupe changes nothing", p.dim);
-        y += 1;
-        let (lines, clipped) = format_command_lines(&snip.command, (ww - 4).max(16) as usize);
-        c.fill(1, y, ww - 2, lines.len() as i32, p.panel);
-        for line in &lines {
-            c.text_bg(2, y, line, p.fg, p.panel, false);
-            y += 1;
-        }
-        if clipped {
-            c.text(1, y, &fit("full command: loupe --telemetry-check --json", ww - 2), p.dim);
-            y += 1;
-        }
-        for line in wrap_lines(&snip.note, (ww - 2).max(16) as usize) {
-            c.text(1, y, &line, p.dim);
-            y += 1;
-        }
     }
 
     crop_canvas(&c, cols, (y + 1).max(1) as usize, p)
@@ -2022,5 +2756,80 @@ mod tests {
         let (lines_narrow, clipped_narrow) = format_command_lines(policy, 50);
         assert!(clipped_narrow);
         assert_eq!(lines_narrow.len(), 1);
+    }
+
+    #[test]
+    fn omarchy_shell_unverified_board_is_clear_actionable_and_has_no_stray_prompt() {
+        let mut inp = demo::inputs(1_795_532_700_000.0);
+        inp.uwsm_detected = false;
+        inp.omarchy_hypr_detected = true;
+        inp.hosts = Read::Absent;
+        inp.shell = crate::telemetry::EnvSet::default();
+        inp.shell
+            .set_raw(crate::telemetry::EnvKey::TelemetryEnabled, "false");
+        inp.server.liveness = Liveness::Running;
+        inp.server.launch = crate::telemetry::Launch::Desktop("Hyprland".into());
+        let rep = crate::telemetry::evaluate(inp);
+
+        let mut state = State::new(Snapshot::default());
+        state.now = 1_795_532_710_000.0;
+        let mut view = TelemetryView::new();
+
+        for &(cols, rows) in &[(185, 55), (120, 34), (96, 28), (64, 22), (120, 16)] {
+            view.scroll = 0;
+            let canvas = view.render(&state, Some(&rep), 1, false, false, cols, rows);
+            let text = canvas.to_text();
+            assert!(
+                !text.contains("have a T3 thread turn this off"),
+                "stray floating prompt must not appear at {cols}x{rows}:\n{text}"
+            );
+            assert!(
+                !text.contains("in shell  "),
+                "confusing 'in shell' status badge must not appear at {cols}x{rows}:\n{text}"
+            );
+            assert!(
+                text.contains("unverified") || text.contains("UNVERIFIED"),
+                "clear unverified state expected at {cols}x{rows}:\n{text}"
+            );
+            if cols >= 116 && rows >= 30 {
+                assert!(
+                    text.contains("Managed policy"),
+                    "verified managed policy option expected without scrolling at {cols}x{rows}:\n{text}"
+                );
+                assert!(
+                    text.contains("Omarchy Hyprland env"),
+                    "Omarchy Hyprland env option expected without scrolling at {cols}x{rows}:\n{text}"
+                );
+                assert!(
+                    text.contains("VERDICT") && text.contains("PRODUCT EVENTS"),
+                    "visual summary tiles expected at {cols}x{rows}:\n{text}"
+                );
+            } else if rows >= 22 {
+                // Stacked viewport: full scrollable body contains both actionable fix cards.
+                let body_text = view.body.as_ref().expect("body built").to_text();
+                assert!(
+                    body_text.contains("Managed policy") && body_text.contains("Omarchy Hyprland env"),
+                    "stacked body should contain both options at {cols}x{rows}:\n{body_text}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn board_click_hit_testing_selects_grouped_rows() {
+        let rep = demo::report(1_795_532_700_000.0);
+        let mut state = State::new(Snapshot::default());
+        state.demo = true;
+        let mut view = TelemetryView::new();
+        let _ = view.render(&state, Some(&rep), 1, false, false, 140, 40);
+        assert_eq!(view.selected, 0);
+        assert!(view.hits.len() == TelemetryView::selectable_count(&rep));
+        // Clicking the screen row (`body_y + 1`) of the second stream selects index 1.
+        let (second_body_y, second_idx) = view.hits[1];
+        assert_eq!(second_idx, 1);
+        assert!(view.press(second_body_y + 1));
+        assert_eq!(view.selected, 1);
+        // Clicking header row (y=0) returns false.
+        assert!(!view.press(0));
     }
 }

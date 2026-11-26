@@ -433,6 +433,7 @@ pub struct Inputs {
     pub checked_at: f64,
     pub data_folder_exists: bool,
     pub uwsm_detected: bool,
+    pub omarchy_hypr_detected: bool,
     pub in_container: bool,
     pub shell: EnvSet,
     pub service_env: Read<EnvSet>,
@@ -2305,7 +2306,7 @@ fn evaluate_product_events(
             } else if eff_env.is_unverified_for_running() {
                 (
                     StreamState::Unverified,
-                    "in this shell · app env private".to_owned(),
+                    "set in this shell · app env private".to_owned(),
                 )
             } else {
                 (
@@ -2313,9 +2314,14 @@ fn evaluate_product_events(
                     format!("T3CODE_TELEMETRY_ENABLED={raw} ({})", eff_env.where_label()),
                 )
             };
+            let ladder_value = if eff_env.is_unverified_for_running() {
+                format!("\"{raw}\" (this shell only)")
+            } else {
+                format!("\"{raw}\" → false")
+            };
             ladder.push(LadderStep {
                 step: "T3CODE_TELEMETRY_ENABLED".into(),
-                value: format!("\"{raw}\" → false"),
+                value: ladder_value,
                 parsed: Some("false".into()),
                 decisive: true,
                 state_hint: Some(state),
@@ -2792,7 +2798,7 @@ fn evaluate_relay_traces(
         } else if eff_env.is_unverified_for_running() {
             (
                 StreamState::Unverified,
-                "in this shell · app env private".to_owned(),
+                "set in this shell · app env private".to_owned(),
             )
         } else {
             (
@@ -2800,9 +2806,14 @@ fn evaluate_relay_traces(
                 format!("T3CODE_TELEMETRY_ENABLED={raw} ({})", eff_env.where_label()),
             )
         };
+        let ladder_value = if eff_env.is_unverified_for_running() {
+            format!("\"{raw}\" (this shell only)")
+        } else {
+            format!("\"{raw}\" → false")
+        };
         ladder.push(LadderStep {
             step: "T3CODE_TELEMETRY_ENABLED".into(),
-            value: format!("\"{raw}\" → false"),
+            value: ladder_value,
             parsed: Some("false".into()),
             decisive: true,
             state_hint: Some(state),
@@ -2856,9 +2867,14 @@ fn evaluate_relay_traces(
             } else {
                 StreamState::Off
             };
+            let ladder_value = if eff_env.is_unverified_for_running() {
+                format!("\"{raw}\" (this shell only)")
+            } else {
+                format!("\"{raw}\" → true")
+            };
             ladder.push(LadderStep {
                 step: "T3CODE_OTEL_SDK_DISABLED".into(),
-                value: format!("\"{raw}\" → true"),
+                value: ladder_value,
                 parsed: Some("true".into()),
                 decisive: true,
                 state_hint: Some(state),
@@ -2941,7 +2957,7 @@ fn evaluate_relay_traces(
         } else if eff_env.is_unverified_for_running() {
             (
                 StreamState::Unverified,
-                "in this shell · app env private".into(),
+                "set in this shell · app env private".into(),
             )
         } else {
             (
@@ -2976,9 +2992,14 @@ fn evaluate_relay_traces(
             } else {
                 StreamState::Off
             };
+            let ladder_value = if eff_env.is_unverified_for_running() {
+                format!("\"{raw}\" (this shell only)")
+            } else {
+                format!("\"{raw}\" → true")
+            };
             ladder.push(LadderStep {
                 step: "OTEL_SDK_DISABLED".into(),
-                value: format!("\"{raw}\" → true"),
+                value: ladder_value,
                 parsed: Some("true".into()),
                 decisive: true,
                 state_hint: Some(state),
@@ -3061,7 +3082,7 @@ fn evaluate_relay_traces(
         } else if eff_env.is_unverified_for_running() {
             (
                 StreamState::Unverified,
-                "in this shell · app env private".into(),
+                "set in this shell · app env private".into(),
             )
         } else {
             (
@@ -3376,7 +3397,7 @@ fn build_summary(
             } else if no_t3_or_policy {
                 "No T3 data folder or policy found here — set T3CODE_HOME if it's elsewhere.".into()
             } else {
-                "Set in this shell; Loupe never reads the running app's env (API keys live there)."
+                "Off in this shell; desktop T3's env is private — use policy.json to verify."
                     .into()
             }
         }
@@ -3413,65 +3434,92 @@ fn build_fix_snippets(
     }
     let service_env_path = display_service_env_path(inputs);
     let quoted_service_env = shell_quote_path(&service_env_path);
-    let mut out = Vec::new();
-    if service_managed == Some(true) {
-        out.push(Snippet {
+
+    let (policy_dir, policy_path) = match inputs.platform {
+        Platform::MacOs => (
+            "\"/Library/Application Support/T3Code\"",
+            "\"/Library/Application Support/T3Code/policy.json\"",
+        ),
+        _ => ("/etc/t3code", "/etc/t3code/policy.json"),
+    };
+    let policy_snippet = Snippet {
+        for_kind: "managed_policy",
+        heading: "MACHINE-WIDE POLICY".into(),
+        command: format!(
+            "sudo install -d -m 755 {policy_dir} && printf '%s%s%s\\n' '{{\"schemaVersion\":1,' '\"organization\":\"Local\",' '\"limits\":{{\"telemetry\":false}}}}' | sudo tee {policy_path}"
+        ),
+        note: "covers desktop, service & shell; restart T3 Code (no logout) — Loupe verifies it"
+            .into(),
+    };
+
+    let session_snippet = if service_managed == Some(true) {
+        Snippet {
             for_kind: "service",
             heading: "TO TURN IT ALL OFF".into(),
             command: format!(
                 "echo 'T3CODE_TELEMETRY_ENABLED=false' >> {quoted_service_env} && t3 service restart"
             ),
             note: format!("T3 Code is running as a service and reads {service_env_path}."),
-        });
+        }
     } else if matches!(inputs.platform, Platform::Linux)
         && matches!(inputs.server.launch, Launch::Desktop(_))
     {
-        if inputs.uwsm_detected {
-            out.push(Snippet {
+        if inputs.omarchy_hypr_detected {
+            Snippet {
+                for_kind: "desktop_omarchy",
+                heading: "TO TURN IT ALL OFF".into(),
+                command: "echo 'hl.env(\"T3CODE_TELEMETRY_ENABLED\", \"false\")' >> ~/.config/hypr/hyprland.lua && hyprctl reload".into(),
+                note: "no sudo; restart T3 Code after reload (stays unverified — app env is private)".into(),
+            }
+        } else if inputs.uwsm_detected {
+            Snippet {
                 for_kind: "desktop_uwsm",
                 heading: "TO TURN IT ALL OFF".into(),
                 command: "echo 'export T3CODE_TELEMETRY_ENABLED=false' >> ~/.config/uwsm/env".into(),
-                note: "then log out and back in, so T3 Code starts with it".into(),
-            });
+                note: "no sudo; log out and back in so T3 starts with it (stays unverified — app env is private)".into(),
+            }
         } else {
-            out.push(Snippet {
+            Snippet {
                 for_kind: "desktop_linux",
                 heading: "TO TURN IT ALL OFF".into(),
-                command: "printf 'T3CODE_TELEMETRY_ENABLED=false\\n' > ~/.config/environment.d/t3code.conf"
-                    .into(),
-                note: "then log out and back in, so T3 Code starts with it".into(),
-            });
+                command: "mkdir -p ~/.config/environment.d && printf 'T3CODE_TELEMETRY_ENABLED=false\\n' > ~/.config/environment.d/t3code.conf".into(),
+                note: "no sudo; log out and back in so T3 starts with it (stays unverified — app env is private)".into(),
+            }
         }
     } else if matches!(inputs.platform, Platform::MacOs) {
-        out.push(Snippet {
+        Snippet {
             for_kind: "shell_macos",
             heading: "TO TURN IT ALL OFF".into(),
             command: "echo 'export T3CODE_TELEMETRY_ENABLED=false' >> ~/.zshrc".into(),
-            note: "then restart T3 Code (the desktop app reads your login shell profile)".into(),
-        });
+            note: "no sudo; restart T3 Code (desktop app reads your login shell profile)".into(),
+        }
     } else {
-        out.push(Snippet {
+        Snippet {
             for_kind: "shell",
             heading: "TO TURN IT ALL OFF".into(),
             command: "export T3CODE_TELEMETRY_ENABLED=false".into(),
             note: "add to your shell profile (~/.zshrc or ~/.bashrc), then restart T3 Code".into(),
-        });
-    }
-
-    // Universal managed policy option (covers every launch path)
-    let policy_path = match inputs.platform {
-        Platform::MacOs => "/Library/Application Support/T3Code/policy.json",
-        _ => "/etc/t3code/policy.json",
+        }
     };
-    out.push(Snippet {
-        for_kind: "managed_policy",
-        heading: "MACHINE-WIDE POLICY".into(),
-        command: format!(
-            "printf '{{\"schemaVersion\":1,\"organization\":\"Local\",\"limits\":{{\"telemetry\":false}}}}\\n' | sudo tee \"{policy_path}\""
-        ),
-        note: "covers desktop, service, and shell launches; restart T3 Code after writing".into(),
-    });
-    out
+
+    // For Linux desktop launches (especially when already off in this shell and unverified),
+    // managed policy is the primary fix because it requires no logout and Loupe can verify it.
+    let prefer_policy_first = service_managed != Some(true)
+        && ((verdict == Verdict::Unverified && inputs.data_folder_exists)
+            || (matches!(inputs.platform, Platform::Linux)
+                && matches!(inputs.server.launch, Launch::Desktop(_))));
+
+    if prefer_policy_first {
+        let mut primary = policy_snippet;
+        primary.heading = if verdict == Verdict::Unverified {
+            "LOCK & VERIFY OFF".into()
+        } else {
+            "TO TURN IT ALL OFF".into()
+        };
+        vec![primary, session_snippet]
+    } else {
+        vec![session_snippet, policy_snippet]
+    }
 }
 
 /// Builds a self-contained, non-secret `(title, prompt)` pair for `t3 thread start`
@@ -3603,6 +3651,7 @@ mod tests {
             checked_at: 1_795_532_700_000.0,
             data_folder_exists: true,
             uwsm_detected: false,
+            omarchy_hypr_detected: false,
             in_container: false,
             shell: EnvSet::default(),
             service_env: Read::Absent,
@@ -3858,6 +3907,7 @@ mod tests {
             hosts: hosts_path,
             nsswitch: Some(nss_path),
             uwsm_dir: None,
+            omarchy_hypr_lua: None,
             container_markers: Vec::new(),
         };
         struct FakeSys;
@@ -4115,6 +4165,7 @@ mod tests {
             hosts: dir.join("hosts"),
             nsswitch: None,
             uwsm_dir: None,
+            omarchy_hypr_lua: None,
             container_markers: Vec::new(),
         };
         struct FakeSys;
@@ -4222,6 +4273,7 @@ mod tests {
             hosts: dir.join("no-hosts"),
             nsswitch: None,
             uwsm_dir: None,
+            omarchy_hypr_lua: None,
             container_markers: Vec::new(),
         };
         let gathered = gather::gather(
@@ -4264,6 +4316,7 @@ mod tests {
             hosts: dir2.join("no-hosts"),
             nsswitch: None,
             uwsm_dir: None,
+            omarchy_hypr_lua: None,
             container_markers: Vec::new(),
         };
         let g2 = gather::gather(
@@ -4282,5 +4335,31 @@ mod tests {
         assert!(!gather::is_trusted_system_target(Path::new("/home/alice/.t3/userdata/secrets/key")));
         assert!(!gather::is_trusted_system_target(Path::new("/tmp/evil")));
         let _ = fs::remove_dir_all(&dir2);
+    }
+
+    #[test]
+    fn omarchy_desktop_shell_opt_out_recommends_verified_policy_and_hyprland_lua() {
+        let mut inp = base_inputs();
+        inp.platform = Platform::Linux;
+        inp.omarchy_hypr_detected = true;
+        inp.server.liveness = Liveness::Running;
+        inp.server.launch = Launch::Desktop("Hyprland".into());
+        inp.shell.set_raw(EnvKey::TelemetryEnabled, "false");
+        let rep = evaluate(inp);
+
+        assert_eq!(rep.verdict, Verdict::Unverified);
+        assert_eq!(rep.streams[0].state, StreamState::Unverified);
+        assert!(
+            rep.streams[0].ladder[1].value.contains("this shell only"),
+            "ladder value should clarify shell-only scope: {:?}",
+            rep.streams[0].ladder[1].value
+        );
+        assert_eq!(rep.fix.len(), 2);
+        assert_eq!(rep.fix[0].for_kind, "managed_policy");
+        assert!(rep.fix[0].command.contains("install -d -m 755 /etc/t3code"));
+        assert!(rep.fix[0].command.contains("/etc/t3code/policy.json"));
+        assert_eq!(rep.fix[1].for_kind, "desktop_omarchy");
+        assert!(rep.fix[1].command.contains("~/.config/hypr/hyprland.lua"));
+        assert!(rep.fix[1].command.contains("hl.env"));
     }
 }

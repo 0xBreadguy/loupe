@@ -38,6 +38,7 @@ pub struct Paths {
     pub hosts: PathBuf,
     pub nsswitch: Option<PathBuf>,
     pub uwsm_dir: Option<PathBuf>,
+    pub omarchy_hypr_lua: Option<PathBuf>,
     pub container_markers: Vec<PathBuf>,
 }
 
@@ -66,15 +67,16 @@ impl Paths {
             PathBuf::from("/etc/hosts")
         };
         let nsswitch = cfg!(target_os = "linux").then(|| PathBuf::from("/etc/nsswitch.conf"));
-        let uwsm_dir = if cfg!(target_os = "linux") {
+        let config_dir = if cfg!(target_os = "linux") {
             std::env::var_os("XDG_CONFIG_HOME")
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from)
                 .or_else(|| env.home.as_ref().map(|h| PathBuf::from(h).join(".config")))
-                .map(|c| c.join("uwsm"))
         } else {
             None
         };
+        let uwsm_dir = config_dir.as_ref().map(|c| c.join("uwsm"));
+        let omarchy_hypr_lua = config_dir.map(|c| c.join("hypr").join("hyprland.lua"));
         let container_markers = if cfg!(target_os = "linux") {
             vec![
                 PathBuf::from("/.flatpak-info"),
@@ -90,6 +92,7 @@ impl Paths {
             hosts,
             nsswitch,
             uwsm_dir,
+            omarchy_hypr_lua,
             container_markers,
         }
     }
@@ -432,6 +435,10 @@ pub fn gather(
         .uwsm_dir
         .as_deref()
         .is_some_and(|p| fs::symlink_metadata(p).is_ok());
+    let omarchy_hypr_detected = paths
+        .omarchy_hypr_lua
+        .as_deref()
+        .is_some_and(|p| fs::symlink_metadata(p).is_ok());
     let in_container = paths
         .container_markers
         .iter()
@@ -443,6 +450,7 @@ pub fn gather(
         checked_at: now,
         data_folder_exists,
         uwsm_detected,
+        omarchy_hypr_detected,
         in_container,
         shell,
         service_env,
