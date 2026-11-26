@@ -1866,7 +1866,7 @@ pub fn evaluate(inputs: Inputs) -> Report {
                             rc.path, rc.path
                         ),
                         Some(format!(
-                            "Move it to {desktop_target} (no sudo, tracked by Loupe) or create optional /etc/t3code/policy.json."
+                            "Create /etc/t3code/policy.json (recommended, verified) or move it to {desktop_target} (no sudo)."
                         )),
                     )
                 }
@@ -1877,7 +1877,7 @@ pub fn evaluate(inputs: Inputs) -> Report {
                         rc.path
                     ),
                     Some(format!(
-                        "Set it in {desktop_target} or optional /etc/t3code/policy.json so Loupe can track it."
+                        "Create /etc/t3code/policy.json (recommended, verified) or set it in {desktop_target} (no sudo)."
                     )),
                 ),
                 (Launch::Desktop(_), None) => (
@@ -1914,7 +1914,7 @@ pub fn evaluate(inputs: Inputs) -> Report {
                             rc.path, rc.path
                         ),
                         Some(format!(
-                            "Move it to {desktop_target} (no sudo, tracked by Loupe) or create optional /etc/t3code/policy.json."
+                            "Create /etc/t3code/policy.json (recommended, verified) or move it to {desktop_target} (no sudo)."
                         )),
                     )
                 }

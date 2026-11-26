@@ -930,6 +930,7 @@ fn product_launch(
     let telemetry_source = TelemetrySource::for_database(&database);
     let now = clock::wall_now();
     let insights_source = InsightsSource::from(&database);
+    let default_sidebar = !theme::disabled() && !matches!(&database, Database::Path { origin: Origin::Db, .. });
     let (mut state, mut host) = match database {
         Database::Demo => {
             let state = match demo::snapshot(now, now) {
@@ -980,6 +981,10 @@ fn product_launch(
     };
     state.calm = calm;
     state.storage_key_in_help = !theme::disabled();
+    if default_sidebar {
+        state.scope = "t3".into();
+        state.normalize();
+    }
     state.interval = interval;
     // Use the same launch roots for the dashboard warning and the Storage view.
     if let StorageSource::Disk(roots) = &storage {

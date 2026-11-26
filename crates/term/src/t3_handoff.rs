@@ -176,11 +176,6 @@ impl T3Handoff {
                 self.state = HandoffState::Error("T3 handoff is unavailable with --db".into());
             }
             HandoffSource::Machine => {
-                let projects = collect_projects(dashboard, preferred_project_id);
-                let project_id = projects[0].0.clone();
-                let models = db_path
-                    .map(|p| handoff::read_model_choices(p, &project_id))
-                    .unwrap_or_else(|| vec![ModelChoice::Unselected]);
                 let resolved_base_dir = base_dir
                     .filter(|p| validate_base_dir(p).is_ok())
                     .or_else(|| {
@@ -188,6 +183,13 @@ impl T3Handoff {
                             .and_then(base_dir_from_db)
                             .filter(|p| validate_base_dir(p).is_ok())
                     });
+                let scratch_project = db_path
+                    .and_then(|p| handoff::read_scratch_project(p, resolved_base_dir.as_deref()));
+                let projects = collect_projects(dashboard, preferred_project_id, scratch_project);
+                let project_id = projects[0].0.clone();
+                let models = db_path
+                    .map(|p| handoff::read_model_choices(p, &project_id))
+                    .unwrap_or_else(|| vec![ModelChoice::Unselected]);
                 let pending = PendingAction::Start {
                     action_label,
                     title: exact_title,
@@ -700,6 +702,7 @@ fn state_for_pending(pending: &PendingAction) -> HandoffState {
 pub(super) fn collect_projects(
     state: &State,
     preferred_project_id: Option<&str>,
+    scratch_project: Option<(String, String)>,
 ) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
     let mut push_unique = |id: &str, name: &str| {
@@ -732,6 +735,13 @@ pub(super) fn collect_projects(
         } else {
             push_unique(pref_id, pref_id);
         }
+        // Keep T3's "No project" scratch workspace one ←→ tap away even for repo-scoped handoffs.
+        if let Some((sid, slabel)) = &scratch_project {
+            push_unique(sid, slabel);
+        }
+    } else if let Some((sid, slabel)) = &scratch_project {
+        // Machine-wide handoffs (e.g. Telemetry, global Insights) default to "No project".
+        push_unique(sid, slabel);
     }
 
     for preferred in [state.selected.as_deref(), state.linked.as_deref()]

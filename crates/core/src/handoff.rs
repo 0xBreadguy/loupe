@@ -333,6 +333,89 @@ pub fn is_valid_cli_token(s: &str) -> bool {
             .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b':' | b'/' | b'@' | b'+' | b'-'))
 }
 
+/// Find T3 Code's scratch ("No project") entry in `projection_projects`, read-only.
+/// Matches either the expected `<base_dir>/scratch` workspace root (raw or canonicalized)
+/// or an explicit `"No project"` title, returning `(project_id, display_label)`.
+/// Never opens secrets, auth tables, prompts, or message text.
+pub fn read_scratch_project(db_path: &Path, base_dir: Option<&Path>) -> Option<(String, String)> {
+    let db = crate::source::open_read_only(db_path).ok()?;
+    let _ = db.busy_timeout(Duration::from_millis(250));
+    db.execute_batch("PRAGMA query_only=ON").ok()?;
+    read_scratch_project_from(&db, base_dir)
+}
+
+fn read_scratch_project_from(
+    db: &Connection,
+    base_dir: Option<&Path>,
+) -> Option<(String, String)> {
+    let expected_raw = base_dir.map(|d| d.join("scratch"));
+    let expected_canon = expected_raw
+        .as_deref()
+        .and_then(|p| std::fs::canonicalize(p).ok());
+
+    let mut stmt = db
+        .prepare(
+            "SELECT project_id, title, workspace_root
+             FROM projection_projects
+             WHERE deleted_at IS NULL",
+        )
+        .ok()?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .ok()?;
+
+    let mut title_fallback: Option<(String, String)> = None;
+    for row in rows.flatten() {
+        let (pid, title_opt, root_opt) = row;
+        let pid = pid.trim().to_owned();
+        if pid.is_empty() || pid.starts_with('-') || pid.chars().any(char::is_control) {
+            continue;
+        }
+        let title = title_opt.unwrap_or_default();
+        let clean_title = terminal::clean(title.trim());
+        let root_str = root_opt.unwrap_or_default();
+        let root_path = Path::new(root_str.trim());
+
+        let matches_root = if let Some(exp) = &expected_raw {
+            root_path == exp.as_path()
+                || expected_canon
+                    .as_deref()
+                    .is_some_and(|c| {
+                        root_path == c
+                            || std::fs::canonicalize(root_path)
+                                .ok()
+                                .is_some_and(|rc| rc == c)
+                    })
+        } else {
+            root_path.file_name().is_some_and(|n| n == "scratch")
+                && root_path
+                    .parent()
+                    .and_then(|p| p.file_name())
+                    .is_some_and(|n| n == ".t3")
+        };
+
+        let label = if clean_title.is_empty() || clean_title.eq_ignore_ascii_case("no project") {
+            "No project".to_owned()
+        } else {
+            format!("No project ({clean_title})")
+        };
+
+        if matches_root {
+            return Some((pid, label));
+        }
+        if clean_title.eq_ignore_ascii_case("no project") && title_fallback.is_none() {
+            title_fallback = Some((pid, "No project".to_owned()));
+        }
+    }
+    title_fallback
+}
+
 /// Resolve ordered model choices for `t3 thread start` on `project_id` from T3's local SQLite
 /// database, strictly read-only (`PRAGMA query_only=ON`).
 ///
@@ -1498,9 +1581,12 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
                     y,
                     project_name,
                     project_id,
+                    *project_count,
                     model_detail,
+                    *model_count,
                     base_dir_display,
                     *destructive,
+                    *armed,
                     *needs_model_pick,
                     title,
                     prompt,
@@ -1543,7 +1629,7 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
                 }
             } else if *armed {
                 x += c.text_bg(x, y, "⏎", p.hot, p.sel, true) + 1;
-                let suffix = format!("{prev_hint} · Esc cancel");
+                let suffix = format!("{proj_hint}{model_hint}{prev_hint} · Esc cancel");
                 let suffix_w = terminal::width(&suffix) as i32;
                 let lead_room = (w - 2 - x - suffix_w).max(12);
                 let lead = format!(
@@ -1676,9 +1762,12 @@ fn draw_preview_modal(
     bar_y: i32,
     project_name: &str,
     project_id: &str,
+    project_count: usize,
     model_detail: &str,
+    model_count: usize,
     base_dir_display: &str,
     destructive: bool,
+    armed: bool,
     needs_model_pick: bool,
     title: &str,
     prompt: &str,
@@ -1703,17 +1792,27 @@ fn draw_preview_modal(
     let inner_w = (box_w - 4).max(16) as usize;
     let mut lines: Vec<String> = Vec::new();
     wrap_preview_line(&format!("Title (--title=): {}", terminal::clean(title)), inner_w, &mut lines);
+    let proj_switch = if project_count > 1 {
+        format!("  [←→ switch · {project_count} options]")
+    } else {
+        String::new()
+    };
     wrap_preview_line(
         &format!(
-            "Project arg: {} ({})",
+            "Project arg: {} ({}){proj_switch}",
             terminal::clean(project_id),
             terminal::clean(project_name)
         ),
         inner_w,
         &mut lines,
     );
+    let model_switch = if model_count > 1 {
+        format!("  [↑↓ switch · {model_count} options]")
+    } else {
+        String::new()
+    };
     wrap_preview_line(
-        &format!("Model: {}", terminal::clean(model_detail)),
+        &format!("Model: {}{model_switch}", terminal::clean(model_detail)),
         inner_w,
         &mut lines,
     );
@@ -1777,6 +1876,29 @@ fn draw_preview_modal(
     );
     let hdr_fit = terminal::fit(&header, (box_w - 4).max(10) as usize);
     c.text_bg(margin_x + 2, top_y, &hdr_fit, p.accent, p.panel, true);
+
+    let mut controls: Vec<&str> = Vec::new();
+    if project_count > 1 {
+        controls.push("←→ project");
+    }
+    if model_count > 1 {
+        controls.push("↑↓ model");
+    }
+    controls.push("j/k scroll");
+    controls.push("p hide");
+    if !needs_model_pick {
+        controls.push(if armed {
+            "⏎ confirm"
+        } else if destructive {
+            "⏎ arm"
+        } else {
+            "⏎ start"
+        });
+    }
+    controls.push("Esc cancel");
+    let footer_hint = format!(" {} ", controls.join(" · "));
+    let ftr_fit = terminal::fit(&footer_hint, (box_w - 4).max(10) as usize);
+    c.text_bg(margin_x + 2, top_y + box_h - 1, &ftr_fit, p.text2, p.panel, false);
 
     for (i, line) in lines[start..end].iter().enumerate() {
         let row_y = top_y + 1 + i as i32;
@@ -2523,5 +2645,72 @@ mod tests {
             }
         );
         assert!(gamma[1].short_label().contains("other project"));
+    }
+
+    #[test]
+    fn read_scratch_project_finds_default_and_renamed_scratch_workspaces() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE projection_projects (
+                project_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                workspace_root TEXT NOT NULL,
+                deleted_at TEXT
+             );
+             INSERT INTO projection_projects VALUES
+               ('p-repo',    'Loupe',           '/home/u/code/loupe', NULL),
+               ('p-scratch', 'Omarchy (XPS14)', '/home/u/.t3/scratch', NULL),
+               ('p-gone',    'No project',      '/home/u/.t3/old', '2026-11-01T00:00:00Z');",
+        )
+        .unwrap();
+        let found = read_scratch_project_from(&db, Some(Path::new("/home/u/.t3"))).unwrap();
+        assert_eq!(found.0, "p-scratch");
+        assert_eq!(found.1, "No project (Omarchy (XPS14))");
+
+        let db2 = Connection::open_in_memory().unwrap();
+        db2.execute_batch(
+            "CREATE TABLE projection_projects (
+                project_id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                workspace_root TEXT NOT NULL,
+                deleted_at TEXT
+             );
+             INSERT INTO projection_projects VALUES
+               ('p-np', 'No project', '/Users/u/.t3/scratch', NULL);",
+        )
+        .unwrap();
+        let found2 = read_scratch_project_from(&db2, Some(Path::new("/Users/u/.t3"))).unwrap();
+        assert_eq!(found2, ("p-np".into(), "No project".into()));
+    }
+
+    #[test]
+    fn preview_modal_displays_project_and_model_movement_hints() {
+        let p = Palette::fallback();
+        let st = HandoffState::ConfirmStart {
+            action_label: "fix telemetry".into(),
+            project_name: "No project".into(),
+            project_id: "p-scratch".into(),
+            project_count: 3,
+            model_label: "codex/gpt-6.2-sol".into(),
+            model_detail: "--provider=codex --model=gpt-6.2-sol (project recent)".into(),
+            model_count: 2,
+            base_dir_display: "~/.t3".into(),
+            needs_model_pick: false,
+            destructive: true,
+            armed: true,
+            preview: true,
+            preview_scroll: 0,
+            title: "Turn off T3 Code telemetry".into(),
+            prompt: "Please help configure policy.json.".into(),
+        };
+        let mut c = Canvas::new(140, 26);
+        c.clear(p.bg, p.fg);
+        draw_handoff_bar(&mut c, 24, &st, &p);
+        let text = c.to_text();
+        assert!(text.contains("←→ project"), "missing ←→ project hint:\n{text}");
+        assert!(text.contains("↑↓ model"), "missing ↑↓ model hint:\n{text}");
+        assert!(text.contains("[←→ switch · 3 options]"), "missing inline project hint:\n{text}");
+        assert!(text.contains("[↑↓ switch · 2 options]"), "missing inline model hint:\n{text}");
+        assert!(text.contains("←→ proj") && text.contains("↑↓ model"), "armed bar should keep nav hints:\n{text}");
     }
 }

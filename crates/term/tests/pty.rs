@@ -1388,7 +1388,7 @@ fn demo_telemetry_board_navigation_and_no_themes_gating() {
     let on_telemetry = |rows: &[String]| {
         header(rows).contains("TELEMETRY")
             && header(rows).contains("SOURCES")
-            && rows.iter().any(|r| r.contains("WHAT T3 CODE SENDS"))
+            && rows.iter().any(|r| r.contains("TELEMETRY STREAMS"))
             && footer(rows).contains("e back")
     };
     let on_sources = |rows: &[String]| {
@@ -1430,7 +1430,7 @@ fn demo_telemetry_board_navigation_and_no_themes_gating() {
     let status = pty.wait();
     assert!(status.success(), "{status:?}");
     let out = String::from_utf8_lossy(&pty.buf);
-    assert!(!out.contains("WHAT T3 CODE SENDS"), "e opened Telemetry under LOUPE_NO_THEMES");
+    assert!(!out.contains("TELEMETRY STREAMS"), "e opened Telemetry under LOUPE_NO_THEMES");
 }
 
 #[test]

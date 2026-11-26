@@ -1402,7 +1402,10 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
     let all_keys = [
         ("↑↓ j k", "select agent"),
         ("n", "next agent waiting on you"),
+        ("s", "storage: disk use by project and thread"),
         ("i", "insights: Recap and Tools"),
+        ("w", "trace: the agent's task on a clock"),
+        ("e", "telemetry: what T3 sends"),
         ("⏎ o", "open the thread in T3 Code"),
         ("M", "message or nudge the selected thread in T3"),
         ("␣ ← →", "fold · unfold · earlier"),
@@ -1416,9 +1419,6 @@ pub fn draw_help(c: &mut Canvas, s: &State, p: &Palette) -> usize {
         ("m", "calm mode: nothing moves"),
         ("mouse", "click selects, wheel scrolls"),
         ("c C", "theme: next · back"),
-        ("w", "trace: the agent's task on a clock"),
-        ("s", "storage: disk use by project and thread"),
-        ("e", "telemetry: what T3 sends"),
         ("q Esc", "quit (Esc closes help)"),
     ];
     // `c` is the product's; the original's help, which the parity checks compare, has no theme key.
