@@ -100,6 +100,8 @@ pub fn inputs(now: f64) -> Inputs {
         omarchy_hypr_detected: false,
         in_container: false,
         shell,
+        desktop_env: None,
+        shell_rc_source: None,
         service_env: Read::Absent,
         policy: Read::Absent,
         macos_managed_prefs_present: false,

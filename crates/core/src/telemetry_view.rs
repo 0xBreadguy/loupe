@@ -124,6 +124,9 @@ fn board_stream_badge(stream: &Stream, p: &Palette) -> (char, &'static str, Rgb,
         if stream.decided_detail.contains("invalid") || stream.decided_detail.contains("both") {
             return ('✗', "invalid", p.warn, p.warn, true);
         }
+        if stream.decided_detail.contains("desktop skips it") {
+            return ('!', "shell only", p.warn, p.warn, true);
+        }
         return ('?', "unverified", p.text2, p.fg, false);
     }
     let (g, w, gi, wi, b) = stream_style(stream.state, p);
@@ -1392,7 +1395,8 @@ fn stream_meter(stream: &Stream, p: &Palette) -> (f64, Rgb) {
         StreamState::Unverified => {
             let warn = stream.decided_detail.contains("unreadable")
                 || stream.decided_detail.contains("invalid")
-                || stream.decided_detail.contains("both");
+                || stream.decided_detail.contains("both")
+                || stream.decided_detail.contains("desktop skips it");
             (0.35, if warn { p.warn } else { p.dim })
         }
         StreamState::RestartNeeded => (0.6, p.warn),
@@ -1447,6 +1451,12 @@ fn verdict_meter(report: &Report, p: &Palette) -> (f64, Rgb, String) {
             if report
                 .findings
                 .iter()
+                .any(|f| (f.id == "shell_env_unverified" || f.id == "shell_otel_unverified") && f.severity == Severity::Warn)
+            {
+                (0.35, p.warn, "0/2 in desktop env".into())
+            } else if report
+                .findings
+                .iter()
                 .any(|f| f.id == "shell_env_unverified" || f.id == "shell_otel_unverified")
             {
                 (0.35, p.dim, format!("0/{total} verified"))
@@ -1468,10 +1478,12 @@ fn verdict_accent_ink(report: &Report, p: &Palette) -> Rgb {
             if matches!(
                 &report.inputs.policy,
                 Read::Invalid { .. } | Read::Unreadable(_)
-            ) || report
-                .findings
-                .iter()
-                .any(|f| f.id == "invalid_telemetry_enabled" || f.id == "macos_dual_policy_conflict") =>
+            ) || report.findings.iter().any(|f| {
+                f.id == "invalid_telemetry_enabled"
+                    || f.id == "macos_dual_policy_conflict"
+                    || ((f.id == "shell_env_unverified" || f.id == "shell_otel_unverified")
+                        && f.severity == Severity::Warn)
+            }) =>
         {
             p.warn
         }
@@ -1712,10 +1724,17 @@ fn draw_summary_tiles(
         c.set(tx + 2, y0 + 1, srv_glyph, srv_ink, Some(p.panel), true);
         c.text_bg(tx + 4, y0 + 1, &fit(srv_word, tw - 5), p.fg, p.panel, true);
 
+        let short_ver = |v: &str| -> String {
+            if let Some(idx) = v.find("-nightly.") {
+                format!("{}-nightly", &v[..idx])
+            } else {
+                v.to_owned()
+            }
+        };
         let ver_text = match (report.server.version.as_deref(), report.server.auth_files_hashed) {
-            (Some(v), AuthFilesHashed::Yes) => (format!("v{v} · hashes auth"), p.warn),
-            (Some(v), AuthFilesHashed::No) => (format!("v{v} · auth safe"), p.text2),
-            (Some(v), AuthFilesHashed::Unknown) => (format!("v{v}"), p.text2),
+            (Some(v), AuthFilesHashed::Yes) => (format!("v{} · hashes auth", short_ver(v)), p.warn),
+            (Some(v), AuthFilesHashed::No) => (format!("v{} · auth safe", short_ver(v)), p.text2),
+            (Some(v), AuthFilesHashed::Unknown) => (format!("v{}", short_ver(v)), p.text2),
             (None, _) => ("version unknown".into(), p.dim),
         };
         c.text_bg(
@@ -1737,7 +1756,7 @@ fn draw_summary_tiles(
                 ("policy.json · restart T3", p.warn)
             }
             (Read::Ok { .. }, _) => ("policy.json · telemetry unset", p.dim),
-            (Read::Absent, _) => ("policy.json · none", p.dim),
+            (Read::Absent, _) => ("policy.json · optional (none)", p.dim),
         };
         c.text_bg(tx + 2, y0 + 3, &fit(pol_text, tw - 3), pol_ink, p.panel, false);
         c.text_bg(
@@ -2272,7 +2291,11 @@ fn draw_visual_pipeline(
                 StreamState::Off => p.accent,
                 _ => g_ink,
             };
-            let shell_expl = s.state == StreamState::Unverified && s.decided_detail.contains("shell");
+            let desktop_skip_expl = s.state == StreamState::Unverified
+                && s.decided_detail.contains("desktop skips it");
+            let shell_expl = desktop_skip_expl
+                || (s.state == StreamState::Unverified
+                    && (s.decided_detail.contains("shell") || s.decided_detail.contains("app env private")));
             let card_h = if shell_expl { 2 } else { 1 };
             draw_panel_box(c, x, y, w, card_h, stripe, p);
             c.set(x + 2, y, '◆', stripe, Some(p.panel), true);
@@ -2288,13 +2311,15 @@ fn draw_visual_pipeline(
             c.right_with(x + w - 1, y, &badge, w_ink, Some(p.panel), bold);
 
             if shell_expl {
+                let expl_text = if desktop_skip_expl {
+                    "└─ Desktop T3 usually skips interactive shell rc files; set in desktop env or policy.json."
+                } else {
+                    "└─ Set in this shell; desktop T3's own env is private (never read)."
+                };
                 c.text_bg(
                     x + 7,
                     y + 1,
-                    &fit(
-                        "└─ Set in this shell; desktop T3's own env is private (never read).",
-                        w - 8,
-                    ),
+                    &fit(expl_text, w - 8),
                     p.text2,
                     p.panel,
                     false,
@@ -2332,11 +2357,11 @@ fn draw_visual_pipeline(
 
 fn snippet_label_and_badge(snip: &Snippet) -> (&'static str, &'static str) {
     match snip.for_kind {
-        "managed_policy" => ("Managed policy (all launches)", "VERIFIED · NO LOGOUT"),
-        "desktop_omarchy" => ("Omarchy Hyprland env", "NO SUDO · UNVERIFIED"),
-        "desktop_uwsm" => ("uwsm session env", "NO SUDO · UNVERIFIED"),
-        "desktop_linux" => ("Systemd environment.d", "NO SUDO · UNVERIFIED"),
-        "service" => ("Service environment file", "VERIFIED · NO SUDO"),
+        "managed_policy" => ("Managed policy (optional)", "VERIFIED BY T3 · NEEDS SUDO"),
+        "desktop_omarchy" => ("Omarchy Hyprland env", "NO SUDO · TRACKED BY LOUPE"),
+        "desktop_uwsm" => ("uwsm session env", "NO SUDO · TRACKED BY LOUPE"),
+        "desktop_linux" => ("Systemd environment.d", "NO SUDO · TRACKED BY LOUPE"),
+        "service" => ("Service environment file", "NO SUDO · TRACKED BY LOUPE"),
         "shell_macos" => ("Login shell profile (~/.zshrc)", "NO SUDO"),
         "shell" => ("Shell profile", "NO SUDO"),
         "policy_fix" => ("Validate managed policy", "REQUIRED TO START"),
@@ -2354,10 +2379,23 @@ fn draw_action_panel(
     p: &Palette,
 ) -> i32 {
     if report.verdict == Verdict::Off {
-        terminal::section_with(c, x, y, w, "STATUS", p, "read-only · verified", p.dim);
+        terminal::section_with(c, x, y, w, "STATUS", p, "read-only · off", p.dim);
         y += 1;
         let msg = if report.server.policy_loaded.is_some() {
             "Telemetry is locked off via managed policy and loaded by T3 Code. Nothing to fix."
+        } else if let Some(de) = &report.inputs.desktop_env {
+            return {
+                let text = format!(
+                    "Telemetry is turned off in {} and T3 Code started after the last edit. Nothing to fix.",
+                    de.source_label
+                );
+                let lines = wrap_lines(&text, (w - 3).max(16) as usize);
+                draw_panel_box(c, x, y, w, lines.len() as i32, p.accent, p);
+                for (i, line) in lines.iter().enumerate() {
+                    c.text_bg(x + 2, y + i as i32, &fit(line, w - 3), p.text2, p.panel, false);
+                }
+                y + lines.len() as i32 + 1
+            };
         } else {
             "Product usage events and relay traces are both off. Nothing to fix."
         };
@@ -2375,6 +2413,15 @@ fn draw_action_panel(
 
     let heading = match report.verdict {
         Verdict::Unverified if matches!(&report.inputs.policy, Read::Invalid { .. }) => "HOW TO FIX POLICY",
+        Verdict::Unverified
+            if report
+                .inputs
+                .shell_rc_source
+                .as_ref()
+                .is_some_and(|rc| rc.interactive_only) =>
+        {
+            "HOW TO APPLY TO DESKTOP T3"
+        }
         Verdict::Unverified => "HOW TO LOCK & VERIFY OFF",
         Verdict::RestartNeeded => "HOW TO APPLY IT",
         Verdict::Misconfigured => "HOW TO FIX IT",
@@ -2769,6 +2816,10 @@ mod tests {
             .set_raw(crate::telemetry::EnvKey::TelemetryEnabled, "false");
         inp.server.liveness = Liveness::Running;
         inp.server.launch = crate::telemetry::Launch::Desktop("Hyprland".into());
+        inp.shell_rc_source = Some(crate::telemetry::ShellRcSource {
+            path: "~/.bashrc".into(),
+            interactive_only: true,
+        });
         let rep = crate::telemetry::evaluate(inp);
 
         let mut state = State::new(Snapshot::default());
@@ -2788,8 +2839,8 @@ mod tests {
                 "confusing 'in shell' status badge must not appear at {cols}x{rows}:\n{text}"
             );
             assert!(
-                text.contains("unverified") || text.contains("UNVERIFIED"),
-                "clear unverified state expected at {cols}x{rows}:\n{text}"
+                text.contains("shell only") || text.contains("SHELL ONLY") || text.contains("~/.bashrc"),
+                "clear ~/.bashrc shell-only diagnosis expected at {cols}x{rows}:\n{text}"
             );
             if cols >= 116 && rows >= 30 {
                 assert!(

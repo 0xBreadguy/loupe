@@ -425,6 +425,26 @@ pub struct ReadRecord {
     pub detail: String,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct DesktopEnv {
+    pub env: EnvSet,
+    /// Short display path of the file providing the active telemetry setting(s), e.g.
+    /// `~/.config/hypr/hyprland.lua`, `~/.config/uwsm/env`, `~/.config/environment.d/t3code.conf`,
+    /// or `/etc/environment`.
+    pub source_label: String,
+    /// Latest modification stamp among the contributing desktop env file(s), used for restart checks.
+    pub stamp: Stamp,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ShellRcSource {
+    /// Short display path of the shell file declaring the opt-out, e.g. `~/.bashrc` or `~/.profile`.
+    pub path: String,
+    /// True for interactive-only shell rc files (`~/.bashrc`, `~/.zshrc`) that Linux desktop
+    /// launchers normally skip.
+    pub interactive_only: bool,
+}
+
 /// Everything a telemetry check inspected. Pure data — no handles, no I/O.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Inputs {
@@ -436,6 +456,8 @@ pub struct Inputs {
     pub omarchy_hypr_detected: bool,
     pub in_container: bool,
     pub shell: EnvSet,
+    pub desktop_env: Option<DesktopEnv>,
+    pub shell_rc_source: Option<ShellRcSource>,
     pub service_env: Read<EnvSet>,
     pub policy: Read<Policy>,
     /// macOS only: `/Library/Managed Preferences/com.t3tools.t3code.plist` exists (stat-only, never opened).
@@ -1335,6 +1357,7 @@ fn utc_civil(seconds: i64) -> (i64, i64, i64, i64, i64, i64) {
 
 enum EffectiveEnv<'a> {
     Service(&'a EnvSet, Option<&'a Stamp>),
+    DesktopConfig(&'a EnvSet, &'a str, &'a Stamp),
     SameShell(&'a EnvSet),
     OtherLaunch(&'a EnvSet),
     StoppedShell(&'a EnvSet),
@@ -1344,6 +1367,7 @@ impl<'a> EffectiveEnv<'a> {
     fn set(&self) -> &'a EnvSet {
         match self {
             EffectiveEnv::Service(s, _)
+            | EffectiveEnv::DesktopConfig(s, _, _)
             | EffectiveEnv::SameShell(s)
             | EffectiveEnv::OtherLaunch(s)
             | EffectiveEnv::StoppedShell(s) => s,
@@ -1352,7 +1376,9 @@ impl<'a> EffectiveEnv<'a> {
 
     fn confidence(&self) -> Confidence {
         match self {
-            EffectiveEnv::Service(_, _) | EffectiveEnv::SameShell(_) => Confidence::Likely,
+            EffectiveEnv::Service(_, _)
+            | EffectiveEnv::DesktopConfig(_, _, _)
+            | EffectiveEnv::SameShell(_) => Confidence::Likely,
             EffectiveEnv::OtherLaunch(_) | EffectiveEnv::StoppedShell(_) => Confidence::Unverified,
         }
     }
@@ -1360,6 +1386,15 @@ impl<'a> EffectiveEnv<'a> {
     fn where_label(&self) -> &'static str {
         match self {
             EffectiveEnv::Service(_, _) => "service.env",
+            EffectiveEnv::DesktopConfig(_, _, _) => "desktop env",
+            _ => "shell",
+        }
+    }
+
+    fn detail_source(&self) -> &str {
+        match self {
+            EffectiveEnv::Service(_, _) => "service.env",
+            EffectiveEnv::DesktopConfig(_, src, _) => src,
             _ => "shell",
         }
     }
@@ -1441,10 +1476,21 @@ pub fn evaluate(inputs: Inputs) -> Report {
                 same_as_loupe: true,
                 ..
             } => EffectiveEnv::SameShell(&inputs.shell),
+            Launch::Desktop(_) => match &inputs.desktop_env {
+                Some(de) if !de.env.entries.is_empty() => {
+                    EffectiveEnv::DesktopConfig(&de.env, &de.source_label, &de.stamp)
+                }
+                _ => EffectiveEnv::OtherLaunch(&inputs.shell),
+            },
             _ => EffectiveEnv::OtherLaunch(&inputs.shell),
         }
     } else {
-        EffectiveEnv::StoppedShell(&inputs.shell)
+        match &inputs.desktop_env {
+            Some(de) if !de.env.entries.is_empty() => {
+                EffectiveEnv::DesktopConfig(&de.env, &de.source_label, &de.stamp)
+            }
+            _ => EffectiveEnv::StoppedShell(&inputs.shell),
+        }
     };
 
     // Detect shell vs service.env / desktop mismatch (opt-out set in shell)
@@ -1658,12 +1704,19 @@ pub fn evaluate(inputs: Inputs) -> Report {
         });
     }
 
-    // Check service.env modified after service-managed server started
-    let service_env_stale = match (&eff_env, runtime_ok) {
-        (EffectiveEnv::Service(_, Some(stamp)), Some(rt)) if server_alive => {
-            stamp.modified_ms > rt.started_at + RESTART_GRACE_MS
+    // Check service.env or desktop launcher config modified after server started
+    let env_config_stale_source: Option<&str> = match (&eff_env, runtime_ok) {
+        (EffectiveEnv::Service(_, Some(stamp)), Some(rt))
+            if server_alive && stamp.modified_ms > rt.started_at + RESTART_GRACE_MS =>
+        {
+            Some("service.env")
         }
-        _ => false,
+        (EffectiveEnv::DesktopConfig(_, src, stamp), Some(rt))
+            if server_alive && stamp.modified_ms > rt.started_at + RESTART_GRACE_MS =>
+        {
+            Some(src)
+        }
+        _ => None,
     };
 
     // Check service.env opting out when T3 is NOT service-managed
@@ -1717,7 +1770,7 @@ pub fn evaluate(inputs: Inputs) -> Report {
         macos_profile_active,
         macos_dual_policy,
         policy_restart_reason.as_deref(),
-        service_env_stale,
+        env_config_stale_source,
         server_alive,
         runtime_ok,
         &posthog_host,
@@ -1740,7 +1793,7 @@ pub fn evaluate(inputs: Inputs) -> Report {
         macos_profile_active,
         macos_dual_policy,
         policy_restart_reason.as_deref(),
-        service_env_stale,
+        env_config_stale_source,
         server_alive,
         runtime_ok,
         &mut findings,
@@ -1794,41 +1847,102 @@ pub fn evaluate(inputs: Inputs) -> Report {
         && !macos_profile_active
         && !macos_dual_policy
     {
+        let desktop_target = if inputs.omarchy_hypr_detected {
+            "~/.config/hypr/hyprland.lua"
+        } else if inputs.uwsm_detected {
+            "~/.config/uwsm/env"
+        } else {
+            "~/.config/environment.d/t3code.conf"
+        };
         if shell_opts_out_telemetry {
-            let msg = match &inputs.server.launch {
-                Launch::Desktop(_) => "T3CODE_TELEMETRY_ENABLED=false is set in this shell. Desktop T3 loads your login shell profile on start, so Loupe cannot verify from here whether the running server has it.",
-                _ => "T3CODE_TELEMETRY_ENABLED=false is set in this shell, but T3 Code was started from a different shell.",
+            let (severity, msg, fix) = match (&inputs.server.launch, &inputs.shell_rc_source) {
+                (Launch::Desktop(_), Some(rc))
+                    if rc.interactive_only && matches!(inputs.platform, Platform::Linux) =>
+                {
+                    (
+                        Severity::Warn,
+                        format!(
+                            "T3CODE_TELEMETRY_ENABLED=false is only in {} (interactive shells). Desktop T3 launched by your compositor usually skips {}, so telemetry may still be on.",
+                            rc.path, rc.path
+                        ),
+                        Some(format!(
+                            "Move it to {desktop_target} (no sudo, tracked by Loupe) or create optional /etc/t3code/policy.json."
+                        )),
+                    )
+                }
+                (Launch::Desktop(_), Some(rc)) => (
+                    Severity::Caveat,
+                    format!(
+                        "T3CODE_TELEMETRY_ENABLED=false was found in {}, not in a desktop launcher env file or policy.json. Loupe never reads the running app's private env.",
+                        rc.path
+                    ),
+                    Some(format!(
+                        "Set it in {desktop_target} or optional /etc/t3code/policy.json so Loupe can track it."
+                    )),
+                ),
+                (Launch::Desktop(_), None) => (
+                    Severity::Caveat,
+                    "T3CODE_TELEMETRY_ENABLED=false is set in this shell, not in a desktop launcher env file or policy.json. Loupe never reads the running app's private env.".into(),
+                    None,
+                ),
+                _ => (
+                    Severity::Caveat,
+                    "T3CODE_TELEMETRY_ENABLED=false is set in this shell, but T3 Code was started from a different shell.".into(),
+                    None,
+                ),
             };
             findings.push(Finding {
                 id: "shell_env_unverified",
-                severity: Severity::Caveat,
+                severity,
                 stream: Some(StreamId::ProductEvents),
                 variable: Some("T3CODE_TELEMETRY_ENABLED"),
                 value: Some("false".into()),
                 where_set: Some("shell"),
                 pr: None,
-                message: msg.into(),
-                fix: None,
+                message: msg,
+                fix,
             });
         } else if let Some((var_name, var_val)) = &shell_otel_opt_out_var {
-            let msg = match &inputs.server.launch {
-                Launch::Desktop(_) => format!(
-                    "{var_name}={var_val} is set in this shell. Desktop T3 loads your login shell profile on start, so Loupe cannot verify from here whether the running server has it."
+            let (severity, msg, fix) = match (&inputs.server.launch, &inputs.shell_rc_source) {
+                (Launch::Desktop(_), Some(rc))
+                    if rc.interactive_only && matches!(inputs.platform, Platform::Linux) =>
+                {
+                    (
+                        Severity::Warn,
+                        format!(
+                            "{var_name}={var_val} is only in {} (interactive shells). Desktop T3 usually skips {}, so relay traces may still be on.",
+                            rc.path, rc.path
+                        ),
+                        Some(format!(
+                            "Move it to {desktop_target} (no sudo, tracked by Loupe) or create optional /etc/t3code/policy.json."
+                        )),
+                    )
+                }
+                (Launch::Desktop(_), _) => (
+                    Severity::Caveat,
+                    format!(
+                        "{var_name}={var_val} is set in this shell, not in a desktop launcher env file or policy.json. Loupe never reads the running app's private env."
+                    ),
+                    None,
                 ),
-                _ => format!(
-                    "{var_name}={var_val} is set in this shell, but T3 Code was started from a different shell."
+                _ => (
+                    Severity::Caveat,
+                    format!(
+                        "{var_name}={var_val} is set in this shell, but T3 Code was started from a different shell."
+                    ),
+                    None,
                 ),
             };
             findings.push(Finding {
                 id: "shell_otel_unverified",
-                severity: Severity::Caveat,
+                severity,
                 stream: Some(StreamId::RelayTraces),
                 variable: Some(var_name),
                 value: Some(var_val.clone()),
                 where_set: Some("shell"),
                 pr: None,
                 message: msg,
-                fix: None,
+                fix,
             });
         }
     }
@@ -2142,7 +2256,7 @@ fn evaluate_product_events(
     macos_profile_active: bool,
     macos_dual_policy: bool,
     policy_restart_reason: Option<&str>,
-    service_env_stale: bool,
+    env_config_stale_source: Option<&str>,
     server_alive: bool,
     runtime_ok: Option<&Runtime>,
     posthog_host: &str,
@@ -2204,9 +2318,9 @@ fn evaluate_product_events(
         };
     }
 
-    // Step 1: managed policy
+    // Step 1: managed policy (optional system-wide override; not created by T3 by default)
     let policy_val = match &inputs.policy {
-        Read::Absent => "no file".to_owned(),
+        Read::Absent => "not set (optional)".to_owned(),
         Read::Unreadable(k) => format!("unreadable ({k})"),
         Read::Invalid { .. } => "invalid (blocks startup)".to_owned(),
         Read::Ok { value, .. } => match value.telemetry {
@@ -2217,7 +2331,7 @@ fn evaluate_product_events(
     };
     if policy_invalid {
         ladder.push(LadderStep {
-            step: "policy.json telemetry".into(),
+            step: "policy.json (optional)".into(),
             value: policy_val,
             parsed: Some("invalid".into()),
             decisive: true,
@@ -2261,7 +2375,7 @@ fn evaluate_product_events(
             ),
         };
         ladder.push(LadderStep {
-            step: "policy.json telemetry".into(),
+            step: "policy.json (optional)".into(),
             value: policy_val,
             parsed: Some("false".into()),
             decisive: true,
@@ -2283,12 +2397,33 @@ fn evaluate_product_events(
         };
     }
     ladder.push(LadderStep {
-        step: "policy.json telemetry".into(),
+        step: "policy.json (optional)".into(),
         value: policy_val,
         parsed: None,
         decisive: false,
         state_hint: None,
     });
+
+    // Optional transparency step on Linux desktop: show that desktop launcher env had no opt-out
+    if matches!(inputs.platform, Platform::Linux)
+        && matches!(inputs.server.launch, Launch::Desktop(_))
+        && !matches!(eff_env, EffectiveEnv::DesktopConfig(_, _, _))
+    {
+        let hint = if inputs.omarchy_hypr_detected {
+            "none in hyprland.lua / env.d"
+        } else if inputs.uwsm_detected {
+            "none in uwsm/env / env.d"
+        } else {
+            "none in environment.d / /etc/environment"
+        };
+        ladder.push(LadderStep {
+            step: "desktop session env".into(),
+            value: hint.into(),
+            parsed: None,
+            decisive: false,
+            state_hint: None,
+        });
+    }
 
     // Step 2: T3CODE_TELEMETRY_ENABLED (strict Effect Config.Boolean for product events)
     let env_entry = eff_env.set().get(EnvKey::TelemetryEnabled);
@@ -2298,24 +2433,33 @@ fn evaluate_product_events(
             product_parsed: Bool3::False,
             ..
         }) => {
-            let (state, detail) = if service_env_stale {
+            let (state, detail) = if let Some(stale_src) = env_config_stale_source {
                 (
                     StreamState::RestartNeeded,
-                    "service.env changed after T3 started".to_owned(),
+                    format!("{stale_src} changed after T3 started"),
                 )
             } else if eff_env.is_unverified_for_running() {
-                (
-                    StreamState::Unverified,
-                    "set in this shell · app env private".to_owned(),
-                )
+                let d = match &inputs.shell_rc_source {
+                    Some(rc) if rc.interactive_only && matches!(inputs.platform, Platform::Linux) => {
+                        format!("only in {} · desktop skips it", rc.path)
+                    }
+                    Some(rc) => format!("in {} · app env private", rc.path),
+                    None => "set in this shell · app env private".to_owned(),
+                };
+                (StreamState::Unverified, d)
             } else {
                 (
                     StreamState::Off,
-                    format!("T3CODE_TELEMETRY_ENABLED={raw} ({})", eff_env.where_label()),
+                    format!("T3CODE_TELEMETRY_ENABLED={raw} ({})", eff_env.detail_source()),
                 )
             };
             let ladder_value = if eff_env.is_unverified_for_running() {
-                format!("\"{raw}\" (this shell only)")
+                match &inputs.shell_rc_source {
+                    Some(rc) => format!("\"{raw}\" ({} only)", rc.path),
+                    None => format!("\"{raw}\" (this shell only)"),
+                }
+            } else if let EffectiveEnv::DesktopConfig(_, src, _) = eff_env {
+                format!("\"{raw}\" ({src})")
             } else {
                 format!("\"{raw}\" → false")
             };
@@ -2640,7 +2784,7 @@ fn evaluate_relay_traces(
     macos_profile_active: bool,
     macos_dual_policy: bool,
     policy_restart_reason: Option<&str>,
-    service_env_stale: bool,
+    env_config_stale_source: Option<&str>,
     server_alive: bool,
     runtime_ok: Option<&Runtime>,
     findings: &mut Vec<Finding>,
@@ -2695,9 +2839,9 @@ fn evaluate_relay_traces(
         };
     }
 
-    // Step 1: managed policy
+    // Step 1: managed policy (optional)
     let policy_val = match &inputs.policy {
-        Read::Absent => "no file".to_owned(),
+        Read::Absent => "not set (optional)".to_owned(),
         Read::Unreadable(k) => format!("unreadable ({k})"),
         Read::Invalid { .. } => "invalid (blocks startup)".to_owned(),
         Read::Ok { value, .. } => match value.telemetry {
@@ -2708,7 +2852,7 @@ fn evaluate_relay_traces(
     };
     if policy_invalid {
         ladder.push(LadderStep {
-            step: "policy.json telemetry".into(),
+            step: "policy.json (optional)".into(),
             value: policy_val,
             parsed: Some("invalid".into()),
             decisive: true,
@@ -2752,7 +2896,7 @@ fn evaluate_relay_traces(
             ),
         };
         ladder.push(LadderStep {
-            step: "policy.json telemetry".into(),
+            step: "policy.json (optional)".into(),
             value: policy_val,
             parsed: Some("false".into()),
             decisive: true,
@@ -2774,12 +2918,32 @@ fn evaluate_relay_traces(
         };
     }
     ladder.push(LadderStep {
-        step: "policy.json telemetry".into(),
+        step: "policy.json (optional)".into(),
         value: policy_val,
         parsed: None,
         decisive: false,
         state_hint: None,
     });
+
+    if matches!(inputs.platform, Platform::Linux)
+        && matches!(inputs.server.launch, Launch::Desktop(_))
+        && !matches!(eff_env, EffectiveEnv::DesktopConfig(_, _, _))
+    {
+        let hint = if inputs.omarchy_hypr_detected {
+            "none in hyprland.lua / env.d"
+        } else if inputs.uwsm_detected {
+            "none in uwsm/env / env.d"
+        } else {
+            "none in environment.d / /etc/environment"
+        };
+        ladder.push(LadderStep {
+            step: "desktop session env".into(),
+            value: hint.into(),
+            parsed: None,
+            decisive: false,
+            state_hint: None,
+        });
+    }
 
     // Step 2: T3CODE_TELEMETRY_ENABLED=false also disables relay tracing
     // (`packages/shared/src/otelEnvironment.ts:325`, trimmed + lowercased)
@@ -2790,24 +2954,33 @@ fn evaluate_relay_traces(
         ..
     }) = tel_env
     {
-        let (state, detail) = if service_env_stale {
+        let (state, detail) = if let Some(stale_src) = env_config_stale_source {
             (
                 StreamState::RestartNeeded,
-                "service.env changed after T3 started".to_owned(),
+                format!("{stale_src} changed after T3 started"),
             )
         } else if eff_env.is_unverified_for_running() {
-            (
-                StreamState::Unverified,
-                "set in this shell · app env private".to_owned(),
-            )
+            let d = match &inputs.shell_rc_source {
+                Some(rc) if rc.interactive_only && matches!(inputs.platform, Platform::Linux) => {
+                    format!("only in {} · desktop skips it", rc.path)
+                }
+                Some(rc) => format!("in {} · app env private", rc.path),
+                None => "set in this shell · app env private".to_owned(),
+            };
+            (StreamState::Unverified, d)
         } else {
             (
                 StreamState::Off,
-                format!("T3CODE_TELEMETRY_ENABLED={raw} ({})", eff_env.where_label()),
+                format!("T3CODE_TELEMETRY_ENABLED={raw} ({})", eff_env.detail_source()),
             )
         };
         let ladder_value = if eff_env.is_unverified_for_running() {
-            format!("\"{raw}\" (this shell only)")
+            match &inputs.shell_rc_source {
+                Some(rc) => format!("\"{raw}\" ({} only)", rc.path),
+                None => format!("\"{raw}\" (this shell only)"),
+            }
+        } else if let EffectiveEnv::DesktopConfig(_, src, _) = eff_env {
+            format!("\"{raw}\" ({src})")
         } else {
             format!("\"{raw}\" → false")
         };
@@ -2860,7 +3033,7 @@ fn evaluate_relay_traces(
 
     let t3_val = match t3_otel {
         Some(EnvValue::Bool { raw, parsed: Bool3::True }) => {
-            let state = if service_env_stale {
+            let state = if env_config_stale_source.is_some() {
                 StreamState::RestartNeeded
             } else if eff_env.is_unverified_for_running() {
                 StreamState::Unverified
@@ -2868,7 +3041,12 @@ fn evaluate_relay_traces(
                 StreamState::Off
             };
             let ladder_value = if eff_env.is_unverified_for_running() {
-                format!("\"{raw}\" (this shell only)")
+                match &inputs.shell_rc_source {
+                    Some(rc) => format!("\"{raw}\" ({} only)", rc.path),
+                    None => format!("\"{raw}\" (this shell only)"),
+                }
+            } else if let EffectiveEnv::DesktopConfig(_, src, _) = eff_env {
+                format!("\"{raw}\" ({src})")
             } else {
                 format!("\"{raw}\" → true")
             };
@@ -2949,20 +3127,24 @@ fn evaluate_relay_traces(
     };
 
     if t3_val == Some(true) {
-        let (state, detail) = if service_env_stale {
+        let (state, detail) = if let Some(stale_src) = env_config_stale_source {
             (
                 StreamState::RestartNeeded,
-                "service.env changed after T3 started".into(),
+                format!("{stale_src} changed after T3 started"),
             )
         } else if eff_env.is_unverified_for_running() {
-            (
-                StreamState::Unverified,
-                "set in this shell · app env private".into(),
-            )
+            let d = match &inputs.shell_rc_source {
+                Some(rc) if rc.interactive_only && matches!(inputs.platform, Platform::Linux) => {
+                    format!("only in {} · desktop skips it", rc.path)
+                }
+                Some(rc) => format!("in {} · app env private", rc.path),
+                None => "set in this shell · app env private".into(),
+            };
+            (StreamState::Unverified, d)
         } else {
             (
                 StreamState::Off,
-                format!("T3CODE_OTEL_SDK_DISABLED=true ({})", eff_env.where_label()),
+                format!("T3CODE_OTEL_SDK_DISABLED=true ({})", eff_env.detail_source()),
             )
         };
         return Stream {
@@ -2985,7 +3167,7 @@ fn evaluate_relay_traces(
     let mut otel_misconfigured: Option<String> = None;
     let spec_disabled = match spec_otel {
         Some(EnvValue::Bool { raw, parsed: Bool3::True }) if t3_val.is_none() => {
-            let state = if service_env_stale {
+            let state = if env_config_stale_source.is_some() {
                 StreamState::RestartNeeded
             } else if eff_env.is_unverified_for_running() {
                 StreamState::Unverified
@@ -2993,7 +3175,12 @@ fn evaluate_relay_traces(
                 StreamState::Off
             };
             let ladder_value = if eff_env.is_unverified_for_running() {
-                format!("\"{raw}\" (this shell only)")
+                match &inputs.shell_rc_source {
+                    Some(rc) => format!("\"{raw}\" ({} only)", rc.path),
+                    None => format!("\"{raw}\" (this shell only)"),
+                }
+            } else if let EffectiveEnv::DesktopConfig(_, src, _) = eff_env {
+                format!("\"{raw}\" ({src})")
             } else {
                 format!("\"{raw}\" → true")
             };
@@ -3074,20 +3261,24 @@ fn evaluate_relay_traces(
     };
 
     if spec_disabled {
-        let (state, detail) = if service_env_stale {
+        let (state, detail) = if let Some(stale_src) = env_config_stale_source {
             (
                 StreamState::RestartNeeded,
-                "service.env changed after T3 started".into(),
+                format!("{stale_src} changed after T3 started"),
             )
         } else if eff_env.is_unverified_for_running() {
-            (
-                StreamState::Unverified,
-                "set in this shell · app env private".into(),
-            )
+            let d = match &inputs.shell_rc_source {
+                Some(rc) if rc.interactive_only && matches!(inputs.platform, Platform::Linux) => {
+                    format!("only in {} · desktop skips it", rc.path)
+                }
+                Some(rc) => format!("in {} · app env private", rc.path),
+                None => "set in this shell · app env private".into(),
+            };
+            (StreamState::Unverified, d)
         } else {
             (
                 StreamState::Off,
-                format!("OTEL_SDK_DISABLED=true ({})", eff_env.where_label()),
+                format!("OTEL_SDK_DISABLED=true ({})", eff_env.detail_source()),
             )
         };
         return Stream {
@@ -3396,8 +3587,27 @@ fn build_summary(
                     .into()
             } else if no_t3_or_policy {
                 "No T3 data folder or policy found here — set T3CODE_HOME if it's elsewhere.".into()
+            } else if let Some(rc) = &inputs.shell_rc_source {
+                if rc.interactive_only && matches!(inputs.platform, Platform::Linux) {
+                    let target = if inputs.omarchy_hypr_detected {
+                        "hyprland.lua"
+                    } else if inputs.uwsm_detected {
+                        "uwsm/env"
+                    } else {
+                        "environment.d"
+                    };
+                    format!(
+                        "Only in {} — desktop T3 likely skips it. Move to {} or policy.json.",
+                        rc.path, target
+                    )
+                } else {
+                    format!(
+                        "Set in {}; desktop T3's env is private — use desktop env or policy.json.",
+                        rc.path
+                    )
+                }
             } else {
-                "Off in this shell; desktop T3's env is private — use policy.json to verify."
+                "Off in this shell; desktop T3's env is private — use desktop env or policy.json."
                     .into()
             }
         }
@@ -3444,11 +3654,11 @@ fn build_fix_snippets(
     };
     let policy_snippet = Snippet {
         for_kind: "managed_policy",
-        heading: "MACHINE-WIDE POLICY".into(),
+        heading: "OPTIONAL MACHINE-WIDE POLICY".into(),
         command: format!(
             "sudo install -d -m 755 {policy_dir} && printf '%s%s%s\\n' '{{\"schemaVersion\":1,' '\"organization\":\"Local\",' '\"limits\":{{\"telemetry\":false}}}}' | sudo tee {policy_path}"
         ),
-        note: "covers desktop, service & shell; restart T3 Code (no logout) — Loupe verifies it"
+        note: "optional admin file (T3 never creates one); covers all launch paths & T3 logs it so Loupe marks it verified"
             .into(),
     };
 
@@ -3469,21 +3679,21 @@ fn build_fix_snippets(
                 for_kind: "desktop_omarchy",
                 heading: "TO TURN IT ALL OFF".into(),
                 command: "echo 'hl.env(\"T3CODE_TELEMETRY_ENABLED\", \"false\")' >> ~/.config/hypr/hyprland.lua && hyprctl reload".into(),
-                note: "no sudo; restart T3 Code after reload (stays unverified — app env is private)".into(),
+                note: "no sudo, no logout; restart T3 Code after reload — Loupe reads hyprland.lua and shows ✓ OFF".into(),
             }
         } else if inputs.uwsm_detected {
             Snippet {
                 for_kind: "desktop_uwsm",
                 heading: "TO TURN IT ALL OFF".into(),
                 command: "echo 'export T3CODE_TELEMETRY_ENABLED=false' >> ~/.config/uwsm/env".into(),
-                note: "no sudo; log out and back in so T3 starts with it (stays unverified — app env is private)".into(),
+                note: "no sudo; log out and back in so T3 starts with it — Loupe reads uwsm/env and shows ✓ OFF".into(),
             }
         } else {
             Snippet {
                 for_kind: "desktop_linux",
                 heading: "TO TURN IT ALL OFF".into(),
                 command: "mkdir -p ~/.config/environment.d && printf 'T3CODE_TELEMETRY_ENABLED=false\\n' > ~/.config/environment.d/t3code.conf".into(),
-                note: "no sudo; log out and back in so T3 starts with it (stays unverified — app env is private)".into(),
+                note: "no sudo; log out and back in so T3 starts with it — Loupe reads environment.d and shows ✓ OFF".into(),
             }
         }
     } else if matches!(inputs.platform, Platform::MacOs) {
@@ -3502,24 +3712,9 @@ fn build_fix_snippets(
         }
     };
 
-    // For Linux desktop launches (especially when already off in this shell and unverified),
-    // managed policy is the primary fix because it requires no logout and Loupe can verify it.
-    let prefer_policy_first = service_managed != Some(true)
-        && ((verdict == Verdict::Unverified && inputs.data_folder_exists)
-            || (matches!(inputs.platform, Platform::Linux)
-                && matches!(inputs.server.launch, Launch::Desktop(_))));
-
-    if prefer_policy_first {
-        let mut primary = policy_snippet;
-        primary.heading = if verdict == Verdict::Unverified {
-            "LOCK & VERIFY OFF".into()
-        } else {
-            "TO TURN IT ALL OFF".into()
-        };
-        vec![primary, session_snippet]
-    } else {
-        vec![session_snippet, policy_snippet]
-    }
+    // Put the no-sudo native launcher/service option first (Loupe reads & tracks it directly),
+    // with the optional machine-wide policy.json right below it for verified all-launch enforcement.
+    vec![session_snippet, policy_snippet]
 }
 
 /// Builds a self-contained, non-secret `(title, prompt)` pair for `t3 thread start`
@@ -3654,6 +3849,8 @@ mod tests {
             omarchy_hypr_detected: false,
             in_container: false,
             shell: EnvSet::default(),
+            desktop_env: None,
+            shell_rc_source: None,
             service_env: Read::Absent,
             policy: Read::Absent,
             macos_managed_prefs_present: false,
@@ -3908,6 +4105,9 @@ mod tests {
             nsswitch: Some(nss_path),
             uwsm_dir: None,
             omarchy_hypr_lua: None,
+            environment_d_dir: None,
+            etc_environment: None,
+            home_dir: None,
             container_markers: Vec::new(),
         };
         struct FakeSys;
@@ -4166,6 +4366,9 @@ mod tests {
             nsswitch: None,
             uwsm_dir: None,
             omarchy_hypr_lua: None,
+            environment_d_dir: None,
+            etc_environment: None,
+            home_dir: None,
             container_markers: Vec::new(),
         };
         struct FakeSys;
@@ -4274,6 +4477,9 @@ mod tests {
             nsswitch: None,
             uwsm_dir: None,
             omarchy_hypr_lua: None,
+            environment_d_dir: None,
+            etc_environment: None,
+            home_dir: None,
             container_markers: Vec::new(),
         };
         let gathered = gather::gather(
@@ -4317,6 +4523,9 @@ mod tests {
             nsswitch: None,
             uwsm_dir: None,
             omarchy_hypr_lua: None,
+            environment_d_dir: None,
+            etc_environment: None,
+            home_dir: None,
             container_markers: Vec::new(),
         };
         let g2 = gather::gather(
@@ -4338,28 +4547,163 @@ mod tests {
     }
 
     #[test]
-    fn omarchy_desktop_shell_opt_out_recommends_verified_policy_and_hyprland_lua() {
+    fn omarchy_desktop_shell_opt_out_recommends_hyprland_lua_and_optional_policy() {
         let mut inp = base_inputs();
         inp.platform = Platform::Linux;
         inp.omarchy_hypr_detected = true;
         inp.server.liveness = Liveness::Running;
         inp.server.launch = Launch::Desktop("Hyprland".into());
         inp.shell.set_raw(EnvKey::TelemetryEnabled, "false");
+        inp.shell_rc_source = Some(ShellRcSource {
+            path: "~/.bashrc".into(),
+            interactive_only: true,
+        });
         let rep = evaluate(inp);
 
         assert_eq!(rep.verdict, Verdict::Unverified);
         assert_eq!(rep.streams[0].state, StreamState::Unverified);
         assert!(
-            rep.streams[0].ladder[1].value.contains("this shell only"),
-            "ladder value should clarify shell-only scope: {:?}",
-            rep.streams[0].ladder[1].value
+            rep.streams[0].ladder[0].value.contains("optional"),
+            "policy step should note it is optional: {:?}",
+            rep.streams[0].ladder[0]
+        );
+        assert!(
+            rep.streams[0]
+                .ladder
+                .iter()
+                .any(|s| s.step == "desktop session env"),
+            "desktop session env step expected: {:?}",
+            rep.streams[0].ladder
+        );
+        assert!(
+            rep.streams[0]
+                .ladder
+                .iter()
+                .any(|s| s.value.contains("~/.bashrc only")),
+            "ladder should cite ~/.bashrc: {:?}",
+            rep.streams[0].ladder
+        );
+        assert!(
+            rep.findings
+                .iter()
+                .any(|f| f.id == "shell_env_unverified" && f.severity == Severity::Warn),
+            "interactive ~/.bashrc-only opt-out on Linux desktop should warn: {:?}",
+            rep.findings
         );
         assert_eq!(rep.fix.len(), 2);
-        assert_eq!(rep.fix[0].for_kind, "managed_policy");
-        assert!(rep.fix[0].command.contains("install -d -m 755 /etc/t3code"));
-        assert!(rep.fix[0].command.contains("/etc/t3code/policy.json"));
-        assert_eq!(rep.fix[1].for_kind, "desktop_omarchy");
-        assert!(rep.fix[1].command.contains("~/.config/hypr/hyprland.lua"));
-        assert!(rep.fix[1].command.contains("hl.env"));
+        assert_eq!(rep.fix[0].for_kind, "desktop_omarchy");
+        assert!(rep.fix[0].command.contains("~/.config/hypr/hyprland.lua"));
+        assert!(rep.fix[0].command.contains("hl.env"));
+        assert_eq!(rep.fix[1].for_kind, "managed_policy");
+        assert!(rep.fix[1].command.contains("install -d -m 755 /etc/t3code"));
+        assert!(rep.fix[1].command.contains("/etc/t3code/policy.json"));
+    }
+
+    #[test]
+    fn desktop_launcher_env_files_verify_off_detect_restart_and_never_leak_secrets() {
+        let dir = std::env::temp_dir().join(format!(
+            "loupe-tel-desktop-env-{}-{}",
+            std::process::id(),
+            crate::clock::wall_now() as u64
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        let userdata = dir.join("userdata");
+        let hypr = dir.join("config/hypr");
+        let envd = dir.join("config/environment.d");
+        fs::create_dir_all(&userdata).unwrap();
+        fs::create_dir_all(&hypr).unwrap();
+        fs::create_dir_all(&envd).unwrap();
+
+        // Put an unrelated secret file in environment.d and a secret in hyprland.lua & .bashrc
+        fs::write(envd.join("60-cloudflare.conf"), "CF_API_TOKEN=CANARY_CF_SECRET\n").unwrap();
+        fs::write(
+            hypr.join("hyprland.lua"),
+            "-- user hyprland config\nhl.env(\"SECRET_KEY\", \"CANARY_HYPR_SECRET\")\nhl.env(\"T3CODE_TELEMETRY_ENABLED\", \"false\")\n",
+        )
+        .unwrap();
+        fs::write(
+            dir.join(".bashrc"),
+            "export OPENAI_API_KEY=CANARY_BASHRC_SECRET\nexport T3CODE_TELEMETRY_ENABLED=false\n",
+        )
+        .unwrap();
+
+        let paths = gather::Paths {
+            data_folder: dir.clone(),
+            policy: dir.join("no-policy.json"),
+            macos_managed_prefs: None,
+            hosts: dir.join("no-hosts"),
+            nsswitch: None,
+            uwsm_dir: None,
+            omarchy_hypr_lua: Some(hypr.join("hyprland.lua")),
+            environment_d_dir: Some(envd),
+            etc_environment: None,
+            home_dir: Some(dir.clone()),
+            container_markers: Vec::new(),
+        };
+        struct FakeSys;
+        impl gather::System for FakeSys {
+            fn alive(&self, _pid: u32) -> crate::platform::ProcessAlive {
+                crate::platform::ProcessAlive::Stopped
+            }
+            fn stat(&self, _pid: u32) -> Option<crate::platform::ProcStat> {
+                None
+            }
+            fn loupe_ancestors(&self) -> Vec<u32> {
+                Vec::new()
+            }
+        }
+        let mut inputs = gather::gather(
+            &paths,
+            &|name| (name == "T3CODE_TELEMETRY_ENABLED").then(|| OsString::from("false")),
+            &FakeSys,
+            1_795_532_700_000.0,
+            Some(dir.to_string_lossy().into_owned()),
+        );
+        assert!(inputs.omarchy_hypr_detected);
+        let de = inputs.desktop_env.as_ref().expect("hyprland.lua detected");
+        assert!(de.source_label.ends_with("hyprland.lua"), "{}", de.source_label);
+        let hypr_mtime = de.stamp.modified_ms;
+
+        // 1. Running desktop server started AFTER hyprland.lua was written -> Verdict::Off (Likely)
+        inputs.server.liveness = Liveness::Running;
+        inputs.server.launch = Launch::Desktop("Hyprland".into());
+        inputs.runtime = Read::Ok {
+            value: Runtime {
+                version: 1,
+                pid: 4242,
+                started_at: hypr_mtime + 10_000.0,
+                started_at_raw: format_iso_utc(hypr_mtime + 10_000.0),
+                service_managed: Some(false),
+                server_version: Some("0.1.13".into()),
+                managed_policy: Some(None),
+            },
+            stamp: Stamp {
+                modified_ms: hypr_mtime + 10_000.0,
+                len: 120,
+            },
+        };
+        let rep_off = evaluate(inputs.clone());
+        assert_eq!(rep_off.verdict, Verdict::Off);
+        assert_eq!(rep_off.streams[0].state, StreamState::Off);
+        assert_eq!(rep_off.streams[0].confidence, Confidence::Likely);
+        assert_eq!(rep_off.streams[1].state, StreamState::Off);
+        let json_str = rep_off.json().to_string();
+        let dbg_str = format!("{rep_off:?}");
+        assert!(!json_str.contains("CANARY"), "secret leaked in json: {json_str}");
+        assert!(!dbg_str.contains("CANARY"), "secret leaked in debug: {dbg_str}");
+        assert!(
+            !json_str.contains("60-cloudflare") && !dbg_str.contains("60-cloudflare"),
+            "unrelated environment.d filename leaked: {json_str}"
+        );
+
+        // 2. Running desktop server started BEFORE hyprland.lua was edited -> RestartNeeded
+        if let Read::Ok { value, .. } = &mut inputs.runtime {
+            value.started_at = hypr_mtime - 60_000.0;
+        }
+        let rep_restart = evaluate(inputs);
+        assert_eq!(rep_restart.verdict, Verdict::RestartNeeded);
+        assert_eq!(rep_restart.streams[0].state, StreamState::RestartNeeded);
+
+        let _ = fs::remove_dir_all(&dir);
     }
 }
