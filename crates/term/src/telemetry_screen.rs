@@ -137,6 +137,8 @@ impl TelemetryScreen {
                 if view.help {
                     view.help = false;
                     view.scroll = 0;
+                } else if view.show_commands {
+                    view.show_commands = false;
                 } else {
                     handoff.dismiss();
                     self.close();
@@ -159,6 +161,11 @@ impl TelemetryScreen {
                     _ => {}
                 }
                 return false;
+            }
+            "enter" | "space" => {
+                if view.tab == loupe_core::telemetry_view::Tab::Telemetry {
+                    view.toggle_commands();
+                }
             }
             "f" => {
                 let Some(report) = self.active_report(state).0.cloned() else {

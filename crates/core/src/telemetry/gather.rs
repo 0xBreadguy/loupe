@@ -1748,6 +1748,20 @@ fn read_desktop_env(paths: &Paths, home_ref: Option<&str>) -> (Option<DesktopEnv
         }
     }
 
+    // 5. macOS login shell profiles (Electron desktop T3 loads login shell env on macOS)
+    if cfg!(target_vendor = "apple") {
+        if let Some(home) = &paths.home_dir {
+            for name in [".profile", ".bash_profile", ".zprofile", ".zshrc"] {
+                if let Ok((file, meta)) = open_under_root_nofollow(home, &[name]) {
+                    any_checked = true;
+                    if let Some((env, stamp)) = parse_env_stream_allowlisted(file, meta, SHELL_RC_CAP) {
+                        absorb(env, stamp, format!("~/{name}"));
+                    }
+                }
+            }
+        }
+    }
+
     match (source_label, latest_stamp) {
         (Some(label), Some(stamp)) if !merged.entries.is_empty() => {
             let n = merged.entries.len();

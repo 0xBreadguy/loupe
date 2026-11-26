@@ -1000,6 +1000,7 @@ struct BodyKey {
     compact_height: bool,
     tab: Tab,
     selected: usize,
+    show_commands: bool,
     help: bool,
     palette_tag: u64,
 }
@@ -1049,6 +1050,7 @@ pub struct TelemetryView {
     pub tab: Tab,
     pub selected: usize,
     pub scroll: usize,
+    pub show_commands: bool,
     pub help: bool,
     body_key: Option<BodyKey>,
     body: Option<Canvas>,
@@ -1080,6 +1082,10 @@ impl TelemetryView {
             Tab::Sources => Tab::Telemetry,
         };
         self.scroll = 0;
+    }
+
+    pub fn toggle_commands(&mut self) {
+        self.show_commands = !self.show_commands;
     }
 
     pub fn move_selection(&mut self, delta: isize, total_rows: usize) {
@@ -1203,6 +1209,7 @@ impl TelemetryView {
             compact_height,
             tab: self.tab,
             selected: self.selected,
+            show_commands: self.show_commands,
             help: self.help,
             palette_tag: palette_tag(p),
         };
@@ -1211,9 +1218,14 @@ impl TelemetryView {
                 (build_help_body(cols, report.inputs.source == Source::Demo, p), Vec::new())
             } else {
                 match self.tab {
-                    Tab::Telemetry => {
-                        build_telemetry_body(report, cols, compact_height, self.selected, p)
-                    }
+                    Tab::Telemetry => build_telemetry_body(
+                        report,
+                        cols,
+                        compact_height,
+                        self.selected,
+                        self.show_commands,
+                        p,
+                    ),
                     Tab::Sources => (build_sources_body(report, cols, p), Vec::new()),
                 }
             };
@@ -1280,7 +1292,16 @@ impl TelemetryView {
         }
 
         // Footer (row h - 1)
-        draw_board_footer(&mut c, state, report, self.tab, self.help, checking, p);
+        draw_board_footer(
+            &mut c,
+            state,
+            report,
+            self.tab,
+            self.show_commands,
+            self.help,
+            checking,
+            p,
+        );
         c
     }
 }
@@ -1298,11 +1319,13 @@ fn floor_notice(p: &Palette, cols: usize, rows: usize) -> Canvas {
     c
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_board_footer(
     c: &mut Canvas,
     state: &State,
     report: &Report,
     tab: Tab,
+    show_commands: bool,
     help: bool,
     checking: bool,
     p: &Palette,
@@ -1312,11 +1335,12 @@ fn draw_board_footer(
     c.fill(0, y, w, 1, p.panel);
 
     let can_fix = report.verdict != Verdict::Off;
-    let keys: &[(&str, &str)] = if help {
-        &[("?", "close help"), ("e", "back"), ("q", "quit")]
+    let cmd_label = if show_commands { "hide cmds" } else { "commands" };
+    let keys: Vec<(&str, &str)> = if help {
+        vec![("?", "close help"), ("e", "back"), ("q", "quit")]
     } else if tab == Tab::Sources {
         if can_fix {
-            &[
+            vec![
                 ("?", "help"),
                 ("e", "back"),
                 ("tab", "telemetry"),
@@ -1326,7 +1350,7 @@ fn draw_board_footer(
                 ("q", "quit"),
             ]
         } else {
-            &[
+            vec![
                 ("?", "help"),
                 ("e", "back"),
                 ("tab", "telemetry"),
@@ -1336,17 +1360,18 @@ fn draw_board_footer(
             ]
         }
     } else if can_fix {
-        &[
+        vec![
             ("?", "help"),
             ("e", "back"),
             ("tab", "sources"),
+            ("⏎", cmd_label),
             ("f", "fix in T3"),
             ("↑↓", "select"),
             ("r", "recheck"),
             ("q", "quit"),
         ]
     } else {
-        &[
+        vec![
             ("?", "help"),
             ("e", "back"),
             ("tab", "sources"),
@@ -1777,6 +1802,7 @@ fn build_telemetry_body(
     cols: usize,
     compact_height: bool,
     selected: usize,
+    show_commands: bool,
     p: &Palette,
 ) -> (Canvas, Vec<(i32, usize)>) {
     let mut c = Canvas::cleared(cols, 180, p.bg, p.fg);
@@ -1803,7 +1829,7 @@ fn build_telemetry_body(
         let mut ry = top_y;
         ry = draw_selected_detail(&mut c, right_x, ry, right_w, report, selected, p);
         ry += 1;
-        ry = draw_action_panel(&mut c, right_x, ry, right_w, report, p);
+        ry = draw_action_panel(&mut c, right_x, ry, right_w, report, show_commands, p);
         ry = draw_compact_sources_panel(&mut c, right_x, ry, right_w, report, p);
 
         let bottom_y = ly.max(ry);
@@ -1821,7 +1847,7 @@ fn build_telemetry_body(
     y = draw_grouped_rows(&mut c, x0, y, cw, report, selected, p, wide_cols, &mut hits);
     y = draw_selected_detail(&mut c, x0, y, cw, report, selected, p);
     y += 1;
-    y = draw_action_panel(&mut c, x0, y, cw, report, p);
+    y = draw_action_panel(&mut c, x0, y, cw, report, show_commands, p);
     y = draw_findings_block(&mut c, x0, y, cw, report, p);
 
     (crop_canvas(&c, cols, y.max(1) as usize, p), hits)
@@ -2362,11 +2388,45 @@ fn snippet_label_and_badge(snip: &Snippet) -> (&'static str, &'static str) {
         "desktop_uwsm" => ("uwsm session env", "NO SUDO · TRACKED BY LOUPE"),
         "desktop_linux" => ("Systemd environment.d", "NO SUDO · TRACKED BY LOUPE"),
         "service" => ("Service environment file", "NO SUDO · TRACKED BY LOUPE"),
-        "shell_macos" => ("Login shell profile (~/.zshrc)", "NO SUDO"),
+        "shell_macos" => ("Login shell profile (~/.zshrc)", "NO SUDO · TRACKED BY LOUPE"),
         "shell" => ("Shell profile", "NO SUDO"),
         "policy_fix" => ("Validate managed policy", "REQUIRED TO START"),
         "restart" => ("Restart T3 Code", "APPLY SAVED CONFIG"),
         _ => ("Recommended step", "LOCAL"),
+    }
+}
+
+fn snippet_summary(snip: &Snippet, platform: crate::telemetry::Platform) -> &'static str {
+    match snip.for_kind {
+        "desktop_omarchy" => {
+            "Add T3CODE_TELEMETRY_ENABLED=false to ~/.config/hypr/hyprland.lua, reload Hyprland, and restart T3 Code."
+        }
+        "desktop_uwsm" => {
+            "Add T3CODE_TELEMETRY_ENABLED=false to ~/.config/uwsm/env, then log out and back in so T3 starts with it."
+        }
+        "desktop_linux" => {
+            "Set T3CODE_TELEMETRY_ENABLED=false in ~/.config/environment.d/t3code.conf, then log out and back in."
+        }
+        "service" => {
+            "Add T3CODE_TELEMETRY_ENABLED=false to service.env and restart the T3 service."
+        }
+        "shell_macos" => {
+            "Export T3CODE_TELEMETRY_ENABLED=false in ~/.zshrc, then restart T3 Code (desktop T3 loads your login shell)."
+        }
+        "shell" => {
+            "Export T3CODE_TELEMETRY_ENABLED=false in your shell profile, then restart T3 Code."
+        }
+        "managed_policy" => match platform {
+            crate::telemetry::Platform::MacOs => {
+                "Optional admin file (not created by T3): write /Library/Application Support/T3Code/policy.json and restart T3."
+            }
+            _ => {
+                "Optional admin file (not created by T3): write /etc/t3code/policy.json for all launch paths and restart T3."
+            }
+        },
+        "policy_fix" => "Run `t3 policy check` to fix the invalid policy.json before restarting T3 Code.",
+        "restart" => "Quit and reopen T3 Code so the running server picks up your saved opt-out.",
+        _ => "Apply this local configuration change, then restart T3 Code.",
     }
 }
 
@@ -2376,6 +2436,7 @@ fn draw_action_panel(
     mut y: i32,
     w: i32,
     report: &Report,
+    show_commands: bool,
     p: &Palette,
 ) -> i32 {
     if report.verdict == Verdict::Off {
@@ -2427,10 +2488,16 @@ fn draw_action_panel(
         Verdict::Misconfigured => "HOW TO FIX IT",
         _ => "HOW TO TURN IT OFF",
     };
-    let right_tag = if w >= 56 {
-        "f fix in T3 · Loupe edits nothing"
+    let right_tag = if show_commands {
+        if w >= 52 {
+            "⏎ hide commands · f fix in T3"
+        } else {
+            "⏎ hide · f fix"
+        }
+    } else if w >= 52 {
+        "⏎ show commands · f fix in T3"
     } else {
-        "f fix in T3"
+        "⏎ commands · f fix"
     };
     terminal::section_with(c, x, y, w, heading, p, right_tag, p.dim);
     y += 1;
@@ -2438,9 +2505,20 @@ fn draw_action_panel(
     for (idx, snip) in report.fix.iter().take(2).enumerate() {
         let (title_text, badge_text) = snippet_label_and_badge(snip);
         let numbered_title = format!("{}. {title_text}", idx + 1);
-        let (cmd_lines, clipped) = format_command_lines(&snip.command, (w - 4).max(16) as usize);
-        let note_lines = wrap_lines(&snip.note, (w - 4).max(16) as usize);
-        let card_h = 1 + cmd_lines.len() as i32 + i32::from(clipped) + note_lines.len() as i32;
+        let desc_text = snippet_summary(snip, report.inputs.platform);
+        let desc_lines = wrap_lines(desc_text, (w - 4).max(16) as usize);
+        let (cmd_lines, clipped) = if show_commands {
+            format_command_lines(&snip.command, (w - 4).max(16) as usize)
+        } else {
+            (Vec::new(), false)
+        };
+        let card_h = 1
+            + desc_lines.len() as i32
+            + if show_commands {
+                1 + cmd_lines.len() as i32 + i32::from(clipped)
+            } else {
+                0
+            };
 
         let stripe = if idx == 0 {
             match report.verdict {
@@ -2462,22 +2540,7 @@ fn draw_action_panel(
         }
         let mut cy = y + 1;
 
-        for line in &cmd_lines {
-            c.text_bg(x + 2, cy, &fit(line, w - 3), p.fg, p.panel, false);
-            cy += 1;
-        }
-        if clipped {
-            c.text_bg(
-                x + 2,
-                cy,
-                &fit("full command: loupe --telemetry-check --json", w - 3),
-                p.dim,
-                p.panel,
-                false,
-            );
-            cy += 1;
-        }
-        for line in &note_lines {
+        for line in &desc_lines {
             c.text_bg(
                 x + 2,
                 cy,
@@ -2487,6 +2550,24 @@ fn draw_action_panel(
                 false,
             );
             cy += 1;
+        }
+        if show_commands {
+            cy += 1; // breathing row before command block
+            for line in &cmd_lines {
+                c.text_bg(x + 2, cy, &fit(line, w - 3), p.bright, p.panel, false);
+                cy += 1;
+            }
+            if clipped {
+                c.text_bg(
+                    x + 2,
+                    cy,
+                    &fit("full command: loupe --telemetry-check --json", w - 3),
+                    p.dim,
+                    p.panel,
+                    false,
+                );
+                cy += 1;
+            }
         }
         y = cy + 1;
     }
@@ -2629,9 +2710,10 @@ fn build_help_body(cols: usize, is_demo: bool, p: &Palette) -> Canvas {
         ("tab / ⇧tab", "what T3 sends, or the files Loupe read"),
         ("↑↓ / j k", "select a stream · scroll sources"),
         ("PgUp PgDn", "a page · Home End: the ends"),
+        ("⏎ / ␣", "show or hide suggested commands"),
         ("f", "start a T3 thread with fix instructions (asks first)"),
         ("r", "check again now; also rechecks when a file changes"),
-        ("e / Esc", "dashboard · Esc closes help first"),
+        ("e / Esc", "dashboard · Esc closes help or commands first"),
         ("c C", "theme: next · back"),
         ("q", "quit"),
     ];
@@ -2852,6 +2934,10 @@ mod tests {
                     "Omarchy Hyprland env option expected without scrolling at {cols}x{rows}:\n{text}"
                 );
                 assert!(
+                    !text.contains("sudo install -d"),
+                    "raw shell command should stay collapsed by default at {cols}x{rows}:\n{text}"
+                );
+                assert!(
                     text.contains("VERDICT") && text.contains("PRODUCT EVENTS"),
                     "visual summary tiles expected at {cols}x{rows}:\n{text}"
                 );
@@ -2864,6 +2950,12 @@ mod tests {
                 );
             }
         }
+
+        // Expanding commands reveals both copy-paste shell commands cleanly.
+        view.toggle_commands();
+        let expanded = view.render(&state, Some(&rep), 1, false, false, 160, 44).to_text();
+        assert!(expanded.contains("hl.env(\"T3CODE_TELEMETRY_ENABLED\", \"false\")"));
+        assert!(expanded.contains("sudo install -d -m 755 /etc/t3code"));
     }
 
     #[test]

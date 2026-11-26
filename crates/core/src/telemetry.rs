@@ -3701,7 +3701,7 @@ fn build_fix_snippets(
             for_kind: "shell_macos",
             heading: "TO TURN IT ALL OFF".into(),
             command: "echo 'export T3CODE_TELEMETRY_ENABLED=false' >> ~/.zshrc".into(),
-            note: "no sudo; restart T3 Code (desktop app reads your login shell profile)".into(),
+            note: "no sudo; restart T3 Code (desktop app reads your login shell profile — Loupe reads ~/.zshrc and shows ✓ OFF)".into(),
         }
     } else {
         Snippet {
