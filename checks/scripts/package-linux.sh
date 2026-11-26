@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build loupe-term for this machine's own architecture and package it for release:
 # checks/generated/linux-release/TARGET/loupe-VERSION-TARGET.tar.gz and SHA256SUMS beside it.
-# The archive unpacks into one folder holding the program, install.sh, LICENSE, THIRD-PARTY-NOTICES.md, README and
+# The archive unpacks into one folder holding the program, install.sh, loupe.svg, LICENSE, THIRD-PARTY-NOTICES.md, README and
 # BUILD-INFO (the commit, the Rust version, the target, the glibc it needs). Nothing is published.
 # The hand-started workflow .github/workflows/linux-release.yml runs this on GitHub's runners.
 set -euo pipefail
@@ -31,7 +31,7 @@ if [[ $deps == *'not found'* ]]; then echo 'Missing dynamic dependency' >&2; exi
 glibc=$(objdump -T "$binary" | grep -oE 'GLIBC_[0-9]+(\.[0-9]+)+' | sort -Vu | tail -n 1)
 [[ -n $glibc ]] || { echo 'Could not determine glibc requirement' >&2; exit 1; }
 echo "Highest glibc symbol version: $glibc"
-cp "$binary" install.sh LICENSE THIRD-PARTY-NOTICES.md "$out/$folder/"
+cp "$binary" install.sh loupe.svg LICENSE THIRD-PARTY-NOTICES.md "$out/$folder/"
 printf 'Loupe %s for %s\n\nInstall for the current user, from this folder:\n\n  ./install.sh --binary ./loupe-term\n\nRemove it again:\n\n  ./install.sh --uninstall\n\nTHIRD-PARTY-NOTICES.md contains third-party notices.\n\nBUILD-INFO says which commit this was built from and which glibc it needs.\n' "$version" "$target" > "$out/$folder/README"
 {
   printf 'Commit: %s\n' "$(git rev-parse HEAD)"
