@@ -619,6 +619,15 @@ pub fn ensure_terminal() {
     }
 }
 
+/// A downstream reader can stop early without changing the command's exit code.
+fn write_stdout(text: &str) -> io::Result<()> {
+    let mut out = io::stdout().lock();
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        result => result,
+    }
+}
+
 /// Handle the product command line when it applies. Returns `Ok(false)` only for an interactive
 /// run on a terminal, which the caller presents.
 pub fn headless() -> Result<bool, Box<dyn std::error::Error>> {
@@ -656,16 +665,12 @@ pub fn headless() -> Result<bool, Box<dyn std::error::Error>> {
                 let _ = io::stderr().write_all(format!("skipped {line}\n").as_bytes());
             }
             let themes = theme::Themes::new(setting, paths.clone());
-            let mut out = io::stdout().lock();
-            out.write_all(theme::list(Some(&themes), &paths).as_bytes())?;
-            out.flush()?;
+            write_stdout(&theme::list(Some(&themes), &paths))?;
             Ok(true)
         }
         Command::ThemeCheck { name } => match theme::check(&name, &theme::Paths::current()) {
             Ok(report) => {
-                let mut out = io::stdout().lock();
-                out.write_all(report.as_bytes())?;
-                out.flush()?;
+                write_stdout(&report)?;
                 Ok(true)
             }
             Err(e) => {
@@ -1381,9 +1386,9 @@ fn trace_command(database: &Database, now: f64, target: Option<&str>, json: bool
     };
     match read {
         Ok(Some(found)) if json => {
-            let mut out = io::stdout().lock();
-            out.write_all(serde_json::to_string_pretty(&found)?.as_bytes())?;
-            out.write_all(b"\n")?;
+            let mut text = serde_json::to_string_pretty(&found)?;
+            text.push('\n');
+            write_stdout(&text)?;
             Ok(0)
         }
         Ok(Some(found)) => {
@@ -1411,9 +1416,9 @@ fn trace_command(database: &Database, now: f64, target: Option<&str>, json: bool
                 now,
             };
             let drawn = trace_view::draw(&found, &themes.palette(), columns, rows, &view, &crate::platform::local_time);
-            let mut out = io::stdout().lock();
-            out.write_all(recap_view::paint(&drawn.canvas, color).as_bytes())?;
-            out.write_all(b"\n")?;
+            let mut text = recap_view::paint(&drawn.canvas, color);
+            text.push('\n');
+            write_stdout(&text)?;
             Ok(0)
         }
         Ok(None) => {

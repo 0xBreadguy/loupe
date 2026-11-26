@@ -1128,7 +1128,8 @@ extern "C" fn report_cache_stats() {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("loupe-term: {e}");
+        // Stderr may share stdout's closed pipe (2>&1).
+        let _ = writeln!(io::stderr().lock(), "loupe-term: {e}");
         std::process::exit(1);
     }
 }
