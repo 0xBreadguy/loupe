@@ -20,8 +20,8 @@ mean, how a failure shows up, and what the numbers can and can't support.
 - The output holds thread titles, model names and program names. Treat it as
   the person's private data. Don't put it in a public issue or send it to an
   outside service without asking.
-- Read the whole output. Redirect it to a file instead of piping it into
-  `head`: a pipe closed early makes Loupe exit with an error.
+- `loupe --version` says which release is installed. Fields can differ
+  between releases, so note it when you report what Loupe said.
 
 ## Which command answers which question
 
@@ -49,11 +49,16 @@ folder, not the database, and refuses `--db`.
 | Code | Meaning |
 | --- | --- |
 | 0 | Finished. `--status` exits 0 even when it can't read the database (see `error` below), and `--telemetry-check` exits 0 whatever its verdict. |
-| 1 | It couldn't read T3's data, or the `--trace` id matched nothing. The reason is on stderr. A failed write, such as a closed pipe, also ends here. |
+| 1 | It couldn't read T3's data, or the `--trace` id matched nothing. The reason is on stderr. |
 | 2 | The command line was wrong: an unknown option, options that don't go together, or a theme it can't use. The usage is on stderr. |
 
 Results go to stdout and problems to stderr, so stdout is empty when a read
 fails.
+
+Piping into `head` is fine. When the reader closes the pipe early, the reports,
+`--once` and `--status --watch` stop quietly with the code they would have
+returned. One-shot `--status` and `--help` exit 1 with one line on stderr, as
+the original app did.
 
 ## `--status`
 
@@ -88,10 +93,11 @@ Each agent in `agents`:
 
 ## The `--json` reports
 
-`--telemetry-check --json` carries `"schema": 1`. The Recap, Tools and Trace
-JSON have no version field: their fields follow the reports and can change
-between releases, so read the fields you need by name and don't fail on new
-ones. [Features](features.md) explains what each number counts.
+Each report's JSON starts with `"schema": 1`. Each report has its own number.
+It goes up when a field is removed or renamed, or changes meaning or unit.
+Adding a field doesn't change it, so read the fields you need by name and
+ignore new ones. Check `schema` before you rely on a field. [Features](features.md)
+explains what each number counts.
 
 - **Recap** (`--recap --json`): `period`, `from` and `to` (local dates),
   `so_far` (true for a period still running), and hours as decimal agent

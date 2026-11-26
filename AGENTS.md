@@ -39,6 +39,7 @@ What the installer writes, all for the current user: the program in `~/.local/sh
 Check the result without touching anyone's data:
 
 ```sh
+loupe --version              # the installed release
 loupe --status --demo        # one line of JSON
 loupe --once --demo          # the list, printed once
 ```

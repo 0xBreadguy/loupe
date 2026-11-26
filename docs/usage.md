@@ -114,6 +114,7 @@ Options:
 | `--tools` | [what agents ran last week and what failed](features.md#tools); with `--this-week`, `--month`, `--this-month` or `--json`, as `--recap`; `--wide` or `--compact` picks the report's size |
 | `--trace [ID]` | [one task on a time axis](features.md#trace): the latest, a thread's latest (its id, or the end of it), or the task that holds a run; with `--json`, the spans |
 | `--telemetry-check` | [check T3 Code telemetry](features.md#telemetry-check) on this machine (local files only, never opens secrets); with `--json`, `--wide`, `--compact` or `--narrow` |
+| `--version` | print the installed version, `loupe X.Y.Z` |
 | `--help` | list the options |
 
 Recap and Tools read directly by default. Set `LOUPE_CACHE=1` to reuse

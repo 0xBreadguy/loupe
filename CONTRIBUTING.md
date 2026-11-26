@@ -6,7 +6,7 @@ That is the rule that shapes most contributions. A change that makes the Rust pr
 
 ## Before you start
 
-- **A bug:** open an issue with what you ran, what you expected and what you got, and the release you installed or the commit you built. Reproduce it with `--demo` if you can. Never attach T3 Code's database or paste real thread titles; describe them instead.
+- **A bug:** open an issue with what you ran, what you expected and what you got, and the release you installed (`loupe --version`) or the commit you built. Reproduce it with `--demo` if you can. Never attach T3 Code's database or paste real thread titles; describe them instead.
 - **A small fix** (a typo, a crash, a wrong number): send the pull request.
 - **A feature, a new read from T3's database, or a new dependency:** open an issue first and say what it's for. A new read has to fit the privacy rules below, and some ideas don't.
 
@@ -163,6 +163,7 @@ Document the purpose of any new source field in the pull request. Check the exec
 | The installer (`install.sh`, `dashboard/install.sh`, `loupe.svg`) | `node --experimental-ffi checks/scripts/install-parity.mjs` after `npm ci` in `oracle/`, or `ci.sh`. Never the real account. |
 | The bar widget (`manifest.json`, `*.qml`, `Status.js`, `ui/`, `i18n/`) | `node --test test/`, and `omarchy plugin validate .` on a clean clone. |
 | A dependency (`Cargo.toml`, `Cargo.lock`) | `ci.sh`, and compare `THIRD-PARTY-NOTICES.md` with `checks/scripts/list-notice-crates.sh`. |
+| A command's output, its fields or its exit codes | The tests for that command, and `docs/agents.md` in the same pull request. For Recap, Tools or Trace JSON, bump the report's `JSON_SCHEMA` when a field is removed, renamed, or changes meaning or unit. |
 | A generated file | Its generator, named under [Rules](#rules), never a hand edit. |
 
 ## Pull requests
