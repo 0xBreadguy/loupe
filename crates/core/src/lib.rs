@@ -27,6 +27,8 @@ pub mod platform;
 pub mod product;
 pub mod program;
 pub mod recap;
+pub(crate) mod safe_file;
+pub mod cleanup_rules;
 pub mod recap_view;
 pub mod insights_view;
 pub mod skim;

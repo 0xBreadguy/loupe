@@ -839,6 +839,9 @@ fn storage_demo_opens_rescans_and_returns_through_the_product_entry() {
     pty.wait_for(b"storage: disk use by project and thread", 1);
     pty.send(b"s");
     pty.wait_for(b"folders \xc2\xb7 scan", 1);
+    // Made-up settings: rules off, one project with its own rule, and a suggestion.
+    pty.wait_for(b"T3 CLEANUP", 1);
+    pty.wait_for(b"settled after 7 days", 1);
     pty.send(b"r");
     pty.wait_for(b"folders \xc2\xb7 scan", 2);
     pty.send(b"h");

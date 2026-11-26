@@ -49,7 +49,7 @@ pub(super) fn volumes(inventory: &Inventory) -> Vec<VolumeLine<'_>> {
     lines
 }
 
-fn valued_size(bytes: u64, short: bool) -> String {
+pub(super) fn valued_size(bytes: u64, short: bool) -> String {
     let (unit, factor) = [
         ("EB", 1_000_000_000_000_000_000),
         ("PB", 1_000_000_000_000_000),

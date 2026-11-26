@@ -3,6 +3,7 @@ use crate::model::State;
 use crate::storage_view::data::{Inventory, Scan, ThreadState};
 use crate::terminal::{self, Canvas, Palette, Rgb};
 
+mod cleanup;
 mod detail;
 mod status;
 use status::{VolumeLine, draw_volumes, empty, measure, scan_heading, volumes};
@@ -12,6 +13,8 @@ pub(super) struct Layout<'a> {
     h: usize,
     volumes: Vec<VolumeLine<'a>>,
     volume_lines: usize,
+    /// Rows for the T3 CLEANUP band: none when hidden, the rule line alone below height 20.
+    band: usize,
     pub list_top: i32,
     detail_top: i32,
     legend: bool,
@@ -21,13 +24,19 @@ impl<'a> Layout<'a> {
     pub(super) fn new(inventory: &'a Inventory, w: usize, h: usize) -> Self {
         let volumes = volumes(inventory);
         let legend = h >= 30;
-        let volume_lines = volumes.len().clamp(1, h.saturating_sub(11).max(1));
+        let band = match (&inventory.cleanup, h) {
+            (None, _) => 0,
+            (Some(_), h) if h < 20 => 1,
+            _ => 2,
+        };
+        let volume_lines = volumes.len().clamp(1, h.saturating_sub(11 + band).max(1));
         Self {
             w,
             h,
             volumes,
             volume_lines,
-            list_top: 4 + volume_lines as i32,
+            band,
+            list_top: (4 + volume_lines + band) as i32,
             detail_top: h as i32 - 4 - i32::from(legend),
             legend,
         }
@@ -132,6 +141,24 @@ fn row_ink(p: &Palette, role: Rgb, selected: bool) -> Rgb {
     role
 }
 
+/// STATE for a row: a gone folder says whether its thread is archived or deleted.
+fn row_state(entry: &crate::storage_view::data::Entry, inventory: &Inventory, p: &Palette) -> String {
+    use crate::storage_view::data::Ownership;
+    if entry.state == ThreadState::Gone {
+        match inventory
+            .cleanup
+            .as_ref()
+            .and_then(|band| band.entries.get(&entry.id))
+            .map(|e| e.ownership)
+        {
+            Some(Ownership::Archived) => return "archived".into(),
+            Some(Ownership::Deleted) => return "deleted".into(),
+            _ => {}
+        }
+    }
+    titled_state(entry.state, entry.age.as_deref(), p)
+}
+
 fn titled_state(state: ThreadState, age: Option<&str>, p: &Palette) -> String {
     let (_, label, _) = activity(state, p);
     match age.filter(|age| !age.is_empty()) {
@@ -148,6 +175,7 @@ fn draw_row(
     cols: &Columns,
     selected: bool,
     largest: u128,
+    inventory: &Inventory,
 ) {
     if selected {
         c.fill(0, y, c.w as i32, 1, p.sel);
@@ -185,7 +213,7 @@ fn draw_row(
                 } else {
                     p.dim
                 };
-                let state = titled_state(entry.state, entry.age.as_deref(), p);
+                let state = row_state(entry, inventory, p);
                 c.text(cols.scratch + 2, y, &fit(&state, 14), ink(color));
             }
             false
@@ -301,7 +329,7 @@ fn draw_footer(c: &mut Canvas, p: &Palette, keys: &[(&str, &str)]) {
     }
 }
 
-fn help(c: &mut Canvas, p: &Palette) {
+fn help(c: &mut Canvas, p: &Palette, cleanup: bool) {
     terminal::section(c, 1, 1, c.w as i32 - 2, "STORAGE HELP", p, "");
     let keys = [
         ("↑↓ / j k", "select a row · mouse wheel moves selection"),
@@ -328,6 +356,21 @@ fn help(c: &mut Canvas, p: &Palette) {
     {
         c.text(2, 9 + i as i32, &fit(text, c.w as i32 - 3), p.dim);
     }
+    if cleanup {
+        for (i, text) in [
+            "T3 CLEANUP shows T3's worktree rules, read from its settings.json.",
+            "Loupe changes nothing there. Set rules in T3 Settings › Worktrees.",
+            "Estimates count WORKTREE only and say \"up to\": T3 keeps local changes.",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let y = 13 + i as i32;
+            if y < c.h as i32 - 1 {
+                c.text(2, y, &fit(text, c.w as i32 - 3), p.dim);
+            }
+        }
+    }
     draw_footer(c, p, &[("?", "close help"), ("s", "back"), ("q", "quit")]);
 }
 
@@ -350,12 +393,15 @@ pub(super) fn render(
 
     crate::overview::draw_header(&mut c, dashboard, p, None, true);
     if view.help {
-        help(&mut c, p);
+        help(&mut c, p, inventory.cleanup.is_some());
         return c;
     }
 
     let cols = Columns::new(layout.w as i32);
     draw_volumes(&mut c, p, &layout, &dashboard.home, dashboard.demo);
+    if let Some(band) = &inventory.cleanup {
+        cleanup::draw(&mut c, p, 2 + layout.volume_lines as i32, band, layout.band > 1);
+    }
     scan_heading(&mut c, p, layout.list_top - 2, inventory);
     if !rows.items.is_empty() {
         cols.headings(&mut c, p, layout.list_top - 1);
@@ -378,6 +424,7 @@ pub(super) fn render(
             &cols,
             view.first + n == view.index,
             largest,
+            inventory,
         );
     }
     let end = view.first + shown_count;

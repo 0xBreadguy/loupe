@@ -24,6 +24,57 @@ mod worker;
 pub use reentry::{walk_key, Commit, Decision, Session, WalkKey};
 pub use worker::{ScanState, StorageWorker};
 
+use loupe_core::cleanup_rules::{self, ThreadFact};
+use std::sync::Arc;
+
+/// Thread timestamps for T3's cleanup rules, read with the walk.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum Facts {
+    /// Not read: no source, or a result built without them.
+    #[default]
+    None,
+    /// Made-up facts, placed relative to the dashboard clock when shown.
+    Demo,
+    Read(Arc<Vec<ThreadFact>>),
+    /// The query failed. The band says the estimate is unavailable.
+    Failed,
+}
+
+/// One completed walk and the thread facts read with it.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Scanned {
+    pub inventory: Inventory,
+    pub facts: Facts,
+}
+
+impl std::ops::Deref for Scanned {
+    type Target = Inventory;
+    fn deref(&self) -> &Inventory {
+        &self.inventory
+    }
+}
+
+impl From<Inventory> for Scanned {
+    fn from(inventory: Inventory) -> Self {
+        Self {
+            inventory,
+            facts: Facts::None,
+        }
+    }
+}
+
+impl From<&Inventory> for Scanned {
+    fn from(inventory: &Inventory) -> Self {
+        inventory.clone().into()
+    }
+}
+
+impl From<&Scanned> for Scanned {
+    fn from(scanned: &Scanned) -> Self {
+        scanned.clone()
+    }
+}
+
 #[cfg(test)]
 mod tests;
 
@@ -33,6 +84,19 @@ pub struct ScanRoots {
     /// Base containing the per-user `claude-<uid>` directory.
     pub temp: PathBuf,
     pub uid: u32,
+}
+
+impl ScanRoots {
+    /// T3's data folder. `linux_source` only builds roots where the worktrees sit beside
+    /// `userdata` (T3's deriveServerPaths), so it is the worktree root's parent.
+    pub fn data_folder(&self) -> &Path {
+        self.worktrees.parent().unwrap_or(&self.worktrees)
+    }
+
+    /// The database this launch reads, which `linux_source` checked matches T3's own path.
+    pub fn database(&self) -> PathBuf {
+        self.data_folder().join("userdata").join("statev2.sqlite")
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -158,6 +222,9 @@ fn linux_source(
     })
 }
 
+/// The demo's made-up managed worktree root.
+pub const DEMO_WORKTREES: &str = "demo/worktrees";
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProjectMetadata {
     pub title: String,
@@ -182,6 +249,25 @@ pub struct OwnedInput {
 }
 
 impl OwnedInput {
+    /// The walk, then the one read-only query for T3's cleanup timestamps.
+    fn scan_all(&self, mut cancelled: impl FnMut() -> bool) -> Result<Scanned, Cancelled> {
+        let inventory = self.scan(&mut cancelled)?;
+        let facts = match &self.source {
+            StorageSource::Demo => Facts::Demo,
+            StorageSource::Unavailable => Facts::None,
+            StorageSource::Disk(roots) => {
+                if cancelled() {
+                    return Err(Cancelled);
+                }
+                match cleanup_rules::read_thread_facts(&roots.database()) {
+                    Ok(facts) => Facts::Read(Arc::new(facts)),
+                    Err(_) => Facts::Failed,
+                }
+            }
+        };
+        Ok(Scanned { inventory, facts })
+    }
+
     fn scan(&self, mut cancelled: impl FnMut() -> bool) -> Result<Inventory, Cancelled> {
         if cancelled() {
             return Err(Cancelled);
@@ -265,7 +351,7 @@ impl OwnedInput {
             };
             if worktree > 0 {
                 result.folders.push(Folder {
-                    path: Path::new("demo/worktrees").join(id),
+                    path: Path::new(DEMO_WORKTREES).join(id),
                     kind: FolderKind::Worktree,
                     owner: owner.clone(),
                     project_id: project_id.clone(),
@@ -289,6 +375,36 @@ impl OwnedInput {
                     },
                 });
             }
+        }
+        // Folders whose threads are archived, deleted or gone, so the T3 CLEANUP band has
+        // something to estimate.
+        for &(name, project, worktree, dependency) in cleanup_rules::DEMO_FOLDERS {
+            if cancelled() {
+                return Err(Cancelled);
+            }
+            let usage = Usage {
+                worktree_bytes: worktree * MIB,
+                dependency_bytes: dependency * MIB,
+                ..Usage::default()
+            };
+            let project_id = project
+                .map(str::to_owned)
+                .filter(|id| result.projects.contains_key(id));
+            for total in [&mut result.total, match &project_id {
+                Some(id) => result.projects.get_mut(id).expect("checked"),
+                None => &mut result.other,
+            }] {
+                total.worktree_bytes += usage.worktree_bytes;
+                total.dependency_bytes += usage.dependency_bytes;
+            }
+            result.folders.push(Folder {
+                path: Path::new(DEMO_WORKTREES).join(name),
+                kind: FolderKind::Worktree,
+                owner: Owner::Missing,
+                project_id,
+                coverage: Coverage::Complete,
+                usage,
+            });
         }
         Ok(result)
     }

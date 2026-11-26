@@ -223,6 +223,24 @@ pub struct StorageContext {
     pub scoped_settled_items: Vec<StorageItem>,
     /// Active/open entries within this exact scope (or top settled/gone entries when `target` is `SettledOrGone`).
     pub top_items: Vec<StorageItem>,
+    /// T3's worktree cleanup rules for this scope. `None` when Storage shows no band.
+    pub cleanup: Option<CleanupContext>,
+}
+
+/// T3's cleanup rules as the `f` handoff carries them: enums, numbers, booleans and fixed text.
+#[derive(Clone, Debug)]
+pub struct CleanupContext {
+    /// `off`, `on`, `loose` or `unknown`.
+    pub state: &'static str,
+    /// For `unknown`: an error category, or a key name and the constraint it breaks.
+    pub reason: Option<String>,
+    /// `global`, or `project-override` when the scope's project has its own rule.
+    pub applies_to: &'static str,
+    pub rules: Option<crate::cleanup_rules::Rules>,
+    pub projects_with_own_rule: usize,
+    pub auto_settle_after_days: Option<f64>,
+    pub suggestion: Option<(crate::storage_view::data::Suggestion, crate::storage_view::data::Count)>,
+    pub custom_worktree_folder: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -267,6 +285,10 @@ pub struct StorageItem {
     pub worktree_bytes: Option<u64>,
     pub build_bytes: Option<u64>,
     pub scratch_bytes: Option<u64>,
+    /// `active`, `settled`, `archived`, `deleted` or `no thread`, when Storage knows.
+    pub ownership: Option<&'static str>,
+    /// When T3's rules would remove it, only while they are on for its project.
+    pub t3_due: Option<String>,
 }
 
 /// Parse and validate `threadId` from `t3 thread start --json` output.
@@ -596,6 +618,8 @@ pub fn storage_prompt(ctx: &StorageContext) -> (String, String) {
                     "worktree": item.worktree_bytes.filter(|&b| b > 0).map(fmt_bytes),
                     "build": item.build_bytes.filter(|&b| b > 0).map(fmt_bytes),
                     "scratch": item.scratch_bytes.filter(|&b| b > 0).map(fmt_bytes),
+                    "ownership": item.ownership,
+                    "t3Due": item.t3_due,
                 })
             })
             .collect()
@@ -665,7 +689,7 @@ pub fn storage_prompt(ctx: &StorageContext) -> (String, String) {
         ),
     };
 
-    let payload = json!({
+    let mut payload = json!({
         "kind": "storage_cleanup",
         "lowHeadroom": low_headroom,
         "scope": scope_json,
@@ -673,6 +697,9 @@ pub fn storage_prompt(ctx: &StorageContext) -> (String, String) {
         "settledOrGoneFolders": settled_items_json,
         "folders": active_items_json,
     });
+    if let Some(cleanup) = &ctx.cleanup {
+        payload["t3CleanupRules"] = cleanup_json(cleanup);
+    }
 
     let scope_rule = match &ctx.target {
         StorageTarget::Project { .. } => {
@@ -688,15 +715,95 @@ pub fn storage_prompt(ctx: &StorageContext) -> (String, String) {
     out.push_str(intro);
     out.push_str("\n\n");
     out.push_str(&render_untrusted_json(&payload));
+    let cleanup_step = if ctx.cleanup.is_some() {
+        "4. T3's automatic worktree cleanup is described in `t3CleanupRules`. Do not edit T3's settings files. If a rule would help, name the setting under `whereToChange` and what it would reclaim, and let me change it. Folders marked `t3Due: now` may be removed by T3 within the hour if they are clean, so prefer the others. Folders with `ownership: no thread` are never removed by T3's rules.\n"
+    } else {
+        ""
+    };
+    let confirm = if ctx.cleanup.is_some() { 5 } else { 4 };
     out.push_str(&format!(
         "\n## What to do\n\
 1. {scope_rule}Leave your own current working directory/worktree alone if T3 started this thread in one.\n\
 2. Inspect only the target folders listed in the JSON above (checking `git status`, unpushed branches/commits, whether branches are merged into the main checkout, and whether any process is actively using them).\n\
 3. Rank the safest, highest-impact space savings first (settled/gone worktrees with no unpushed work, then clean done worktrees, build caches like `target/` or `node_modules/`, and stale scratch files).\n\
-4. Present the exact cleanup plan with estimated bytes reclaimed and **ask for my confirmation before deleting any files or worktrees**.\n",
+{cleanup_step}{confirm}. Present the exact cleanup plan with estimated bytes reclaimed and **ask for my confirmation before deleting any files or worktrees**.\n",
     ));
 
     (title, out)
+}
+
+fn cleanup_json(c: &CleanupContext) -> Value {
+    use crate::storage_view::data::Suggestion;
+    let rules = c.rules.map(|r| {
+        json!({
+            "keepWhen": r.keep_when.word(),
+            "inactiveAfterDays": r.after_days,
+            "settledAfterDays": r.settled_after_days,
+            "onMerge": r.on_merge,
+            "onDelete": r.on_delete,
+            "unchanged": r.unchanged,
+        })
+    });
+    let suggestion = c.suggestion.map(|(s, count)| {
+        let (setting, days) = match s {
+            Suggestion::Settled(d) => ("Delete settled worktrees", d),
+            Suggestion::Inactive(d) => ("Delete inactive worktrees", d),
+        };
+        json!({
+            "setting": setting,
+            "days": days,
+            "upTo": fmt_bytes(count.bytes),
+            "lowerBoundSizes": count.partial,
+            "worktrees": count.worktrees,
+            "localChangesChecked": false,
+        })
+    });
+    json!({
+        "source": "T3 settings.json on this machine, read-only",
+        "state": c.state,
+        "reason": c.reason.as_deref().map(|r| bound_text(r, 120)),
+        "appliesTo": c.applies_to,
+        "rules": rules,
+        "projectsWithOwnRule": c.projects_with_own_rule,
+        "autoSettleAfterDays": c.auto_settle_after_days,
+        "suggestion": suggestion,
+        "customWorktreeFolderNotScanned": c.custom_worktree_folder,
+        "whereToChange": "T3 Settings › Worktrees › Automatic worktree cleanup",
+    })
+}
+
+fn cleanup_context(inventory: &Inventory, project: Option<&str>) -> Option<CleanupContext> {
+    use crate::storage_view::data::{CleanupProblem, CleanupState, Estimate};
+    let band = inventory.cleanup.as_ref()?;
+    let own = project.and_then(|id| band.project_rules.get(id));
+    let (state, reason) = match &band.state {
+        CleanupState::Off { .. } => ("off", None),
+        CleanupState::On => ("on", None),
+        CleanupState::Loose => ("loose", None),
+        CleanupState::Unknown(CleanupProblem::Unreadable(reason)) => ("unknown", Some(reason.clone())),
+        CleanupState::Unknown(CleanupProblem::Invalid { key, constraint }) => {
+            ("unknown", Some(format!("{key} {constraint}")))
+        }
+    };
+    let state = match own {
+        Some(rule) if rule.rules().enabled() => "on",
+        Some(_) => "off",
+        None => state,
+    };
+    let suggestion = match (band.suggestion, band.estimate, own) {
+        (Some(s), Estimate::Ready(t), None) => Some((s, t.extra.unwrap_or(t.now))),
+        _ => None,
+    };
+    Some(CleanupContext {
+        state,
+        reason,
+        applies_to: if own.is_some() { "project-override" } else { "global" },
+        rules: own.map(|rule| rule.rules()).or(band.global),
+        projects_with_own_rule: band.own_rules,
+        auto_settle_after_days: band.auto_settle_days,
+        suggestion,
+        custom_worktree_folder: band.custom_root,
+    })
 }
 
 /// Build a `StorageContext` from the current inventory and optional selected entry/group info.
@@ -735,14 +842,40 @@ pub fn storage_context_from_inventory(
         }
     }
 
-    let to_item = |e: &Entry| StorageItem {
-        title: e.title.clone(),
-        path: e.worktree_path.clone(),
-        state: e.state,
-        worktree_bytes: e.sizes.worktree.measured(),
-        build_bytes: e.sizes.build.measured(),
-        scratch_bytes: e.sizes.scratch.measured(),
+    let to_item = |e: &Entry| {
+        use crate::storage_view::data::Due;
+        let cleanup = inventory.cleanup.as_ref().and_then(|band| band.entries.get(&e.id));
+        StorageItem {
+            title: e.title.clone(),
+            path: e.worktree_path.clone(),
+            state: e.state,
+            worktree_bytes: e.sizes.worktree.measured(),
+            build_bytes: e.sizes.build.measured(),
+            scratch_bytes: e.sizes.scratch.measured(),
+            ownership: cleanup.map(|c| c.ownership.word()),
+            t3_due: cleanup.and_then(|c| c.due).and_then(|due| match due {
+                Due::Now => Some("now".into()),
+                Due::InDays(n) => Some(format!("in {n} days")),
+                Due::NotCovered => Some("not covered".into()),
+                Due::Busy => Some("kept while busy".into()),
+                Due::Outside => Some("outside managed folders".into()),
+                Due::Never => None,
+            }),
+        }
     };
+    let scope_project = match &target {
+        StorageTarget::Project { id, .. } => Some(id.clone()),
+        StorageTarget::Entry { .. } => focus_entries.first().and_then(|e| {
+            inventory
+                .projects
+                .iter()
+                .find(|p| p.threads.iter().any(|t| t.id == e.id))
+                .map(|p| p.id.clone())
+                .or_else(|| inventory.settled_projects.get(&e.id).cloned())
+        }),
+        _ => None,
+    };
+    let cleanup = cleanup_context(inventory, scope_project.as_deref());
 
     let (scoped_settled_count, scoped_settled_bytes, scoped_settled_items, top_items) =
         match &target {
@@ -846,6 +979,7 @@ pub fn storage_context_from_inventory(
         scoped_settled_bytes,
         scoped_settled_items,
         top_items,
+        cleanup,
     }
 }
 
@@ -2200,7 +2334,10 @@ mod tests {
                 worktree_bytes: Some(12_000_000_000),
                 build_bytes: Some(10_500_000_000),
                 scratch_bytes: None,
+                ownership: None,
+                t3_due: None,
             }],
+            cleanup: None,
         };
         let (title, prompt) = storage_prompt(&ctx);
         assert!(title.contains("settled"));
@@ -2301,6 +2438,113 @@ mod tests {
         assert!(prompt.contains("Stay strictly scoped to the single project"));
         assert!(!prompt.contains("Huge unrelated repo"));
         assert!(!prompt.contains("21.0 GB"));
+    }
+
+    #[test]
+    fn storage_handoff_carries_t3_cleanup_rules_as_fixed_values() {
+        use crate::cleanup_rules::{self, EntryFacts, RulesRead};
+        use crate::storage_view::data::{Ownership, Project, Scan};
+        use std::collections::HashMap;
+        const NOW: f64 = 1_795_026_000_000.;
+        let entry = |id: &str, title: &str, state, gb: u64| Entry {
+            id: id.into(),
+            title: title.into(),
+            worktree_path: Some(PathBuf::from(format!("/wt/{id}"))),
+            sizes: Sizes {
+                worktree: Bytes::Exact(gb * 1_000_000_000),
+                build: Bytes::Exact(0),
+                scratch: Bytes::Exact(0),
+            },
+            state,
+            age: None,
+            open_target: None,
+        };
+        let mut inv = Inventory {
+            scan: Scan::Finished { folders: 3, incomplete: 0, elapsed: None, finished_at: None },
+            projects: vec![Project {
+                id: "own".into(),
+                title: "own".into(),
+                threads: vec![entry("thread:a", "Active", ThreadState::Done, 1)],
+            }],
+            settled_or_gone: vec![
+                entry("thread:s", "Settled long ago", ThreadState::Settled, 3),
+                entry("folder:o", "orphan", ThreadState::Gone, 2),
+            ],
+            ..Inventory::default()
+        };
+        inv.settled_projects.insert("thread:s".into(), "global".into());
+        let fact = |project: &str, ownership, days: f64| EntryFacts {
+            project_id: Some(project.into()),
+            ownership,
+            idle: true,
+            managed: true,
+            activity_ms: Some(NOW - days * 86_400_000.),
+            settled_at_ms: (ownership == Ownership::Settled).then(|| NOW - days * 86_400_000.),
+        };
+        let facts: HashMap<String, EntryFacts> = [
+            ("thread:a".to_owned(), fact("own", Ownership::Active, 1.)),
+            ("thread:s".to_owned(), fact("global", Ownership::Settled, 30.)),
+            ("folder:o".to_owned(), EntryFacts { project_id: None, ..fact("x", Ownership::NoThread, 30.) }),
+        ]
+        .into();
+        // The project id stands in for a hostile value: it must never reach the prompt as text.
+        let read = cleanup_rules::parse(
+            r#"{"projectSettingsOverrides":{"own":{"worktreeCleanup":{"mode":"custom","rules":{"worktreeAfterDays":null,"worktreeSettledAfterDays":0,"worktreeOnMerge":false,"worktreeOnDelete":false,"worktreeUnchanged":false}}}},"speech":{"apiKey":"CANARY"}}"#,
+        );
+        assert!(matches!(read, RulesRead::Ok(_)));
+        inv.cleanup = Some(cleanup_rules::summarize(
+            &read,
+            &inv,
+            Some(&facts),
+            &["own".into(), "global".into()],
+            false,
+            NOW,
+        ));
+
+        let ctx = storage_context_from_inventory(&inv, StorageTarget::SettledOrGone { count: 2, sizes: Sizes::default() }, &[]);
+        let (_, prompt) = storage_prompt(&ctx);
+        let data = extract_json_payload(&prompt);
+        let rules = &data["t3CleanupRules"];
+        assert_eq!(rules["state"], "off");
+        assert_eq!(rules["appliesTo"], "global");
+        assert_eq!(rules["projectsWithOwnRule"], 1);
+        assert_eq!(rules["autoSettleAfterDays"], 7.0);
+        assert_eq!(rules["rules"]["settledAfterDays"], Value::Null);
+        assert_eq!(rules["suggestion"]["setting"], "Delete settled worktrees");
+        assert_eq!(rules["suggestion"]["days"], 7);
+        assert_eq!(rules["suggestion"]["worktrees"], 1);
+        assert_eq!(rules["suggestion"]["upTo"], "3.0 GB");
+        assert_eq!(rules["whereToChange"], "T3 Settings › Worktrees › Automatic worktree cleanup");
+        let folders = data["settledOrGoneFolders"].as_array().unwrap();
+        let orphan = folders.iter().find(|f| f["title"] == "orphan").unwrap();
+        assert_eq!(orphan["ownership"], "no thread");
+        assert_eq!(orphan["t3Due"], Value::Null, "no due claim while the global rules are off");
+        assert!(prompt.contains("Do not edit T3's settings files"));
+        assert!(prompt.contains("5. Present the exact cleanup plan"));
+        assert!(!prompt.contains("CANARY"));
+
+        // A project with its own rule carries that rule, and its entries carry t3Due.
+        let focus = [&inv.projects[0].threads[0]];
+        let ctx = storage_context_from_inventory(
+            &inv,
+            StorageTarget::Project { id: "own".into(), title: "own".into(), thread_count: 1, sizes: Sizes::default() },
+            &focus,
+        );
+        let data = extract_json_payload(&storage_prompt(&ctx).1);
+        let rules = &data["t3CleanupRules"];
+        assert_eq!(rules["state"], "on");
+        assert_eq!(rules["appliesTo"], "project-override");
+        assert_eq!(rules["rules"]["settledAfterDays"], 0);
+        assert_eq!(rules["suggestion"], Value::Null);
+        assert_eq!(data["folders"][0]["t3Due"], "not covered");
+        assert_eq!(data["folders"][0]["ownership"], "active");
+
+        // Without a band the payload and steps are as before.
+        inv.cleanup = None;
+        let ctx = storage_context_from_inventory(&inv, StorageTarget::Overview, &[]);
+        let (_, prompt) = storage_prompt(&ctx);
+        assert!(extract_json_payload(&prompt).get("t3CleanupRules").is_none());
+        assert!(prompt.contains("4. Present the exact cleanup plan"));
     }
 
     #[test]

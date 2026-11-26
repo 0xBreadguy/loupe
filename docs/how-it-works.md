@@ -41,8 +41,22 @@ writes to it, and it makes no network connections.
   the working directory identifies an owner. On a dedicated memory-backed temp
   volume, a complete scan also shows the remaining used space in Other. Hard links count once. Scans run
   in the background and results stay in memory. The scanner does not read file
-  contents or remove anything. T3 Code owns the `storageCleanup` and
-  `worktreeCleanup` settings. The demo uses example folder sizes. An explicit
+  contents or remove anything. T3 Code owns its cleanup settings.
+  Storage reads only the worktree cleanup keys of `userdata/settings.json`
+  (`worktreeCleanup`, the `worktree*` fields of `storageCleanup`, each
+  project's `worktreeCleanup` override, `sidebarAutoSettleAfterDays`,
+  `sidebarAutoSettleOnMerge`, `worktreesDirectory` and
+  `previousWorktreesDirectories`), with Telemetry Check's no-follow, FIFO and
+  4 MiB defenses, skips every other key while parsing, and resolves them the
+  way T3 does. It reads the file when Storage opens and on `r`, and again
+  when the file's stat changes. When Storage opens or rescans, one
+  `query_only` query reads, for thread rows that record a worktree (archived
+  and deleted ones too), the creation, archive and delete times, `settledAt`,
+  `settledOverride` and the latest run times. The estimate counts the
+  WORKTREE column of idle threads inside T3's managed folders and says "up
+  to": T3 also keeps worktrees with local changes, open terminals or switched
+  branches, which Loupe does not check. Loupe never runs git and never
+  changes the settings. The demo uses example folder sizes. An explicit
   `--db` skips filesystem measurements. Disk measurements are Linux-only.
 - **Reading everything, on several connections:** `--once`, `--status` and
   the dashboard's initial read scan every table they use once. That read runs on

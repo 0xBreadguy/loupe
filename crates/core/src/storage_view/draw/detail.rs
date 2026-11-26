@@ -1,3 +1,4 @@
+use super::cleanup::{due_text, ownership_text, project_rule};
 use super::status::prose_measure;
 use super::{Row, activity, fit, titled_state};
 use crate::storage_view::data::{Bytes, Inventory};
@@ -36,11 +37,19 @@ pub(super) fn draw(c: &mut Canvas, p: &Palette, y: i32, row: &Row<'_>, inventory
                     "{count} {} with a worktree",
                     if count == 1 { "thread" } else { "threads" }
                 );
+                let own = match (&group.id, &inventory.cleanup) {
+                    (super::super::GroupId::Project(id), Some(band)) => band
+                        .project_rules
+                        .get(id)
+                        .map(|rule| format!(" · {}", project_rule(*rule))),
+                    _ => None,
+                };
                 detail_line(
                     c,
                     y + 1,
                     &[
                         (&line, p.text2, false),
+                        (own.as_deref().unwrap_or(""), p.text2, false),
                         (" · project folder excluded", p.dim, false),
                     ],
                 );
@@ -122,11 +131,19 @@ pub(super) fn draw(c: &mut Canvas, p: &Palette, y: i32, row: &Row<'_>, inventory
             }
 
             let (_, _, color) = activity(entry.state, p);
-            let state = if row.gone() {
-                "gone · no thread in T3 for this folder".into()
-            } else {
-                titled_state(entry.state, entry.age.as_deref(), p)
+            let cleanup = inventory
+                .cleanup
+                .as_ref()
+                .and_then(|band| band.entries.get(&entry.id));
+            let state = match cleanup.and_then(|e| ownership_text(e.ownership)) {
+                Some(text) if row.gone() => text.into(),
+                _ if row.gone() => "gone · no thread in T3 for this folder".into(),
+                _ => titled_state(entry.state, entry.age.as_deref(), p),
             };
+            let due = cleanup
+                .and_then(|e| e.due)
+                .and_then(due_text)
+                .map(|text| format!(" · {text}"));
             let open = if row.open_target().is_some() {
                 " · ⏎ opens it in T3"
             } else if matches!(
@@ -138,7 +155,15 @@ pub(super) fn draw(c: &mut Canvas, p: &Palette, y: i32, row: &Row<'_>, inventory
             } else {
                 ""
             };
-            detail_line(c, y + 2, &[(&state, color, false), (open, p.dim, false)]);
+            detail_line(
+                c,
+                y + 2,
+                &[
+                    (&state, color, false),
+                    (due.as_deref().unwrap_or(""), p.text2, false),
+                    (open, p.dim, false),
+                ],
+            );
         }
         Row::Other(sizes) => {
             detail_line(c, y, &[("Other · not tied to a thread", p.fg, true)]);

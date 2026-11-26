@@ -112,8 +112,9 @@ removing are all in [docs/install.md](docs/install.md).
   every step, every wait on you, every delegate, live.
 - **Open asks.** Each agent’s row counts requests you can answer and shows a
   separate estimate for questions in its messages.
-- **Storage on Linux.** Press `s` to see disk use by project and thread. The
-  dashboard warns when space is running low.
+- **Storage on Linux.** Press `s` to see disk use by project and thread, and
+  whether T3's own worktree cleanup is on. The dashboard warns when space is
+  running low.
 - **Telemetry check.** Press `e` in the dashboard, or run
   `loupe --telemetry-check`, to see what T3 Code sends (PostHog usage events,
   relay traces, custom OTLP exporters), whether your opt-outs are actually

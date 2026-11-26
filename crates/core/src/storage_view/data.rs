@@ -183,6 +183,161 @@ pub struct Inventory {
     /// Owning project ID for entries placed in `settled_or_gone`, keyed by `Entry::id`.
     #[doc(hidden)]
     pub settled_projects: std::collections::BTreeMap<String, String>,
+    /// T3's worktree cleanup rules. `None` hides the band: explicit `--db`, snapshot replay,
+    /// no matching T3 home, or a platform without Storage.
+    pub cleanup: Option<Cleanup>,
+}
+
+pub use crate::cleanup_rules::{KeepWhen, Rules};
+
+/// The T3 CLEANUP band, already computed by `cleanup_rules::summarize`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cleanup {
+    pub state: CleanupState,
+    /// The rules for projects without their own rule. `None` while unknown.
+    pub global: Option<Rules>,
+    /// Projects Storage knows that have their own rule.
+    pub own_rules: usize,
+    /// Those projects' rules, keyed by project ID.
+    pub project_rules: std::collections::BTreeMap<String, ProjectRule>,
+    /// Shown while the rules are off, or loose.
+    pub suggestion: Option<Suggestion>,
+    pub estimate: Estimate,
+    /// The global rules are on and keep any local files, and a candidate that follows them
+    /// has build output (T3 keeps a worktree for any ignored entry but `node_modules/`).
+    pub build_kept: bool,
+    /// T3 creates new worktrees outside the folder Storage scans.
+    pub custom_root: bool,
+    pub auto_settle_days: Option<f64>,
+    /// Keyed by `Entry::id`.
+    pub entries: std::collections::BTreeMap<String, EntryCleanup>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CleanupState {
+    /// No rule removes worktrees for projects that follow the global rule.
+    /// `defaults` when there is no settings file.
+    Off { defaults: bool },
+    On,
+    /// On, but the suggestion would free at least 1 GB more.
+    Loose,
+    Unknown(CleanupProblem),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CleanupProblem {
+    /// An error category, never file content.
+    Unreadable(String),
+    Invalid {
+        key: &'static str,
+        constraint: &'static str,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProjectRule {
+    /// `{mode: "off"}`. The rules keep `storageCleanup.worktreeKeepWhen`, as T3 resolves them.
+    Off(Rules),
+    Custom(Rules),
+    /// An explicit `null` override: the `storageCleanup` fields, whatever the top level says.
+    Storage(Rules),
+}
+
+impl ProjectRule {
+    /// The project's resolved rules.
+    pub fn rules(self) -> Rules {
+        match self {
+            Self::Off(rules) | Self::Custom(rules) | Self::Storage(rules) => rules,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Suggestion {
+    Settled(u16),
+    Inactive(u16),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Estimate {
+    /// The first walk is still running.
+    Estimating,
+    /// Folder sizes are unavailable.
+    NoSizes,
+    /// Thread timestamps could not be read.
+    NoTimes,
+    Ready(Tally),
+}
+
+/// Off: what the suggestion would make eligible. On: what the rules make eligible.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Tally {
+    pub now: Count,
+    /// The soonest batch that is not due yet.
+    pub next: Option<Next>,
+    /// Loose only: what the suggestion would add to the current rules.
+    pub extra: Option<Count>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Next {
+    pub days: u32,
+    pub count: Count,
+}
+
+/// WORKTREE bytes only: T3 does not remove scratch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Count {
+    pub worktrees: usize,
+    pub bytes: u64,
+    /// A size was a lower bound or unknown.
+    pub partial: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EntryCleanup {
+    pub ownership: Ownership,
+    /// Only while the rules for the entry's project are on.
+    pub due: Option<Due>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Ownership {
+    Active,
+    Settled,
+    /// The thread is archived. T3's rules still apply.
+    Archived,
+    /// The thread was deleted. Only "on delete" removes it.
+    Deleted,
+    /// No thread row records this folder. T3 never removes it.
+    NoThread,
+}
+
+impl Ownership {
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Settled => "settled",
+            Self::Archived => "archived",
+            Self::Deleted => "deleted",
+            Self::NoThread => "no thread",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Due {
+    /// Eligible now, if T3 finds it clean.
+    Now,
+    InDays(u32),
+    /// No timed rule covers it.
+    NotCovered,
+    /// T3 keeps it while the thread is busy.
+    Busy,
+    /// Outside T3's managed worktree folders.
+    Outside,
+    /// No thread: T3 only reports it.
+    Never,
 }
 
 impl Inventory {

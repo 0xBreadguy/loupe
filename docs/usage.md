@@ -49,7 +49,9 @@ In Storage, use the arrows or wheel to select a row, Space to fold a project,
 Enter to open an eligible thread in T3 Code, `f` to have a T3 Code thread
 inspect and clean up the selected worktrees or build caches (asks before
 starting), and `r` to measure again. Press `s` or Esc to return to the
-dashboard. Disk measurements are available with the live dashboard on Linux. The
+dashboard. The T3 CLEANUP band above the list shows the worktree rules T3
+applies and, when they're off or loose, a rule to try and what it would free.
+Change rules in T3 Settings › Worktrees; Loupe only reads them. Disk measurements are available with the live dashboard on Linux. The
 demo uses sample sizes, and an explicit `--db` leaves filesystem measurements
 unavailable.
 
