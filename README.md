@@ -3,13 +3,13 @@
 ```
 █    ▄▀▀▄ █  █ █▀▀▄ █▀▀▀
 █    █  █ █  █ █▀▀▀ █▀▀
-▀▀▀▀ ▀▄▄▀ ▀▄▄▀ ▀    ▀▀▀▀
+▀▀▀▀  ▀▀   ▀▀  ▀    ▀▀▀▀
 ```
 
 # Loupe
 
 [![test](https://github.com/0xBreadguy/loupe/actions/workflows/test.yml/badge.svg)](https://github.com/0xBreadguy/loupe/actions/workflows/test.yml)
-[![Release 1.7.0](https://img.shields.io/badge/release-1.7.0-2ea44f)](https://github.com/0xBreadguy/loupe/releases/latest)
+[![Release 1.8.0](https://img.shields.io/badge/release-1.8.0-2ea44f)](https://github.com/0xBreadguy/loupe/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-2024%20edition-b7410e?logo=rust&logoColor=white)
 ![Omarchy bar widget](https://img.shields.io/badge/Omarchy-bar%20widget-5c6b73)
@@ -40,7 +40,7 @@ bar.
 Linux:
 
 ```sh
-v=1.7.0 t=$(uname -m)-unknown-linux-gnu
+v=1.8.0 t=$(uname -m)-unknown-linux-gnu
 curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/loupe-$v-$t.tar.gz" &&
   curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/SHA256SUMS" &&
   sha256sum -c --ignore-missing SHA256SUMS &&
@@ -60,7 +60,7 @@ on made-up agents first.
 macOS:
 
 ```sh
-v=1.7.0 f=loupe-$v-universal-apple-darwin
+v=1.8.0 f=loupe-$v-universal-apple-darwin
 curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/$f.tar.gz" &&
   curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/SHA256SUMS" &&
   shasum -a 256 -c --ignore-missing SHA256SUMS &&
@@ -91,7 +91,7 @@ removing are all in [docs/install.md](docs/install.md).
   flagged.
 - **Failed calls you can inspect,** with the command and the exit code.
 - **Long threads stay short.** Old subagents fold into one row.
-- **Three scopes:** everything, active only, or what's in T3's sidebar.
+- **Three scopes:** starts on what's in T3's sidebar, or switch to everything or active only.
 - **Follows T3.** On Hyprland it selects the thread you have open in T3.
 - **Usage-limit meters** from Omarchy's usage records.
 - **Every Omarchy theme:** all 23 built in, plus any you've installed, and it
@@ -120,7 +120,8 @@ removing are all in [docs/install.md](docs/install.md).
   working, and the exact fix for how T3 was launched — local files only, never
   opens secrets or auth files.
 - **Hand off straight to T3 Code.** Press `f` in Telemetry, Storage, Trace, or
-  Insights (Tools & Recap) to spin up a T3 thread with Loupe's non-secret
+  Insights (Tools & Recap) to open a preview popup, pick a project (or
+  `"No project"`) and model, and spin up a T3 thread with Loupe's non-secret
   findings so an agent can turn telemetry off, clean up heavy worktrees,
   diagnose a slow trace, or optimize your top failing/slow commands. Press `M`
   on Live to nudge a stalled thread or queue a quick reply over SSH. Always

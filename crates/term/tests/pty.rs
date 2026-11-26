@@ -1388,7 +1388,7 @@ fn demo_telemetry_board_navigation_and_no_themes_gating() {
     let on_telemetry = |rows: &[String]| {
         header(rows).contains("TELEMETRY")
             && header(rows).contains("SOURCES")
-            && rows.iter().any(|r| r.contains("WHAT T3 CODE SENDS"))
+            && rows.iter().any(|r| r.contains("TELEMETRY STREAMS"))
             && footer(rows).contains("e back")
     };
     let on_sources = |rows: &[String]| {
@@ -1430,7 +1430,7 @@ fn demo_telemetry_board_navigation_and_no_themes_gating() {
     let status = pty.wait();
     assert!(status.success(), "{status:?}");
     let out = String::from_utf8_lossy(&pty.buf);
-    assert!(!out.contains("WHAT T3 CODE SENDS"), "e opened Telemetry under LOUPE_NO_THEMES");
+    assert!(!out.contains("TELEMETRY STREAMS"), "e opened Telemetry under LOUPE_NO_THEMES");
 }
 
 #[test]
@@ -1526,4 +1526,18 @@ fn demo_t3_handoffs_across_all_boards_and_no_themes_gating() {
     assert!(status.success(), "{status:?}");
     let out = String::from_utf8_lossy(&pty.buf);
     assert!(!out.contains("Demo: would queue"), "M opened handoff under LOUPE_NO_THEMES");
+}
+
+#[test]
+fn product_demo_defaults_to_t3_sidebar_and_prioritizes_core_view_hotkeys() {
+    let mut v = Shown::open("default-sidebar-footer", 140, 36);
+    v.until("product dashboard in T3 sidebar scope", |rows| {
+        on_dashboard(rows)
+            && header(rows).contains("T3 sidebar")
+            && footer(rows).contains("s storage")
+            && footer(rows).contains("i insights")
+            && footer(rows).contains("e telemetry")
+            && !footer(rows).contains("x fx")
+    });
+    v.quit(b"q");
 }
