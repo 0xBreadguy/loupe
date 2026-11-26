@@ -2318,9 +2318,9 @@ fn evaluate_product_events(
         };
     }
 
-    // Step 1: managed policy (optional system-wide override; not created by T3 by default)
+    // Step 1: managed policy (machine-wide override; not created by T3 by default)
     let policy_val = match &inputs.policy {
-        Read::Absent => "not set (optional)".to_owned(),
+        Read::Absent => "not set".to_owned(),
         Read::Unreadable(k) => format!("unreadable ({k})"),
         Read::Invalid { .. } => "invalid (blocks startup)".to_owned(),
         Read::Ok { value, .. } => match value.telemetry {
@@ -2331,7 +2331,7 @@ fn evaluate_product_events(
     };
     if policy_invalid {
         ladder.push(LadderStep {
-            step: "policy.json (optional)".into(),
+            step: "policy.json".into(),
             value: policy_val,
             parsed: Some("invalid".into()),
             decisive: true,
@@ -2375,7 +2375,7 @@ fn evaluate_product_events(
             ),
         };
         ladder.push(LadderStep {
-            step: "policy.json (optional)".into(),
+            step: "policy.json".into(),
             value: policy_val,
             parsed: Some("false".into()),
             decisive: true,
@@ -2397,7 +2397,7 @@ fn evaluate_product_events(
         };
     }
     ladder.push(LadderStep {
-        step: "policy.json (optional)".into(),
+        step: "policy.json".into(),
         value: policy_val,
         parsed: None,
         decisive: false,
@@ -2443,8 +2443,8 @@ fn evaluate_product_events(
                     Some(rc) if rc.interactive_only && matches!(inputs.platform, Platform::Linux) => {
                         format!("only in {} · desktop skips it", rc.path)
                     }
-                    Some(rc) => format!("in {} · app env private", rc.path),
-                    None => "set in this shell · app env private".to_owned(),
+                    Some(rc) => format!("in {} · not confirmed in T3", rc.path),
+                    None => "in this shell only".to_owned(),
                 };
                 (StreamState::Unverified, d)
             } else {
@@ -2839,9 +2839,9 @@ fn evaluate_relay_traces(
         };
     }
 
-    // Step 1: managed policy (optional)
+    // Step 1: managed policy (machine-wide override)
     let policy_val = match &inputs.policy {
-        Read::Absent => "not set (optional)".to_owned(),
+        Read::Absent => "not set".to_owned(),
         Read::Unreadable(k) => format!("unreadable ({k})"),
         Read::Invalid { .. } => "invalid (blocks startup)".to_owned(),
         Read::Ok { value, .. } => match value.telemetry {
@@ -2852,7 +2852,7 @@ fn evaluate_relay_traces(
     };
     if policy_invalid {
         ladder.push(LadderStep {
-            step: "policy.json (optional)".into(),
+            step: "policy.json".into(),
             value: policy_val,
             parsed: Some("invalid".into()),
             decisive: true,
@@ -2896,7 +2896,7 @@ fn evaluate_relay_traces(
             ),
         };
         ladder.push(LadderStep {
-            step: "policy.json (optional)".into(),
+            step: "policy.json".into(),
             value: policy_val,
             parsed: Some("false".into()),
             decisive: true,
@@ -2918,7 +2918,7 @@ fn evaluate_relay_traces(
         };
     }
     ladder.push(LadderStep {
-        step: "policy.json (optional)".into(),
+        step: "policy.json".into(),
         value: policy_val,
         parsed: None,
         decisive: false,
@@ -2964,8 +2964,8 @@ fn evaluate_relay_traces(
                 Some(rc) if rc.interactive_only && matches!(inputs.platform, Platform::Linux) => {
                     format!("only in {} · desktop skips it", rc.path)
                 }
-                Some(rc) => format!("in {} · app env private", rc.path),
-                None => "set in this shell · app env private".to_owned(),
+                Some(rc) => format!("in {} · not confirmed in T3", rc.path),
+                None => "in this shell only".to_owned(),
             };
             (StreamState::Unverified, d)
         } else {
@@ -3137,8 +3137,8 @@ fn evaluate_relay_traces(
                 Some(rc) if rc.interactive_only && matches!(inputs.platform, Platform::Linux) => {
                     format!("only in {} · desktop skips it", rc.path)
                 }
-                Some(rc) => format!("in {} · app env private", rc.path),
-                None => "set in this shell · app env private".into(),
+                Some(rc) => format!("in {} · not confirmed in T3", rc.path),
+                None => "in this shell only".into(),
             };
             (StreamState::Unverified, d)
         } else {
@@ -3271,8 +3271,8 @@ fn evaluate_relay_traces(
                 Some(rc) if rc.interactive_only && matches!(inputs.platform, Platform::Linux) => {
                     format!("only in {} · desktop skips it", rc.path)
                 }
-                Some(rc) => format!("in {} · app env private", rc.path),
-                None => "set in this shell · app env private".into(),
+                Some(rc) => format!("in {} · not confirmed in T3", rc.path),
+                None => "in this shell only".into(),
             };
             (StreamState::Unverified, d)
         } else {
@@ -3597,17 +3597,17 @@ fn build_summary(
                         "environment.d"
                     };
                     format!(
-                        "Only in {} — desktop T3 likely skips it. Move to {} or policy.json.",
+                        "Only in {} — desktop T3 skips it. Set policy.json (or {}).",
                         rc.path, target
                     )
                 } else {
                     format!(
-                        "Set in {}; desktop T3's env is private — use desktop env or policy.json.",
+                        "Only in {} — desktop T3 isn't confirmed. Set policy.json to lock & verify.",
                         rc.path
                     )
                 }
             } else {
-                "Off in this shell; desktop T3's env is private — use desktop env or policy.json."
+                "Only in this shell — desktop T3 isn't confirmed. Set policy.json to lock & verify."
                     .into()
             }
         }
@@ -3654,11 +3654,11 @@ fn build_fix_snippets(
     };
     let policy_snippet = Snippet {
         for_kind: "managed_policy",
-        heading: "OPTIONAL MACHINE-WIDE POLICY".into(),
+        heading: "RECOMMENDED: MANAGED POLICY".into(),
         command: format!(
             "sudo install -d -m 755 {policy_dir} && printf '%s%s%s\\n' '{{\"schemaVersion\":1,' '\"organization\":\"Local\",' '\"limits\":{{\"telemetry\":false}}}}' | sudo tee {policy_path}"
         ),
-        note: "optional admin file (T3 never creates one); covers all launch paths & T3 logs it so Loupe marks it verified"
+        note: "covers desktop, CLI & services; T3 confirms it on startup so Loupe marks it verified (needs sudo)"
             .into(),
     };
 
@@ -3677,44 +3677,49 @@ fn build_fix_snippets(
         if inputs.omarchy_hypr_detected {
             Snippet {
                 for_kind: "desktop_omarchy",
-                heading: "TO TURN IT ALL OFF".into(),
+                heading: "WITHOUT SUDO".into(),
                 command: "echo 'hl.env(\"T3CODE_TELEMETRY_ENABLED\", \"false\")' >> ~/.config/hypr/hyprland.lua && hyprctl reload".into(),
-                note: "no sudo, no logout; restart T3 Code after reload — Loupe reads hyprland.lua and shows ✓ OFF".into(),
+                note: "no sudo, no logout; per-user desktop env — Loupe tracks hyprland.lua on disk (likely off)".into(),
             }
         } else if inputs.uwsm_detected {
             Snippet {
                 for_kind: "desktop_uwsm",
-                heading: "TO TURN IT ALL OFF".into(),
+                heading: "WITHOUT SUDO".into(),
                 command: "echo 'export T3CODE_TELEMETRY_ENABLED=false' >> ~/.config/uwsm/env".into(),
-                note: "no sudo; log out and back in so T3 starts with it — Loupe reads uwsm/env and shows ✓ OFF".into(),
+                note: "no sudo; log out and back in — Loupe tracks uwsm/env on disk (likely off)".into(),
             }
         } else {
             Snippet {
                 for_kind: "desktop_linux",
-                heading: "TO TURN IT ALL OFF".into(),
+                heading: "WITHOUT SUDO".into(),
                 command: "mkdir -p ~/.config/environment.d && printf 'T3CODE_TELEMETRY_ENABLED=false\\n' > ~/.config/environment.d/t3code.conf".into(),
-                note: "no sudo; log out and back in so T3 starts with it — Loupe reads environment.d and shows ✓ OFF".into(),
+                note: "no sudo; log out and back in — Loupe tracks environment.d on disk (likely off)".into(),
             }
         }
     } else if matches!(inputs.platform, Platform::MacOs) {
         Snippet {
             for_kind: "shell_macos",
-            heading: "TO TURN IT ALL OFF".into(),
+            heading: "WITHOUT SUDO".into(),
             command: "echo 'export T3CODE_TELEMETRY_ENABLED=false' >> ~/.zshrc".into(),
-            note: "no sudo; restart T3 Code (desktop app reads your login shell profile — Loupe reads ~/.zshrc and shows ✓ OFF)".into(),
+            note: "no sudo; per-user login shell — restart T3 Code; Loupe tracks ~/.zshrc on disk (likely off)".into(),
         }
     } else {
         Snippet {
             for_kind: "shell",
-            heading: "TO TURN IT ALL OFF".into(),
+            heading: "WITHOUT SUDO".into(),
             command: "export T3CODE_TELEMETRY_ENABLED=false".into(),
             note: "add to your shell profile (~/.zshrc or ~/.bashrc), then restart T3 Code".into(),
         }
     };
 
-    // Put the no-sudo native launcher/service option first (Loupe reads & tracks it directly),
-    // with the optional machine-wide policy.json right below it for verified all-launch enforcement.
-    vec![session_snippet, policy_snippet]
+    // For systemd/launchd services, service.env is already T3-verified and needs no sudo.
+    // Everywhere else (desktop/shell), recommend policy.json first because it covers every
+    // launch path and is the only setting T3 confirms in server-runtime.json (verified off).
+    if service_managed == Some(true) {
+        vec![session_snippet, policy_snippet]
+    } else {
+        vec![policy_snippet, session_snippet]
+    }
 }
 
 /// Builds a self-contained, non-secret `(title, prompt)` pair for `t3 thread start`
@@ -4562,11 +4567,8 @@ mod tests {
 
         assert_eq!(rep.verdict, Verdict::Unverified);
         assert_eq!(rep.streams[0].state, StreamState::Unverified);
-        assert!(
-            rep.streams[0].ladder[0].value.contains("optional"),
-            "policy step should note it is optional: {:?}",
-            rep.streams[0].ladder[0]
-        );
+        assert_eq!(rep.streams[0].ladder[0].step, "policy.json");
+        assert_eq!(rep.streams[0].ladder[0].value, "not set");
         assert!(
             rep.streams[0]
                 .ladder
@@ -4591,12 +4593,12 @@ mod tests {
             rep.findings
         );
         assert_eq!(rep.fix.len(), 2);
-        assert_eq!(rep.fix[0].for_kind, "desktop_omarchy");
-        assert!(rep.fix[0].command.contains("~/.config/hypr/hyprland.lua"));
-        assert!(rep.fix[0].command.contains("hl.env"));
-        assert_eq!(rep.fix[1].for_kind, "managed_policy");
-        assert!(rep.fix[1].command.contains("install -d -m 755 /etc/t3code"));
-        assert!(rep.fix[1].command.contains("/etc/t3code/policy.json"));
+        assert_eq!(rep.fix[0].for_kind, "managed_policy");
+        assert!(rep.fix[0].command.contains("install -d -m 755 /etc/t3code"));
+        assert!(rep.fix[0].command.contains("/etc/t3code/policy.json"));
+        assert_eq!(rep.fix[1].for_kind, "desktop_omarchy");
+        assert!(rep.fix[1].command.contains("~/.config/hypr/hyprland.lua"));
+        assert!(rep.fix[1].command.contains("hl.env"));
     }
 
     #[test]

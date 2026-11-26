@@ -1781,7 +1781,7 @@ fn draw_summary_tiles(
                 ("policy.json · restart T3", p.warn)
             }
             (Read::Ok { .. }, _) => ("policy.json · telemetry unset", p.dim),
-            (Read::Absent, _) => ("policy.json · optional (none)", p.dim),
+            (Read::Absent, _) => ("policy.json · not set", p.dim),
         };
         c.text_bg(tx + 2, y0 + 3, &fit(pol_text, tw - 3), pol_ink, p.panel, false);
         c.text_bg(
@@ -2321,7 +2321,9 @@ fn draw_visual_pipeline(
                 && s.decided_detail.contains("desktop skips it");
             let shell_expl = desktop_skip_expl
                 || (s.state == StreamState::Unverified
-                    && (s.decided_detail.contains("shell") || s.decided_detail.contains("app env private")));
+                    && (s.decided_detail.contains("shell")
+                        || s.decided_detail.contains("not confirmed in T3")
+                        || s.decided_detail.contains("app env private")));
             let card_h = if shell_expl { 2 } else { 1 };
             draw_panel_box(c, x, y, w, card_h, stripe, p);
             c.set(x + 2, y, '◆', stripe, Some(p.panel), true);
@@ -2338,9 +2340,9 @@ fn draw_visual_pipeline(
 
             if shell_expl {
                 let expl_text = if desktop_skip_expl {
-                    "└─ Desktop T3 usually skips interactive shell rc files; set in desktop env or policy.json."
+                    "└─ Desktop T3 skips interactive shell rc files; add policy.json (or desktop env) below."
                 } else {
-                    "└─ Set in this shell; desktop T3's own env is private (never read)."
+                    "└─ Only seen in this shell; T3's live env is private — add policy.json below to lock & verify."
                 };
                 c.text_bg(
                     x + 7,
@@ -2383,12 +2385,12 @@ fn draw_visual_pipeline(
 
 fn snippet_label_and_badge(snip: &Snippet) -> (&'static str, &'static str) {
     match snip.for_kind {
-        "managed_policy" => ("Managed policy (optional)", "VERIFIED BY T3 · NEEDS SUDO"),
-        "desktop_omarchy" => ("Omarchy Hyprland env", "NO SUDO · TRACKED BY LOUPE"),
-        "desktop_uwsm" => ("uwsm session env", "NO SUDO · TRACKED BY LOUPE"),
-        "desktop_linux" => ("Systemd environment.d", "NO SUDO · TRACKED BY LOUPE"),
-        "service" => ("Service environment file", "NO SUDO · TRACKED BY LOUPE"),
-        "shell_macos" => ("Login shell profile (~/.zshrc)", "NO SUDO · TRACKED BY LOUPE"),
+        "managed_policy" => ("Managed policy (policy.json)", "RECOMMENDED · VERIFIED · SUDO"),
+        "desktop_omarchy" => ("Omarchy Hyprland env", "NO SUDO · LIKELY OFF"),
+        "desktop_uwsm" => ("uwsm session env", "NO SUDO · LIKELY OFF"),
+        "desktop_linux" => ("Systemd environment.d", "NO SUDO · LIKELY OFF"),
+        "service" => ("Service environment file", "NO SUDO · VERIFIED"),
+        "shell_macos" => ("Login shell profile (~/.zshrc)", "NO SUDO · LIKELY OFF"),
         "shell" => ("Shell profile", "NO SUDO"),
         "policy_fix" => ("Validate managed policy", "REQUIRED TO START"),
         "restart" => ("Restart T3 Code", "APPLY SAVED CONFIG"),
@@ -2398,32 +2400,32 @@ fn snippet_label_and_badge(snip: &Snippet) -> (&'static str, &'static str) {
 
 fn snippet_summary(snip: &Snippet, platform: crate::telemetry::Platform) -> &'static str {
     match snip.for_kind {
+        "managed_policy" => match platform {
+            crate::telemetry::Platform::MacOs => {
+                "Recommended: create /Library/Application Support/T3Code/policy.json and restart T3. Locks telemetry off across desktop, CLI, and services, and T3 confirms it on startup."
+            }
+            _ => {
+                "Recommended: create /etc/t3code/policy.json and restart T3. Locks telemetry off across desktop, CLI, and services, and T3 confirms it on startup."
+            }
+        },
         "desktop_omarchy" => {
-            "Add T3CODE_TELEMETRY_ENABLED=false to ~/.config/hypr/hyprland.lua, reload Hyprland, and restart T3 Code."
+            "Without sudo: add T3CODE_TELEMETRY_ENABLED=false to ~/.config/hypr/hyprland.lua, reload Hyprland, and restart T3 (tracked from disk, likely off)."
         }
         "desktop_uwsm" => {
-            "Add T3CODE_TELEMETRY_ENABLED=false to ~/.config/uwsm/env, then log out and back in so T3 starts with it."
+            "Without sudo: add T3CODE_TELEMETRY_ENABLED=false to ~/.config/uwsm/env, then log out and back in (tracked from disk, likely off)."
         }
         "desktop_linux" => {
-            "Set T3CODE_TELEMETRY_ENABLED=false in ~/.config/environment.d/t3code.conf, then log out and back in."
+            "Without sudo: set T3CODE_TELEMETRY_ENABLED=false in ~/.config/environment.d/t3code.conf, then log out and back in (tracked from disk, likely off)."
         }
         "service" => {
             "Add T3CODE_TELEMETRY_ENABLED=false to service.env and restart the T3 service."
         }
         "shell_macos" => {
-            "Export T3CODE_TELEMETRY_ENABLED=false in ~/.zshrc, then restart T3 Code (desktop T3 loads your login shell)."
+            "Without sudo: export T3CODE_TELEMETRY_ENABLED=false in ~/.zshrc and restart T3. Tracked from disk (likely off) rather than T3's live env."
         }
         "shell" => {
-            "Export T3CODE_TELEMETRY_ENABLED=false in your shell profile, then restart T3 Code."
+            "Without sudo: export T3CODE_TELEMETRY_ENABLED=false in your shell profile, then restart T3 Code."
         }
-        "managed_policy" => match platform {
-            crate::telemetry::Platform::MacOs => {
-                "Optional admin file (not created by T3): write /Library/Application Support/T3Code/policy.json and restart T3."
-            }
-            _ => {
-                "Optional admin file (not created by T3): write /etc/t3code/policy.json for all launch paths and restart T3."
-            }
-        },
         "policy_fix" => "Run `t3 policy check` to fix the invalid policy.json before restarting T3 Code.",
         "restart" => "Quit and reopen T3 Code so the running server picks up your saved opt-out.",
         _ => "Apply this local configuration change, then restart T3 Code.",
@@ -2926,12 +2928,12 @@ mod tests {
             );
             if cols >= 116 && rows >= 30 {
                 assert!(
-                    text.contains("Managed policy"),
-                    "verified managed policy option expected without scrolling at {cols}x{rows}:\n{text}"
+                    text.contains("1. Managed policy"),
+                    "recommended managed policy option #1 expected without scrolling at {cols}x{rows}:\n{text}"
                 );
                 assert!(
-                    text.contains("Omarchy Hyprland env"),
-                    "Omarchy Hyprland env option expected without scrolling at {cols}x{rows}:\n{text}"
+                    text.contains("2. Omarchy Hyprland env"),
+                    "no-sudo Omarchy Hyprland env option #2 expected without scrolling at {cols}x{rows}:\n{text}"
                 );
                 assert!(
                     !text.contains("sudo install -d"),
