@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <title>Loupe</title>
+  <desc>A dark squircle dashboard tile with a warm brass watchmaker's loupe magnifying Loupe's live agent rows and crimson needs-you diamond.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#282a38"/>
+      <stop offset="1" stop-color="#14151e"/>
+    </linearGradient>
+    <linearGradient id="brass" x1="0.12" y1="0.08" x2="0.88" y2="0.92">
+      <stop offset="0" stop-color="#fae2ad"/>
+      <stop offset="0.5" stop-color="#d4b06a"/>
+      <stop offset="1" stop-color="#94743c"/>
+    </linearGradient>
+    <radialGradient id="lens" cx="0.38" cy="0.32" r="0.72">
+      <stop offset="0" stop-color="#25293b"/>
+      <stop offset="0.6" stop-color="#171925"/>
+      <stop offset="1" stop-color="#0f111a"/>
+    </radialGradient>
+    <linearGradient id="sheen" x1="0.2" y1="0" x2="0.7" y2="0.8">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.20"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="tile-clip">
+      <rect x="16" y="16" width="480" height="480" rx="112"/>
+    </clipPath>
+    <clipPath id="lens-clip">
+      <circle cx="242" cy="242" r="144"/>
+    </clipPath>
+  </defs>
+
+  <!-- Squircle tile matching Omarchy's app icon footprint -->
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="url(#bg)"/>
+  <rect x="18" y="18" width="476" height="476" rx="110" fill="none" stroke="#4a4f6b" stroke-opacity="0.55" stroke-width="4"/>
+
+  <!-- Subtle unmagnified agent lane stripes across the background tile -->
+  <g clip-path="url(#tile-clip)" opacity="0.38">
+    <rect x="52" y="146" width="408" height="22" rx="11" fill="#3a3f58"/>
+    <rect x="52" y="200" width="330" height="22" rx="11" fill="#3a3f58"/>
+    <rect x="52" y="254" width="388" height="22" rx="11" fill="#3a3f58"/>
+    <rect x="52" y="308" width="290" height="22" rx="11" fill="#3a3f58"/>
+    <rect x="52" y="362" width="350" height="22" rx="11" fill="#3a3f58"/>
+  </g>
+
+  <!-- Short brass loupe lug -->
+  <path d="M 348 320 L 424 396 C 436 408, 436 426, 424 438 C 412 450, 394 450, 382 438 L 306 362 Z" fill="url(#brass)" stroke="#11121a" stroke-width="4"/>
+  <circle cx="403" cy="417" r="10" fill="#171923"/>
+
+  <!-- Precision brass lens frame -->
+  <circle cx="242" cy="242" r="164" fill="url(#brass)" stroke="#11121a" stroke-width="4"/>
+  <circle cx="242" cy="242" r="144" fill="url(#lens)"/>
+
+  <!-- Magnified Loupe rows inside the lens -->
+  <g clip-path="url(#lens-clip)">
+    <!-- Row 1: Needs you (crimson diamond + hot bar) -->
+    <rect x="140" y="156" width="30" height="30" rx="4" transform="rotate(45 155 171)" fill="#f04e5a"/>
+    <rect x="192" y="157" width="146" height="28" rx="10" fill="#f04e5a"/>
+    <!-- Row 2: Running agent (warm cream pip + progress lane + active tick) -->
+    <circle cx="155" cy="242" r="15" fill="#f3eedc"/>
+    <rect x="192" y="228" width="112" height="28" rx="10" fill="#f3eedc"/>
+    <rect x="316" y="228" width="32" height="28" rx="10" fill="#7aa89f"/>
+    <!-- Row 3: Second running agent (warm gold lane + remaining track) -->
+    <circle cx="155" cy="313" r="15" fill="#ecd090"/>
+    <rect x="192" y="299" width="76" height="28" rx="10" fill="#ecd090"/>
+    <rect x="280" y="299" width="54" height="28" rx="10" fill="#444963"/>
+    <!-- Optical glass sheen -->
+    <path d="M 96 220 C 110 132, 190 96, 290 114 C 218 128, 154 168, 122 240 Z" fill="url(#sheen)"/>
+  </g>
+</svg>

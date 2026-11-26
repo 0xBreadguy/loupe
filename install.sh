@@ -261,6 +261,16 @@ mv -f -- "$program_tmp" "$app_dir/loupe-term"
 trap - EXIT
 printf '%s\n' "$marker" >"$app_dir/.loupe-install"
 
+icon_field='utilities-system-monitor'
+if [[ -f $source_dir/loupe.svg ]]; then
+  install -m 644 -- "$source_dir/loupe.svg" "$app_dir/loupe.svg"
+  icon_field="$app_dir/loupe.svg"
+  icon_field=${icon_field//\\/\\\\}
+  icon_field=${icon_field//$'\n'/\\n}
+  icon_field=${icon_field//$'\r'/\\r}
+  icon_field=${icon_field//$'\t'/\\t}
+fi
+
 # The JSON the bar widget can show when the program is gone; valid JSON whatever --title was.
 status_error="loupe-term not found. Rerun the $title installer."
 status_error=${status_error//\\/\\\\}
@@ -337,7 +347,7 @@ trap 'rm -f -- "$desktop_tmp"' EXIT
   printf '# %s\n' "$marker"
   printf '[Desktop Entry]\nType=Application\nName=%s\n' "$title"
   printf 'Comment=Unofficial live dashboard for T3 Code agents, context and limits\n'
-  printf 'Exec="%s" --window\nIcon=utilities-system-monitor\nTerminal=false\nCategories=Development;\n' "$quoted"
+  printf 'Exec="%s" --window\nIcon=%s\nTerminal=false\nCategories=Development;\n' "$quoted" "$icon_field"
   printf 'StartupWMClass=%s\n' "$app_id"
 } >"$desktop_tmp"
 chmod 644 "$desktop_tmp"

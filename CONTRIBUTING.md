@@ -21,6 +21,7 @@ checks/fixtures/      Synthetic inputs and recorded results, tracked
 checks/generated/     Scratch output, ignored
 themes/               The built-in color themes, compiled into the program
 install.sh            Installs, updates and removes the program for the current user
+loupe.svg             Desktop launcher icon installed alongside the program
 dashboard/install.sh  Forwards to install.sh; the path older installs update from
 manifest.json, Service.qml, BarWidget.qml, Status.js, ui/, i18n/, test/
                       The Omarchy bar widget
@@ -141,7 +142,7 @@ Contributions are under the repository's license, MIT.
 
 ## Releases
 
-`.github/workflows/linux-release.yml` is started by hand. It builds an archive for x86-64 and ARM Linux (the program, `install.sh`, the license, the third-party notices and a build record) and keeps it as the run's artifact. `checks/scripts/package-linux.sh` does the same for the machine it runs on.
+`.github/workflows/linux-release.yml` is started by hand. It builds an archive for x86-64 and ARM Linux (the program, `install.sh`, `loupe.svg`, the license, the third-party notices and a build record) and keeps it as the run's artifact. `checks/scripts/package-linux.sh` does the same for the machine it runs on.
 
 `.github/workflows/macos-release.yml` is started by hand too. It runs `checks/scripts/package-macos.sh`, which builds one universal macOS program (minimum macOS 11.0, ad hoc signed) and archives it without `install.sh`; `--native-only` builds just the Mac it runs on.
 

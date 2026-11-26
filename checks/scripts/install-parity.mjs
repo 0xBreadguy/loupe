@@ -21,7 +21,9 @@
 //   4. When the program is missing the message names loupe-term rather than Node.js, and
 //      the --status JSON carries that wording. The JSON shape and exit 127 are compared.
 //   5. The marker comment differs ("loupe-rust"), so uninstall can tell the two installs
-//      apart. The rest of the launcher entry is compared line for line.
+//      apart. The native installer also installs Loupe's own SVG icon (loupe.svg) inside the
+//      program directory and sets Icon= to its path instead of utilities-system-monitor. The
+//      rest of the launcher entry is compared line for line.
 //   6. The launcher resolves the program directory from XDG_DATA_HOME at run time, exactly as
 //      the original resolves its app directory; only the file inside it differs.
 import { createHash } from "node:crypto"
@@ -37,6 +39,7 @@ import { fileURLToPath } from "node:url"
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..")
 const ORIGINAL_INSTALLER = join(ROOT, "..", "oracle", "install.sh")
 const NATIVE_INSTALLER = join(ROOT, "..", "install.sh")
+const NATIVE_ICON = join(ROOT, "..", "loupe.svg")
 const REAL_NODE = process.execPath
 const REAL_JQ = "/usr/bin/jq"
 const REAL_BASH = "/usr/bin/bash"
@@ -53,6 +56,7 @@ const DELIBERATE = [
   "the launcher runs loupe-term, not `node .../src/main.ts`",
   "the missing-program message names loupe-term, not Node.js (JSON shape and exit 127 match)",
   "the marker comment differs so uninstall can tell the two installs apart",
+  "the native installer copies loupe.svg into the program directory and points the desktop entry's Icon= at it instead of utilities-system-monitor",
   "after installing or removing, the native installer ends that install's running status watcher so the bar restarts it on the new program; the stubs here have no pkill, so the gate does not exercise it",
   "the installer builds into ${XDG_CACHE_HOME:-$HOME/.cache}/loupe/target, outside the checkout, unless CARGO_TARGET_DIR is set; the original has no build step",
   "the native installer refuses to run when HOME is not the account's home folder while XDG_DATA_HOME or XDG_CACHE_HOME still points into it; the original would install there",
@@ -407,19 +411,23 @@ phase("install", () => {
   eq("native node calls", calls(NATIVE, "node").length, 0)
   eq("native npm calls", calls(NATIVE, "npm").length, 0)
 
-  // Same launcher entry, apart from the marker line (deliberate difference 5).
+  // Same launcher entry, apart from the marker and Icon lines (deliberate difference 5).
   const od = desktop(ORIGINAL).split("\n")
   const nd = desktop(NATIVE).split("\n")
   eq("original entry marker", od[0], `# ${ORIGINAL_MARKER}`)
   eq("native entry marker", nd[0], `# ${NATIVE_MARKER}`)
-  eq("launcher entry after the marker line",
-    nd.slice(1).map((line) => normalizeHome(line, NATIVE)),
-    od.slice(1).map((line) => normalizeHome(line, ORIGINAL)))
+  eq("original entry icon", od.find((line) => line.startsWith("Icon=")), "Icon=utilities-system-monitor")
+  eq("native entry icon", normalizeHome(nd.find((line) => line.startsWith("Icon=")) ?? "", NATIVE),
+    "Icon=<HOME>/.local/share/loupe/loupe.svg")
+  eq("launcher entry after the marker and icon lines",
+    nd.slice(1).filter((line) => !line.startsWith("Icon=")).map((line) => normalizeHome(line, NATIVE)),
+    od.slice(1).filter((line) => !line.startsWith("Icon=")).map((line) => normalizeHome(line, ORIGINAL)))
 
   eq("original program directory", entries(join(ORIGINAL.data, "loupe")),
     [".installed-lock", "node_modules", "package-lock.json", "package.json", "src"])
   eq("native program directory", entries(join(NATIVE.data, "loupe")),
-    [".loupe-install", "loupe-term"])
+    [".loupe-install", "loupe-term", "loupe.svg"])
+  eq("native installed icon matches source", hash(join(NATIVE.data, "loupe", "loupe.svg")), hash(NATIVE_ICON))
   ok("native command exists", existsSync(join(NATIVE.bin, "loupe")), "command not written")
   // Nothing else: no autostart entry, keybinding, window rule or service.
   eq("native install wrote only its own files", filesUnder(NATIVE.home), [
@@ -427,6 +435,7 @@ phase("install", () => {
     join(NATIVE.home, ".local/share/applications/loupe.desktop"),
     join(NATIVE.home, ".local/share/loupe/.loupe-install"),
     join(NATIVE.home, ".local/share/loupe/loupe-term"),
+    join(NATIVE.home, ".local/share/loupe/loupe.svg"),
   ])
 })
 
@@ -563,7 +572,7 @@ phase("rerun", () => {
     "Installed Loupe. Run loupe or loupe --window.\n" +
     "Note: <HOME>/.local/bin is not on your PATH, so run <HOME>/.local/bin/loupe or add that folder to PATH.\n")
   eq("native rerun program directory", entries(join(NATIVE.data, "loupe")),
-    [".loupe-install", "loupe-term"])
+    [".loupe-install", "loupe-term", "loupe.svg"])
   const rerun = observe(NATIVE, "native", ["--once", "--demo"], {})
   eq("rerun command still works", rerun.program, ["--once", "--demo"])
 })
@@ -638,14 +647,15 @@ phase("two names side by side", () => {
   }, before)
   eq("side-by-side: new command", existsSync(join(shared.bin, "loupe-next")), true)
   eq("side-by-side: new program directory", entries(join(shared.data, "loupe-next")),
-    [".loupe-install", "loupe-term"])
+    [".loupe-install", "loupe-term", "loupe.svg"])
   eq("side-by-side: first entry", read(originalDesktop).split("\n").find((line) => line.startsWith("StartupWMClass=")),
     "StartupWMClass=TUI.loupe")
   const nextDesktop = read(join(shared.data, "applications", "loupe-next.desktop"))
   eq("side-by-side: new entry", [
     nextDesktop.split("\n").find((line) => line.startsWith("Name=")),
+    nextDesktop.split("\n").find((line) => line.startsWith("Icon=")),
     nextDesktop.split("\n").find((line) => line.startsWith("StartupWMClass=")),
-  ], ["Name=Loupe (loupe-next)", "StartupWMClass=TUI.loupe-next"])
+  ], ["Name=Loupe (loupe-next)", `Icon=${join(shared.data, "loupe-next", "loupe.svg")}`, "StartupWMClass=TUI.loupe-next"])
 
   // The old command still hands its arguments to the Node app, and the new one to the binary.
   clearRecord(shared)
@@ -670,8 +680,11 @@ phase("upgrade from the Node install", () => {
     "Installed Loupe. Run loupe or loupe --window.\n" +
     "Note: <HOME>/.local/bin is not on your PATH, so run <HOME>/.local/bin/loupe or add that folder to PATH.\n")
   eq("upgrade: no stale Node files", entries(join(h.data, "loupe")),
-    [".loupe-install", "loupe-term"])
+    [".loupe-install", "loupe-term", "loupe.svg"])
   eq("upgrade: marker is ours", read(join(h.data, "applications", "loupe.desktop")).split("\n")[0], `# ${NATIVE_MARKER}`)
+  eq("upgrade: icon is ours",
+    read(join(h.data, "applications", "loupe.desktop")).split("\n").find((line) => line.startsWith("Icon=")),
+    `Icon=${join(h.data, "loupe", "loupe.svg")}`)
   eq("upgrade: launcher is ours", read(join(h.bin, "loupe")).includes(NATIVE_MARKER), true)
   clearRecord(h)
   spawn(join(h.bin, "loupe"), ["--status", "--demo"], runEnv(h, launcherPath(), {}))
@@ -789,8 +802,9 @@ phase("named install", () => {
   const entry = read(join(h.data, "applications", "loupe-next.desktop"))
   eq("named: title and app id", [
     entry.split("\n").find((line) => line.startsWith("Name=")),
+    entry.split("\n").find((line) => line.startsWith("Icon=")),
     entry.split("\n").find((line) => line.startsWith("StartupWMClass=")),
-  ], ["Name=Loupe (loupe-next)", "StartupWMClass=TUI.loupe-next"])
+  ], ["Name=Loupe (loupe-next)", `Icon=${join(h.data, "loupe-next", "loupe.svg")}`, "StartupWMClass=TUI.loupe-next"])
   clearRecord(h)
   spawn(join(h.bin, "loupe-next"), ["--window", "--demo"], runEnv(h, launcherPath(), {}))
   eq("named: window uses the new app id and title", calls(h, "foot"),
@@ -830,7 +844,7 @@ phase("native prerequisites", () => {
   const prebuiltRun = spawn(NATIVE_INSTALLER, ["--binary", PROGRAM_STUB], installEnv(prebuilt, noCargoPath()))
   eq("prebuilt without cargo: exit", prebuiltRun.exit, 0)
   eq("prebuilt without cargo: files", entries(join(prebuilt.data, "loupe")),
-    [".loupe-install", "loupe-term"])
+    [".loupe-install", "loupe-term", "loupe.svg"])
   eq("prebuilt without cargo: no build", calls(prebuilt, "cargo"), [])
 
   const n = makeHome("bad-name")
