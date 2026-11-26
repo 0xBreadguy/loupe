@@ -1527,3 +1527,17 @@ fn demo_t3_handoffs_across_all_boards_and_no_themes_gating() {
     let out = String::from_utf8_lossy(&pty.buf);
     assert!(!out.contains("Demo: would queue"), "M opened handoff under LOUPE_NO_THEMES");
 }
+
+#[test]
+fn product_demo_defaults_to_t3_sidebar_and_prioritizes_core_view_hotkeys() {
+    let mut v = Shown::open("default-sidebar-footer", 140, 36);
+    v.until("product dashboard in T3 sidebar scope", |rows| {
+        on_dashboard(rows)
+            && header(rows).contains("T3 sidebar")
+            && footer(rows).contains("s storage")
+            && footer(rows).contains("i insights")
+            && footer(rows).contains("e telemetry")
+            && !footer(rows).contains("x fx")
+    });
+    v.quit(b"q");
+}

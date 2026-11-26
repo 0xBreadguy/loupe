@@ -85,22 +85,22 @@ impl ModelChoice {
                 provider_hint: Some(prov),
                 model_hint: Some(model),
             } => format!(
-                "{}/{} (project default)",
+                "{}/{} (default)",
                 short_provider(prov),
                 terminal::short_model(model)
             ),
             Self::ProjectDefault {
                 provider_hint: None,
                 model_hint: Some(model),
-            } => format!("{} (project default)", terminal::short_model(model)),
-            Self::ProjectDefault { .. } => "project default".into(),
+            } => format!("{} (default)", terminal::short_model(model)),
+            Self::ProjectDefault { .. } => "default".into(),
             Self::Explicit {
                 provider,
                 model,
                 provenance,
             } => {
                 let tag = match provenance {
-                    ModelProvenance::ProjectRecent => "project",
+                    ModelProvenance::ProjectRecent => "recent",
                     ModelProvenance::GlobalRecent => "other project",
                 };
                 format!(
@@ -119,19 +119,19 @@ impl ModelChoice {
             Self::ProjectDefault {
                 provider_hint: Some(prov),
                 model_hint: Some(model),
-            } => format!("{} / {} (project default)", short_provider(prov), model),
+            } => format!("{} / {} (default)", short_provider(prov), model),
             Self::ProjectDefault {
                 provider_hint: None,
                 model_hint: Some(model),
-            } => format!("{model} (project default)"),
-            Self::ProjectDefault { .. } => "project default".into(),
+            } => format!("{model} (default)"),
+            Self::ProjectDefault { .. } => "default".into(),
             Self::Explicit {
                 provider,
                 model,
                 provenance,
             } => {
                 let prov_word = match provenance {
-                    ModelProvenance::ProjectRecent => "project recent",
+                    ModelProvenance::ProjectRecent => "recent",
                     ModelProvenance::GlobalRecent => "other project",
                 };
                 format!("{} / {} ({prov_word})", short_provider(provider), model)
@@ -400,20 +400,70 @@ fn read_scratch_project_from(
                     .is_some_and(|n| n == ".t3")
         };
 
-        let label = if clean_title.is_empty() || clean_title.eq_ignore_ascii_case("no project") {
-            "No project".to_owned()
-        } else {
-            format!("No project ({clean_title})")
-        };
-
         if matches_root {
-            return Some((pid, label));
+            return Some((pid, "No project".to_owned()));
         }
         if clean_title.eq_ignore_ascii_case("no project") && title_fallback.is_none() {
             title_fallback = Some((pid, "No project".to_owned()));
         }
     }
     title_fallback
+}
+
+/// Read all non-deleted `(project_id, human_title)` pairs from `projection_projects`, read-only.
+/// Never opens secrets, auth tables, prompts, or message text, and never returns a raw UUID as title.
+pub fn read_project_titles(db_path: &Path) -> Vec<(String, String)> {
+    let Ok(db) = crate::source::open_read_only(db_path) else {
+        return Vec::new();
+    };
+    let _ = db.busy_timeout(Duration::from_millis(250));
+    if db.execute_batch("PRAGMA query_only=ON").is_err() {
+        return Vec::new();
+    }
+    read_project_titles_from(&db)
+}
+
+fn read_project_titles_from(db: &Connection) -> Vec<(String, String)> {
+    let Ok(mut stmt) = db.prepare(
+        "SELECT project_id, title, workspace_root
+         FROM projection_projects
+         WHERE deleted_at IS NULL
+         ORDER BY rowid ASC",
+    ) else {
+        return Vec::new();
+    };
+    let Ok(rows) = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, Option<String>>(1)?,
+            row.get::<_, Option<String>>(2)?,
+        ))
+    }) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for (pid, title_opt, root_opt) in rows.flatten() {
+        let pid = pid.trim().to_owned();
+        if pid.is_empty() || pid.starts_with('-') || pid.chars().any(char::is_control) {
+            continue;
+        }
+        let clean_title = title_opt
+            .as_deref()
+            .map(|t| terminal::clean(t.trim()))
+            .filter(|t| !t.is_empty());
+        let label = clean_title
+            .or_else(|| {
+                root_opt.as_deref().and_then(|r| {
+                    Path::new(r.trim())
+                        .file_name()
+                        .map(|n| terminal::clean(&n.to_string_lossy()))
+                        .filter(|n| !n.is_empty())
+                })
+            })
+            .unwrap_or_else(|| "Untitled project".to_owned());
+        out.push((pid, label));
+    }
+    out
 }
 
 /// Resolve ordered model choices for `t3 thread start` on `project_id` from T3's local SQLite
@@ -1075,7 +1125,7 @@ pub fn trace_prompt(
         "\n## What to do\n\
 1. Stay focused on this single task — the `threadId` and any child delegate thread IDs listed in the JSON above (do not audit unrelated threads).\n\
 2. {highlight_step}(using `t3_thread_read` if available) to pinpoint why its slowest or failed steps behaved this way (slow build/test command, retries, flaky tool, delegation split, or environment issue).\n\
-3. Recommend concrete fixes — and if they belong in this repo (scripts, tests, config, or `AGENTS.md` guidance), present them and **ask before editing files or committing**.\n",
+3. Recommend concrete fixes — and if they belong in a project repository (scripts, tests, config, or `AGENTS.md` guidance), present them and **ask before editing files or committing**.\n",
     ));
 
     (title, out)
@@ -1289,14 +1339,14 @@ pub fn tools_prompt(report: &Tools) -> (String, String) {
         "I reviewed Loupe's Tools report and want to investigate my top tool bottlenecks, command failures, and recurring friction — then optimize my toolchain, scripts, or agent setup.\n\n",
     );
     out.push_str(
-        "**Scope:** Loupe's Tools report aggregates **all T3 Code projects on this machine** for the period in the JSON below (not only the repository where this thread opened). Loupe records only allowlisted program names and integer exit codes (never command arguments), so inspect the referenced `threadId` entries to see exact invocations and which project each belongs to.\n\n",
+        "**Scope:** Loupe's Tools report aggregates **all T3 Code projects on this machine** for the period in the JSON below (if this thread opened in a repository, do not assume every command came from it). Loupe records only allowlisted program names and integer exit codes (never command arguments), so inspect the referenced `threadId` entries to see exact invocations and which project each belongs to.\n\n",
     );
     out.push_str(&render_untrusted_json(&payload));
     out.push_str(
         "\n## What to do\n\
 1. Diagnose the top 2–3 time sinks and failure patterns in the JSON above. Use `t3_thread_read` on the referenced `threadId` entries to see which project(s) and exact commands drove them before proposing repo-specific changes.\n\
 2. Separate **machine/global improvements** (PATH/missing binaries for exit 127, timeouts for exit 124, shared caches like sccache, shell/CLI wrappers, global harness rules) from **project-specific improvements** (`AGENTS.md`, build/test scripts, narrower test commands) and name which project each fix targets.\n\
-3. Highlight the highest-ROI quick wins and **ask which ones I want applied before modifying files** (especially in any repo other than the one this thread opened in).\n",
+3. Highlight the highest-ROI quick wins and **ask which ones I want applied before modifying files**.\n",
     );
 
     (title, out)
@@ -1427,13 +1477,13 @@ pub fn recap_prompt(report: &Recap) -> (String, String) {
         "I reviewed Loupe's Recap report and want to turn these patterns and findings into concrete workflow, model-routing, context-management, or harness optimizations.\n\n",
     );
     out.push_str(
-        "**Scope:** Loupe's Recap aggregates **all T3 Code projects on this machine** for the period in the JSON below (not only the repository where this thread opened).\n\n",
+        "**Scope:** Loupe's Recap aggregates **all T3 Code projects on this machine** for the period in the JSON below (if this thread opened in a repository, do not assume all numbers come from it).\n\n",
     );
     out.push_str(&render_untrusted_json(&payload));
     out.push_str(
         "\n## What to do\n\
 1. Identify the top 2–3 leverage points from this cross-project period (reducing wait-on-you interruptions, preventing context compaction / >90% turns, cutting tool or setup failures, tuning delegate handoffs, or balancing providers around plan limits).\n\
-2. Distinguish **global workflow / T3 setup / harness optimizations** from **project-specific repo changes** (do not assume all numbers come from the repository this thread opened in).\n\
+2. Distinguish **global workflow / T3 setup / harness optimizations** from **project-specific repo changes**.\n\
 3. Give me concrete, ranked recommendations and **ask before modifying any files**.\n",
     );
 
@@ -1604,36 +1654,60 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
                 c.text_bg(x, y, &fit(&msg, w - 1 - x), p.fg, p.sel, true);
                 return;
             }
-            let proj_hint = if *project_count > 1 {
-                " · ←→ proj"
+            let proj_hint = if *project_count > 1 && !*preview {
+                " · ←→ project"
             } else {
                 ""
             };
-            let model_hint = if *model_count > 1 {
+            let model_hint = if *model_count > 1 && !*preview {
                 " · ↑↓ model"
             } else {
                 ""
             };
             let prev_hint = if *preview { " · p hide" } else { " · p preview" };
+            let target_phrase = |name: &str| -> String {
+                let clean = terminal::clean(name.trim());
+                if clean.is_empty() {
+                    "in Untitled project".to_owned()
+                } else if clean.eq_ignore_ascii_case("no project") {
+                    "(No project)".to_owned()
+                } else {
+                    format!("in {clean}")
+                }
+            };
+            let target = target_phrase(project_name);
             if *needs_model_pick {
                 x += c.text_bg(x, y, "!", p.hot, p.sel, true) + 1;
-                let suffix = format!("{proj_hint}{prev_hint} · Esc cancel");
-                let suffix_w = terminal::width(&suffix) as i32;
-                let lead_room = (w - 2 - x - suffix_w).max(12);
-                let lead = format!(
-                    "pick model (↑↓) for {project_name} before starting ({action_label})"
-                );
-                x += c.text_bg(x, y, &fit(&lead, lead_room), p.fg, p.sel, true);
-                if x + 1 < w - 1 {
-                    c.text_bg(x, y, &fit(&suffix, w - 1 - x), p.text2, p.sel, false);
+                if *model_count <= 1 {
+                    let suffix = format!("{proj_hint}{prev_hint} · Esc cancel");
+                    let suffix_w = terminal::width(&suffix) as i32;
+                    let lead_room = (w - 2 - x - suffix_w).max(12);
+                    let lead = "no local model found — start one thread in T3 or set a project default";
+                    x += c.text_bg(x, y, &fit(lead, lead_room), p.fg, p.sel, true);
+                    if x + 1 < w - 1 {
+                        c.text_bg(x, y, &fit(&suffix, w - 1 - x), p.text2, p.sel, false);
+                    }
+                } else {
+                    let suffix = format!("{proj_hint}{prev_hint} · Esc cancel");
+                    let suffix_w = terminal::width(&suffix) as i32;
+                    let lead_room = (w - 2 - x - suffix_w).max(12);
+                    let lead = if project_name.eq_ignore_ascii_case("no project") {
+                        format!("pick model (↑↓) before starting (No project · {action_label})")
+                    } else {
+                        format!("pick model (↑↓) for {project_name} before starting ({action_label})")
+                    };
+                    x += c.text_bg(x, y, &fit(&lead, lead_room), p.fg, p.sel, true);
+                    if x + 1 < w - 1 {
+                        c.text_bg(x, y, &fit(&suffix, w - 1 - x), p.text2, p.sel, false);
+                    }
                 }
             } else if *armed {
                 x += c.text_bg(x, y, "⏎", p.hot, p.sel, true) + 1;
-                let suffix = format!("{proj_hint}{model_hint}{prev_hint} · Esc cancel");
+                let suffix = format!("{proj_hint}{model_hint}{prev_hint} · Esc disarm");
                 let suffix_w = terminal::width(&suffix) as i32;
                 let lead_room = (w - 2 - x - suffix_w).max(12);
                 let lead = format!(
-                    "confirm start in {project_name} · {model_label} (review plan before deleting/editing)"
+                    "confirm start {target} · {model_label} (review plan before deleting/editing)"
                 );
                 x += c.text_bg(x, y, &fit(&lead, lead_room), p.bright, p.sel, true);
                 if x + 1 < w - 1 {
@@ -1656,7 +1730,7 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
                 } else {
                     "start"
                 };
-                let lead = format!("{step_verb} in {project_name}{model_part} ({action_label})");
+                let lead = format!("{step_verb} {target}{model_part} ({action_label})");
                 x += c.text_bg(x, y, &fit(&lead, lead_room), p.fg, p.sel, true);
                 if x + 1 < w - 1 {
                     c.text_bg(x, y, &fit(&suffix, w - 1 - x), p.text2, p.sel, false);
@@ -1676,7 +1750,11 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
             if *editing {
                 let prefix = format!("Send to {}: ", short_title(thread_title, 22));
                 x += c.text_bg(x, y, &fit(&prefix, (w / 3).max(12)), p.accent, p.sel, true);
-                let tail = "  ⏎ send · Esc back";
+                let tail = if draft.trim().is_empty() {
+                    "  type a message · Esc back"
+                } else {
+                    "  ⏎ send · Esc back"
+                };
                 let tail_w = terminal::width(tail) as i32;
                 let input_room = (w - 2 - x - tail_w).max(6);
                 let shown_draft = tail_fit(draft, input_room.saturating_sub(1) as usize);
@@ -1685,7 +1763,7 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
                     x += c.text_bg(x, y, "▏", p.accent, p.sel, true);
                 }
                 if w - 1 - tail_w > x {
-                    c.text_bg(w - 1 - tail_w, y, tail, p.dim, p.sel, false);
+                    c.text_bg(w - 1 - tail_w, y, tail, p.text2, p.sel, false);
                 }
             } else {
                 let is_custom = preset_label.ends_with('…');
@@ -1696,7 +1774,11 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
                 } else {
                     String::new()
                 };
-                let tail = " · ←→ pick · Tab type · Esc cancel";
+                let tail = if is_custom {
+                    " · ←→ pick · Esc cancel"
+                } else {
+                    " · ←→ pick · Tab type · Esc cancel"
+                };
                 let tail_w = terminal::width(tail) as i32;
                 let lead_room = (w - 2 - x - tail_w).max(10);
                 let lead = format!(
@@ -1756,25 +1838,47 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_preview_modal(
-    c: &mut Canvas,
-    bar_y: i32,
-    project_name: &str,
-    project_id: &str,
-    project_count: usize,
-    model_detail: &str,
-    model_count: usize,
-    base_dir_display: &str,
-    destructive: bool,
-    armed: bool,
-    needs_model_pick: bool,
-    title: &str,
-    prompt: &str,
-    scroll: usize,
-    p: &Palette,
-) {
-    let w = c.w as i32;
+/// Clamp `preview_scroll` to the exact maximum scroll offset for the preview modal at `(cols, rows)`.
+pub fn clamp_preview_scroll(state: &HandoffState, cols: usize, rows: usize) -> usize {
+    let HandoffState::ConfirmStart {
+        project_name,
+        project_count,
+        model_detail,
+        model_count,
+        base_dir_display,
+        destructive,
+        needs_model_pick,
+        title,
+        prompt,
+        preview_scroll,
+        ..
+    } = state
+    else {
+        return 0;
+    };
+    let bar_y = rows.saturating_sub(2) as i32;
+    let Some((_margin_x, _box_w, _top_y, box_h, inner_w)) = preview_box_geom(cols as i32, bar_y)
+    else {
+        return 0;
+    };
+    let (lines, _) = build_preview_lines(
+        inner_w,
+        project_name,
+        *project_count,
+        model_detail,
+        *model_count,
+        base_dir_display,
+        *destructive,
+        *needs_model_pick,
+        title,
+        prompt,
+    );
+    let visible = (box_h - 2).max(1) as usize;
+    let max_scroll = lines.len().saturating_sub(visible);
+    (*preview_scroll).min(max_scroll)
+}
+
+fn preview_box_geom(w: i32, bar_y: i32) -> Option<(i32, i32, i32, i32, usize)> {
     let margin_x = if w >= 96 {
         3
     } else if w >= 48 {
@@ -1786,10 +1890,25 @@ fn draw_preview_modal(
     let top_y = if bar_y <= 10 { 0 } else { (bar_y - 18).max(1) };
     let box_h = bar_y - top_y;
     if box_h < 5 {
-        return;
+        return None;
     }
-
     let inner_w = (box_w - 4).max(16) as usize;
+    Some((margin_x, box_w, top_y, box_h, inner_w))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_preview_lines(
+    inner_w: usize,
+    project_name: &str,
+    project_count: usize,
+    model_detail: &str,
+    model_count: usize,
+    base_dir_display: &str,
+    destructive: bool,
+    needs_model_pick: bool,
+    title: &str,
+    prompt: &str,
+) -> (Vec<String>, usize) {
     let mut lines: Vec<String> = Vec::new();
     wrap_preview_line(&format!("Title: {}", terminal::clean(title)), inner_w, &mut lines);
     let proj_switch = if project_count > 1 {
@@ -1798,7 +1917,7 @@ fn draw_preview_modal(
         String::new()
     };
     let display_project = if project_name.trim().is_empty() {
-        project_id
+        "Untitled project"
     } else {
         project_name
     };
@@ -1817,11 +1936,10 @@ fn draw_preview_modal(
         inner_w,
         &mut lines,
     );
-    wrap_preview_line(
-        &format!("Base dir: {}", terminal::clean(base_dir_display)),
-        inner_w,
-        &mut lines,
-    );
+    let base_clean = terminal::clean(base_dir_display.trim());
+    if !base_clean.is_empty() && base_clean != "(default)" {
+        wrap_preview_line(&format!("Base dir: {base_clean}"), inner_w, &mut lines);
+    }
     let meta_lines = lines.len();
     if destructive {
         wrap_preview_line(
@@ -1831,11 +1949,12 @@ fn draw_preview_modal(
         );
     }
     if needs_model_pick {
-        wrap_preview_line(
-            "Model required: press ↑↓ to choose a provider/model for this project.",
-            inner_w,
-            &mut lines,
-        );
+        let model_warn = if model_count <= 1 {
+            "Model required: no local model found — start one thread in T3 or set a project default."
+        } else {
+            "Model required: press ↑↓ to choose a model before starting."
+        };
+        wrap_preview_line(model_warn, inner_w, &mut lines);
     }
     lines.push(String::new());
     for raw_line in prompt.lines() {
@@ -1846,6 +1965,42 @@ fn draw_preview_modal(
         }
         wrap_preview_line(&cleaned, inner_w, &mut lines);
     }
+    (lines, meta_lines)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_preview_modal(
+    c: &mut Canvas,
+    bar_y: i32,
+    project_name: &str,
+    _project_id: &str,
+    project_count: usize,
+    model_detail: &str,
+    model_count: usize,
+    base_dir_display: &str,
+    destructive: bool,
+    armed: bool,
+    needs_model_pick: bool,
+    title: &str,
+    prompt: &str,
+    scroll: usize,
+    p: &Palette,
+) {
+    let Some((margin_x, box_w, top_y, box_h, inner_w)) = preview_box_geom(c.w as i32, bar_y) else {
+        return;
+    };
+    let (lines, meta_lines) = build_preview_lines(
+        inner_w,
+        project_name,
+        project_count,
+        model_detail,
+        model_count,
+        base_dir_display,
+        destructive,
+        needs_model_pick,
+        title,
+        prompt,
+    );
 
     // Background + border
     c.fill(margin_x, top_y, box_w, box_h, p.panel);
@@ -1885,8 +2040,6 @@ fn draw_preview_modal(
     if model_count > 1 {
         controls.push("↑↓ model");
     }
-    controls.push("j/k scroll");
-    controls.push("p hide");
     if !needs_model_pick {
         controls.push(if armed {
             "⏎ confirm"
@@ -1896,7 +2049,7 @@ fn draw_preview_modal(
             "⏎ start"
         });
     }
-    controls.push("Esc cancel");
+    controls.push(if armed { "Esc disarm" } else { "Esc cancel" });
     let footer_hint = format!(" {} ", controls.join(" · "));
     let ftr_fit = terminal::fit(&footer_hint, (box_w - 4).max(10) as usize);
     c.text_bg(margin_x + 2, top_y + box_h - 1, &ftr_fit, p.text2, p.panel, false);
@@ -1954,8 +2107,10 @@ pub fn decorate_insights_canvas(
     }
 
     if help {
-        // Place the `f` key note cleanly into the first blank row below the existing help notes.
-        for y in 10..h.saturating_sub(2) {
+        // Place the `f` key note cleanly into the first blank row in the help body;
+        // if short terminals (h <= 16) fill through h-2, place it on row h-2 above the footer.
+        let mut placed = false;
+        for y in 10..h.saturating_sub(1) {
             let blank = (0..c.w).all(|x| {
                 c.get(x as i32, y)
                     .is_none_or(|cell| cell.ch == ' ' || cell.ch == '\0')
@@ -1966,28 +2121,47 @@ pub fn decorate_insights_canvas(
                     15,
                     y,
                     &terminal::fit(
-                        "start a T3 thread to investigate & optimize this report",
+                        "start a T3 thread to optimize this report (asks first)",
                         c.w.saturating_sub(16),
                     ),
                     p.text2,
                 );
+                placed = true;
                 break;
             }
         }
+        if !placed && h >= 14 {
+            let y = h - 2;
+            c.fill(0, y, w, 1, p.bg);
+            c.text_bold(2, y, "f", p.accent);
+            c.text(
+                15,
+                y,
+                &terminal::fit(
+                    "start a T3 thread to optimize this report (asks first)",
+                    c.w.saturating_sub(16),
+                ),
+                p.text2,
+            );
+        }
     } else if actionable {
-        // Insert `f optimize in T3` into the footer right after the existing keys if space permits.
+        // Insert `f optimize in T3` into the footer right after the existing keys if space permits,
+        // falling back to the shorter label on tighter widths.
         let fy = h - 1;
         let row_text = c.row_text(fy as usize);
-        let label = match tab {
-            crate::insights_view::Tab::Tools => "optimize tools",
-            crate::insights_view::Tab::Recap => "optimize",
+        let candidates: &[&str] = match tab {
+            crate::insights_view::Tab::Tools => &["optimize tools in T3", "optimize tools", "optimize"],
+            crate::insights_view::Tab::Recap => &["optimize in T3", "optimize"],
         };
-        let need = 2 + 1 + 1 + terminal::width(label) as i32;
         if let Some((keys_end, status_start)) = footer_gap(&row_text) {
-            if keys_end + need + 2 <= status_start {
-                let mut x = keys_end + 2;
-                x += c.text_bg(x, fy, "f", p.accent, p.panel, true) + 1;
-                c.text_bg(x, fy, label, p.dim, p.panel, false);
+            for label in candidates {
+                let need = 2 + 1 + 1 + terminal::width(label) as i32;
+                if keys_end + need + 2 <= status_start {
+                    let mut x = keys_end + 2;
+                    x += c.text_bg(x, fy, "f", p.accent, p.panel, true) + 1;
+                    c.text_bg(x, fy, label, p.dim, p.panel, false);
+                    break;
+                }
             }
         }
     }
@@ -2451,7 +2625,7 @@ mod tests {
         r.projects = 4;
         let (_, r_prompt) = recap_prompt(&r);
         assert!(r_prompt.contains("all T3 Code projects on this machine"));
-        assert!(r_prompt.contains("do not assume all numbers come from the repository"));
+        assert!(r_prompt.contains("do not assume all numbers come from it"));
 
         let mut running = Agent::default();
         running.thread_id = "t-run".into();
@@ -2498,8 +2672,13 @@ mod tests {
                 project_name: "loupe".into(),
                 project_id: "proj-loupe".into(),
                 project_count: 3,
-                model_label: "claude/opus-5.5 (project)".into(),
-                model_detail: "--provider=claudeAgent --model=claude-opus-5-5 (project recent)".into(),
+                model_label: "claude/opus 5.5 (recent)".into(),
+                model_detail: ModelChoice::Explicit {
+                    provider: "claudeAgent".into(),
+                    model: "claude-opus-5-5".into(),
+                    provenance: ModelProvenance::ProjectRecent,
+                }
+                .exact_preview_label(),
                 model_count: 4,
                 base_dir_display: "(default)".into(),
                 needs_model_pick: false,
@@ -2611,7 +2790,7 @@ mod tests {
             }
         );
         assert!(alpha[0].short_label().contains("claude/"));
-        assert!(alpha[0].short_label().contains("project default"));
+        assert!(alpha[0].short_label().contains("(default)"));
         assert_eq!(
             alpha[1],
             ModelChoice::Explicit {
@@ -2620,7 +2799,7 @@ mod tests {
                 provenance: ModelProvenance::ProjectRecent,
             }
         );
-        assert!(alpha[1].short_label().contains("(project)"));
+        assert!(alpha[1].short_label().contains("(recent)"));
 
         // 2. Project WITHOUT default inherits its own recent run first, rejecting leading-dash tokens.
         let beta = read_model_choices_from(&db, "p-no-default");
@@ -2665,8 +2844,20 @@ mod tests {
         )
         .unwrap();
         let found = read_scratch_project_from(&db, Some(Path::new("/home/u/.t3"))).unwrap();
-        assert_eq!(found.0, "p-scratch");
-        assert_eq!(found.1, "No project (Omarchy (XPS14))");
+        assert_eq!(found, ("p-scratch".into(), "No project".into()));
+        // Without explicit base_dir, matches `.../.t3/scratch`.
+        let found_no_base = read_scratch_project_from(&db, None).unwrap();
+        assert_eq!(found_no_base, ("p-scratch".into(), "No project".into()));
+
+        // `read_project_titles_from` returns human titles for non-deleted rows, never raw IDs.
+        let titles = read_project_titles_from(&db);
+        assert_eq!(
+            titles,
+            vec![
+                ("p-repo".into(), "Loupe".into()),
+                ("p-scratch".into(), "Omarchy (XPS14)".into()),
+            ]
+        );
 
         let db2 = Connection::open_in_memory().unwrap();
         db2.execute_batch(
@@ -2677,43 +2868,110 @@ mod tests {
                 deleted_at TEXT
              );
              INSERT INTO projection_projects VALUES
-               ('p-np', 'No project', '/Users/u/.t3/scratch', NULL);",
+               ('--evil', 'No project', '/Users/u/.t3/scratch', NULL),
+               ('p-np', 'No project', '/Users/u/.t3/scratch', NULL),
+               ('p-empty', '', '/Users/u/code/my-app', NULL);",
         )
         .unwrap();
         let found2 = read_scratch_project_from(&db2, Some(Path::new("/Users/u/.t3"))).unwrap();
         assert_eq!(found2, ("p-np".into(), "No project".into()));
+        let titles2 = read_project_titles_from(&db2);
+        assert_eq!(
+            titles2,
+            vec![
+                ("p-np".into(), "No project".into()),
+                ("p-empty".into(), "my-app".into()),
+            ]
+        );
     }
 
     #[test]
     fn preview_modal_displays_project_and_model_movement_hints() {
         let p = Palette::fallback();
+        let model_detail = ModelChoice::Explicit {
+            provider: "codex".into(),
+            model: "gpt-6.2-sol".into(),
+            provenance: ModelProvenance::ProjectRecent,
+        }
+        .exact_preview_label();
         let st = HandoffState::ConfirmStart {
             action_label: "fix telemetry".into(),
             project_name: "No project".into(),
             project_id: "p-scratch".into(),
             project_count: 3,
-            model_label: "codex/gpt-6.2-sol".into(),
-            model_detail: "--provider=codex --model=gpt-6.2-sol (project recent)".into(),
+            model_label: "codex/gpt-6.2-sol (recent)".into(),
+            model_detail: model_detail.clone(),
             model_count: 2,
-            base_dir_display: "~/.t3".into(),
+            base_dir_display: "(default)".into(),
             needs_model_pick: false,
             destructive: true,
             armed: true,
             preview: true,
-            preview_scroll: 0,
+            preview_scroll: 999,
             title: "Turn off T3 Code telemetry".into(),
             prompt: "Please help configure policy.json.".into(),
         };
+        assert_eq!(clamp_preview_scroll(&st, 140, 26), 0);
         let mut c = Canvas::new(140, 26);
         c.clear(p.bg, p.fg);
         draw_handoff_bar(&mut c, 24, &st, &p);
         let text = c.to_text();
         assert!(text.contains("Project: No project"), "expected clean project name:\n{text}");
         assert!(!text.contains("p-scratch"), "underlying project id should not clutter popup:\n{text}");
+        assert!(!text.contains("in No project"), "avoid awkward 'in No project':\n{text}");
+        assert!(!text.contains("Base dir:"), "default base dir should be omitted:\n{text}");
         assert!(text.contains("←→ project"), "missing ←→ project hint:\n{text}");
         assert!(text.contains("↑↓ model"), "missing ↑↓ model hint:\n{text}");
         assert!(text.contains("[←→ switch · 3 options]"), "missing inline project hint:\n{text}");
         assert!(text.contains("[↑↓ switch · 2 options]"), "missing inline model hint:\n{text}");
-        assert!(text.contains("←→ proj") && text.contains("↑↓ model"), "armed bar should keep nav hints:\n{text}");
+        assert!(text.contains("Esc disarm"), "armed state should say Esc disarm:\n{text}");
+
+        // When preview is hidden, the bar itself carries ←→ project and ↑↓ model.
+        let hidden = HandoffState::ConfirmStart {
+            action_label: "fix telemetry".into(),
+            project_name: "No project".into(),
+            project_id: "p-scratch".into(),
+            project_count: 3,
+            model_label: "codex/gpt-6.2-sol (recent)".into(),
+            model_detail,
+            model_count: 2,
+            base_dir_display: "(default)".into(),
+            needs_model_pick: false,
+            destructive: true,
+            armed: false,
+            preview: false,
+            preview_scroll: 0,
+            title: "Turn off T3 Code telemetry".into(),
+            prompt: "Please help configure policy.json.".into(),
+        };
+        let mut c2 = Canvas::new(140, 26);
+        c2.clear(p.bg, p.fg);
+        draw_handoff_bar(&mut c2, 24, &hidden, &p);
+        let bar = c2.row_text(24);
+        assert!(bar.contains("←→ project") && bar.contains("↑↓ model"), "hidden preview bar should show nav hints:\n{bar}");
+        assert!(bar.contains("(No project)"), "No project phrasing expected:\n{bar}");
+
+        // When needs_model_pick with no local models (model_count == 1), say so directly instead of hinting ↑↓.
+        let no_models = HandoffState::ConfirmStart {
+            action_label: "fix telemetry".into(),
+            project_name: "No project".into(),
+            project_id: "p-scratch".into(),
+            project_count: 1,
+            model_label: "pick model (↑↓)".into(),
+            model_detail: ModelChoice::Unselected.exact_preview_label(),
+            model_count: 1,
+            base_dir_display: "(default)".into(),
+            needs_model_pick: true,
+            destructive: true,
+            armed: false,
+            preview: true,
+            preview_scroll: 0,
+            title: "Turn off T3 Code telemetry".into(),
+            prompt: "Body".into(),
+        };
+        let mut c3 = Canvas::new(140, 26);
+        c3.clear(p.bg, p.fg);
+        draw_handoff_bar(&mut c3, 24, &no_models, &p);
+        assert!(c3.to_text().contains("no local model found"));
     }
 }

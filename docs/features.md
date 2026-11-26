@@ -44,12 +44,13 @@ The short list is in the [README](../README.md). This is the long one.
   row, and its lane still shows their activity. Select it to see them listed in
   the details; `→`, `Enter` or a click puts them all back in the list. Top-level
   threads never fold.
-- **Three ways to scope the list:** `a` steps from every unarchived thread to
-  active only (running or waiting on you), then to T3's sidebar: the threads
-  you haven't settled or snoozed, with their subagents. That last one keeps up
-  with T3, so settling or snoozing a thread there takes it off here. Anything
-  running or waiting on you stays listed in every scope, and the T3 scope also
-  keeps the thread open in T3, settled or not.
+- **Three ways to scope the list:** Loupe starts on **T3's sidebar** by default
+  (`--db` starts on all threads for parity), showing threads you haven't settled
+  or snoozed along with their subagents. `a` steps from T3's sidebar to every
+  unarchived thread, then to active only (running or waiting on you), and back.
+  T3's sidebar keeps up with T3, so settling or snoozing a thread there takes it
+  off here. Anything running or waiting on you stays listed in every scope, and
+  the T3 scope also keeps the thread open in T3, settled or not.
 - **Stall detection:** a running agent with no tool call in flight and nothing
   new for 2 minutes stops spinning and says `◌ quiet 4m · last ❯ npm test`;
   after 8 it says `◌ stalled` and turns warm. A tool call shows its running
@@ -60,7 +61,13 @@ The short list is in the [README](../README.md). This is the long one.
   1 ✗`), turning hot when someone waiting on you is scrolled away.
 - **Linked to T3, both ways:** open a thread in T3 and the dashboard selects it
   and marks it and its subagents. Press `Enter` on any agent and T3 jumps to
-  that thread.
+  that thread, or press `M` on a local thread to queue a quick reply or
+  contextual nudge (`t3 thread send`, asks first).
+- **Consistent "start in T3" handoffs:** press `f` in Telemetry, Storage,
+  Insights, or Trace to open a unified confirmation popup with an exact payload
+  preview (`p` hide/show, `j`/`k` scroll), project picker (`←`/`→`, including
+  `"No project"` — default for machine-wide Telemetry and Insights handoffs),
+  and model picker (`↑`/`↓`). Config and file actions use two-step confirmation.
 - **Details for the selected agent:** how long its latest run took and when
   (`10m 00s  14:02 → 14:12 · 31m ago`), context as a big number, its growth per
   turn, the last call's token mix, a prompt-cache meter that drains in real
@@ -345,9 +352,13 @@ machine with a broken opt-out so you can inspect the layout first.
   `userdata/server-runtime.json` and flags builds older than
   `0.1.12-nightly.20261124.5209` that hash `~/.codex/auth.json` and
   `~/.claude.json` into the install ID. Loupe never opens either auth file.
-- **Launch-aware fix commands:** gives a copy-paste snippet tailored to how T3
-  was started (`service.env`, desktop session environment such as uwsm/systemd,
-  shell rc, or machine-wide `policy.json`). Loupe changes nothing itself.
+- **Launch-aware fix options:** recommends machine-wide `policy.json` first on
+  desktop and shell setups (confirmed by T3 on startup so Loupe marks it
+  verified; `service.env` stays first for service-managed T3), paired with a
+  no-sudo desktop/login env option (Omarchy `~/.config/hypr/hyprland.lua`,
+  uwsm, `environment.d`, or `~/.zshrc`). Options stay descriptive by default;
+  press `Enter` or `Space` to show the copy-paste commands. Loupe changes
+  nothing itself.
 - **Sources tab and honest gaps:** press `Tab` to see every local file Loupe
   read (and its timestamp), what it stat-only checked (`anonymous-id`), and what
   it deliberately never opened (`userdata/secrets/`, agent logins,

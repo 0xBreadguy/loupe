@@ -3805,7 +3805,7 @@ pub fn t3_handoff_prompt(report: &Report) -> (String, String) {
 
     let mut body = String::new();
     body.push_str(intro);
-    body.push_str("\n\n**Scope:** Machine-wide T3 Code configuration on this host. Do not edit files or make commits in the project repository where this thread was opened.\n\n");
+    body.push_str("\n\n**Scope:** Machine-wide T3 Code configuration on this host. Do not edit files or make commits in any project repository.\n\n");
     body.push_str(&crate::handoff::render_untrusted_json(&payload));
     body.push_str("\n## What I'd like you to do\n");
     body.push_str("1. Confirm with me which option to apply (e.g., my desktop/service/shell environment vs machine-wide `policy.json`) before editing system files or running `sudo`.\n");

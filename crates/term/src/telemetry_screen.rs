@@ -174,10 +174,17 @@ impl TelemetryScreen {
                 if report.verdict == Verdict::Off {
                     return false;
                 }
+                let action_label = if matches!(report.inputs.policy, loupe_core::telemetry::Read::Invalid { .. }) {
+                    "fix telemetry policy"
+                } else if report.verdict == Verdict::RestartNeeded {
+                    "apply telemetry opt-out"
+                } else {
+                    "turn off telemetry"
+                };
                 let (title, prompt) = handoff::telemetry_prompt(&report);
                 let base_dir = report.inputs.data_folder.is_absolute().then_some(report.inputs.data_folder);
                 handoff.begin_start(
-                    "turn off telemetry",
+                    action_label,
                     title,
                     prompt,
                     None,

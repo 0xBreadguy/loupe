@@ -2713,7 +2713,7 @@ fn build_help_body(cols: usize, is_demo: bool, p: &Palette) -> Canvas {
         ("↑↓ / j k", "select a stream · scroll sources"),
         ("PgUp PgDn", "a page · Home End: the ends"),
         ("⏎ / ␣", "show or hide suggested commands"),
-        ("f", "start a T3 thread with fix instructions (asks first)"),
+        ("f", "start a T3 thread to fix telemetry (asks first)"),
         ("r", "check again now; also rechecks when a file changes"),
         ("e / Esc", "dashboard · Esc closes help or commands first"),
         ("c C", "theme: next · back"),
