@@ -937,7 +937,7 @@ fn tools_command(database: &Database, now: f64, which: recap::Which, json: bool,
     };
     let mono = color == recap_view::Color::None;
     let (text, code) = match read {
-        Ok(week) if json => (serde_json::to_string_pretty(&week)?, 0),
+        Ok(week) if json => (tools::printed_json(&week)?, 0),
         Ok(week) if week.is_empty() => {
             let period = recap_view::period_text(week.period, &week.from, &week.to);
             let within = if month { format!("in {period}") } else { period.clone() };
@@ -1018,7 +1018,7 @@ fn recap_command(database: &Database, now: f64, which: recap::Which, json: bool,
     };
     let mono = color == recap_view::Color::None;
     let (text, code, drawn) = match read {
-        Ok(week) if json => (serde_json::to_string_pretty(&week)?, 0, None),
+        Ok(week) if json => (recap::printed_json(&week)?, 0, None),
         Ok(week) if week.is_empty() => {
             let period = recap_view::period_text(week.period, &week.from, &week.to);
             // "recorded Nov 9 – 15", and for a month, "recorded in October 2026".
@@ -1382,7 +1382,7 @@ fn trace_command(database: &Database, now: f64, target: Option<&str>, json: bool
     match read {
         Ok(Some(found)) if json => {
             let mut out = io::stdout().lock();
-            out.write_all(serde_json::to_string_pretty(&found)?.as_bytes())?;
+            out.write_all(trace::printed_json(&found)?.as_bytes())?;
             out.write_all(b"\n")?;
             Ok(0)
         }
