@@ -11,7 +11,7 @@ It runs on Linux. T3 Code's desktop app must be on the same machine, because the
 **With a release archive.** No toolchain is needed. The [releases page](https://github.com/0xBreadguy/loupe/releases/latest) has one archive for x86-64 and one for ARM, and a `SHA256SUMS` file listing all release archives. Check the page for the newest version and use its number for `v`.
 
 ```sh
-v=1.7.0 t=$(uname -m)-unknown-linux-gnu
+v=1.8.0 t=$(uname -m)-unknown-linux-gnu
 curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/loupe-$v-$t.tar.gz" &&
   curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/SHA256SUMS" &&
   sha256sum -c --ignore-missing SHA256SUMS &&

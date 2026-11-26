@@ -9,7 +9,7 @@
 # Loupe
 
 [![test](https://github.com/0xBreadguy/loupe/actions/workflows/test.yml/badge.svg)](https://github.com/0xBreadguy/loupe/actions/workflows/test.yml)
-[![Release 1.7.0](https://img.shields.io/badge/release-1.7.0-2ea44f)](https://github.com/0xBreadguy/loupe/releases/latest)
+[![Release 1.8.0](https://img.shields.io/badge/release-1.8.0-2ea44f)](https://github.com/0xBreadguy/loupe/releases/latest)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 ![Rust](https://img.shields.io/badge/rust-2024%20edition-b7410e?logo=rust&logoColor=white)
 ![Omarchy bar widget](https://img.shields.io/badge/Omarchy-bar%20widget-5c6b73)
@@ -40,7 +40,7 @@ bar.
 Linux:
 
 ```sh
-v=1.7.0 t=$(uname -m)-unknown-linux-gnu
+v=1.8.0 t=$(uname -m)-unknown-linux-gnu
 curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/loupe-$v-$t.tar.gz" &&
   curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/SHA256SUMS" &&
   sha256sum -c --ignore-missing SHA256SUMS &&
@@ -60,7 +60,7 @@ on made-up agents first.
 macOS:
 
 ```sh
-v=1.7.0 f=loupe-$v-universal-apple-darwin
+v=1.8.0 f=loupe-$v-universal-apple-darwin
 curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/$f.tar.gz" &&
   curl -fLO "https://github.com/0xBreadguy/loupe/releases/download/v$v/SHA256SUMS" &&
   shasum -a 256 -c --ignore-missing SHA256SUMS &&
