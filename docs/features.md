@@ -95,7 +95,9 @@ The short list is in the [README](../README.md). This is the long one.
   line above the footer says how much is left. It identifies temporary space
   backed by memory. The demo uses example data.
 
-![Storage: worktree, build and scratch disk use by project, on demo data](storage.png)
+![Storage: worktree, build and scratch disk use by project, with the T3 CLEANUP band, on demo data](storage.png)
+
+![T3 CLEANUP SETTINGS: each of T3's worktree cleanup settings, yours, and what it would cover, on demo data](storage-cleanup.png)
 
 ## Insights
 
