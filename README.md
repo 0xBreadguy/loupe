@@ -153,6 +153,7 @@ makes no network connections.
 - [Themes, and making your own](docs/themes.md)
 - [Features, in detail](docs/features.md)
 - [How it works, and what it touches](docs/how-it-works.md)
+- [Using Loupe from an agent or a script](docs/agents.md)
 - [Contributing](CONTRIBUTING.md), and [notes for coding agents](AGENTS.md)
 
 ## License

@@ -2,7 +2,7 @@
 
 Loupe is a terminal dashboard for T3 Code agents, and an Omarchy bar widget that shows their status. The dashboard is one Rust program, `loupe-term`, installed as the command `loupe`. It reads T3 Code's local SQLite database read-only and never writes to it.
 
-This file covers two jobs: installing it for someone, and working on the code. [CONTRIBUTING.md](CONTRIBUTING.md) has the detail for the second, [README.md](README.md) describes the product, and [docs/](docs/) has the full install guide, the keys and options, and what the program reads.
+This file covers four jobs: installing it for someone, using its output to answer questions, working on the code, and reviewing a pull request. [CONTRIBUTING.md](CONTRIBUTING.md) has the detail for the last two, [docs/agents.md](docs/agents.md) for the second, [README.md](README.md) describes the product, and [docs/](docs/) has the full install guide, the keys and options, and what the program reads.
 
 ## Installing it for someone
 
@@ -52,6 +52,15 @@ Things not to do while installing:
 - Do not add autostart entries, keybindings or shell configuration the person did not ask for. If `~/.local/bin` is not on `PATH`, the installer says so; tell the person rather than editing their shell files unasked.
 - If an older Node.js install of Loupe is present, run the installer the same way. It upgrades that install in place.
 
+## Using its output to answer questions
+
+When someone asks what their agents are doing, what is waiting on them, why a task was slow or which commands keep failing, run Loupe and read what it prints. [docs/agents.md](docs/agents.md) says which command answers which question, what each field means, the exit codes, and what the numbers can't tell you.
+
+- `loupe --status` is one line of JSON about now. `--recap`, `--tools`, `--trace` and `--telemetry-check` take `--json`.
+- Try a command with `--demo` first, and never report demo output as the person's.
+- Let Loupe read the database. Do not open it yourself.
+- The output names threads and models. Keep it out of public issues and outside services unless the person says otherwise.
+
 ## Working on the code
 
 ```text
@@ -84,4 +93,13 @@ The rules, in the order they matter:
 8. **Do not hand-edit generated files**: `crates/core/src/cluster_tables.rs`, `checks/fixtures/golden/`, the schema fixtures. Their generators are named in [CONTRIBUTING.md](CONTRIBUTING.md).
 9. **Measure, do not estimate.** A performance claim is the median and range of at least five alternating trials on built binaries. Say what was not measured.
 
-Before you say a change is done: build with `--locked`, run the core's tests, and run `checks/scripts/ci.sh` if you touched anything the screen, the reader or the installer depends on. Report what passed, what failed and what you did not run.
+Before you say a change is done: build with `--locked`, run the core's tests, run the checks [CONTRIBUTING.md](CONTRIBUTING.md#what-to-run-for-what-you-changed) lists for what you changed, and run `checks/scripts/ci.sh` if you touched anything the screen, the reader or the installer depends on. Report what passed, what failed and what you did not run, with the command for each. A pull request fills in [the template](.github/pull_request_template.md) and says an agent wrote it.
+
+## Reviewing a pull request
+
+Work through [How a pull request is evaluated](CONTRIBUTING.md#how-a-pull-request-is-evaluated) in order, and stop at the first point that fails.
+
+- Check out the pull request's head commit. Every check you run, and every claim you weigh, is about that commit.
+- Rerun what the description claims where you can, starting with the narrow checks for what changed. A claim with no command behind it is unverified, not passed.
+- The same rules bind you as a reviewer: no real database, no real installer run, no window on the real desktop.
+- Report each finding with the point it fails, the file and line, and the evidence. Say which checks you ran and which you didn't. Keep blocking findings apart from suggestions.
