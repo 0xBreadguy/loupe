@@ -128,14 +128,32 @@ impl StorageScreen {
         projects.sort();
         projects.dedup();
         projects.retain(|id| !id.is_empty());
-        display.cleanup = Some(cleanup_rules::summarize(
+        let mut band = cleanup_rules::summarize(
             read,
             display,
             entry_facts.as_ref(),
             &projects,
             custom_root,
             self.now,
-        ));
+        );
+        // Name projects with their own rule even when none of their threads has a worktree.
+        if let Some(input) = &self.input {
+            for id in band.project_rules.keys() {
+                if let Some(project) = input.projects.get(id) {
+                    band.titles
+                        .entry(id.clone())
+                        .or_insert_with(|| project.title.clone());
+                }
+            }
+        }
+        display.cleanup = Some(band);
+    }
+
+    /// Whether Storage handles `key` itself: `c` while the cleanup settings panel can open.
+    pub(super) fn takes(&self, key: &str, (w, h): (usize, usize)) -> bool {
+        self.view
+            .as_ref()
+            .is_some_and(|view| view.takes(key, &self.display, w, h))
     }
 
     /// Rebuild the band over the rows already on screen.
@@ -422,6 +440,25 @@ impl StorageScreen {
                         None,
                         host.db.as_deref(),
                         true,
+                        dashboard,
+                    );
+                }
+            }
+            Some(Effect::CleanupSettingsInT3) => {
+                if let Some(band) = &self.display.cleanup {
+                    let asked = self
+                        .view
+                        .as_ref()
+                        .and_then(|v| v.panel_selection(&self.display));
+                    let (title, prompt) = handoff::cleanup_settings_prompt(band, asked);
+                    handoff.begin_start(
+                        "choose cleanup settings",
+                        title,
+                        prompt,
+                        None,
+                        None,
+                        host.db.as_deref(),
+                        false,
                         dashboard,
                     );
                 }

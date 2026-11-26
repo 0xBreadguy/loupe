@@ -471,8 +471,23 @@ fn projects() -> Vec<String> {
     vec!["a".into(), "b".into()]
 }
 
+fn ready(band: &Cleanup) -> Today {
+    match band.estimate {
+        Estimate::Ready(t) => t,
+        other => panic!("{other:?}"),
+    }
+}
+
+fn count(worktrees: usize, gb: u64, partial: bool) -> Count {
+    Count {
+        worktrees,
+        bytes: gb * GB,
+        partial,
+    }
+}
+
 #[test]
-fn off_suggests_settled_seven_days_and_counts_worktree_bytes_only() {
+fn off_counts_each_setting_group_and_the_union_once_by_worktree_bytes() {
     let (inventory, map) = scene();
     let band = summarize(
         &RulesRead::Absent,
@@ -483,96 +498,100 @@ fn off_suggests_settled_seven_days_and_counts_worktree_bytes_only() {
         NOW,
     );
     assert_eq!(band.state, CleanupState::Off { defaults: true });
-    assert_eq!(band.suggestion, Some(Suggestion::Settled(7)));
-    let Estimate::Ready(tally) = band.estimate else {
-        panic!("{:?}", band.estimate)
-    };
-    // s10 (10 days) and the archived thread (settled 8 days, active 20 days ago) are due.
-    // Not: busy, the deleted thread (on delete only), the orphan, the folder outside the roots.
-    assert_eq!(
-        tally.now,
-        Count {
-            worktrees: 2,
-            bytes: 5 * GB,
-            partial: false
-        }
-    );
-    // s3 settled 3 days ago, last active 5 days ago: due in 4 days, a lower bound.
-    assert_eq!(
-        tally.next,
-        Some(Next {
-            days: 4,
-            count: Count {
-                worktrees: 1,
-                bytes: GB,
-                partial: true
-            }
-        })
-    );
+    assert_eq!(band.settings_on(), 0);
+    assert!(band.panel_available());
+    let t = ready(&band);
+    // Settled, any age: s10, s3 (a lower bound) and the archived thread.
+    assert_eq!(t.settled.count, count(3, 6, true));
+    assert_eq!(t.settled.uncovered, t.settled.count);
+    assert_eq!(t.oldest_settled_days, Some(12));
+    // Idle a week or more: s10 (10 days) and the archived thread (20 days). Not a month.
+    assert_eq!(t.idle_week.count, count(2, 5, false));
+    assert_eq!(t.idle_month, Count::default());
+    assert_eq!(t.deleted.count, count(1, 4, false));
+    // The union: s10, s3, archived, deleted, each once. s10 and the archived thread are in
+    // two groups. Not: the busy thread, the orphan, the folder outside the managed roots.
+    assert_eq!(t.cover, count(4, 10, true));
+    assert_eq!(t.no_thread, count(1, 8, false));
+    assert_eq!(t.due, Tally::default());
     assert!(
         band.entries.values().all(|e| e.due.is_none()),
         "no due claims while rules are off"
     );
     assert_eq!(band.entries["folder:orphan"].ownership, Ownership::NoThread);
+    assert!(band.global_build, "s10 has build output");
+
+    // The panel and the band use the same definition: summing `uncovered_opportunity` over the
+    // facts gives the band's number.
+    let global = Rules::default();
+    let mut by_hand = Count::default();
+    for entry in inventory
+        .projects
+        .iter()
+        .flat_map(|p| &p.threads)
+        .chain(&inventory.settled_or_gone)
+    {
+        if uncovered_opportunity(&map[&entry.id], &global, NOW) {
+            by_hand.add(entry.sizes.worktree);
+        }
+    }
+    assert_eq!(by_hand, t.cover);
 }
 
 #[test]
-fn auto_settle_off_suggests_inactive_fourteen_days() {
+fn auto_settle_off_changes_no_numbers() {
     let (inventory, map) = scene();
-    let read = parse(r#"{"sidebarAutoSettleAfterDays":null}"#);
+    let read = parse(r#"{"sidebarAutoSettleAfterDays":null,"sidebarAutoSettleOnMerge":false}"#);
     let band = summarize(&read, &inventory, Some(&map), &projects(), false, NOW);
     assert_eq!(band.state, CleanupState::Off { defaults: false });
-    assert_eq!(band.suggestion, Some(Suggestion::Inactive(14)));
-    let Estimate::Ready(tally) = band.estimate else {
-        panic!()
-    };
-    // Only the archived thread was inactive for more than 14 days.
-    assert_eq!(
-        tally.now,
-        Count {
-            worktrees: 1,
-            bytes: 3 * GB,
-            partial: false
-        }
-    );
+    assert_eq!(band.auto_settle_days, None);
+    assert!(!band.auto_settle_on_merge);
+    assert_eq!(ready(&band).cover, count(4, 10, true));
 }
 
 #[test]
-fn on_rules_report_due_entries_and_loose_needs_a_gigabyte_more() {
+fn on_rules_report_due_entries_and_what_the_off_settings_add() {
     let (inventory, map) = scene();
     let read =
         parse(r#"{"storageCleanup":{"worktreeSettledAfterDays":3,"worktreeOnDelete":true}}"#);
     let band = summarize(&read, &inventory, Some(&map), &projects(), false, NOW);
     assert_eq!(band.state, CleanupState::On);
-    assert_eq!(band.suggestion, None);
-    let Estimate::Ready(tally) = band.estimate else {
-        panic!()
-    };
+    assert_eq!(band.settings_on(), 2);
+    let t = ready(&band);
     // s10, s3 (exactly 3 days after settling but active 5 days ago), archived, deleted.
-    assert_eq!(tally.now.worktrees, 4);
-    assert_eq!(tally.now.bytes, 10 * GB);
-    assert!(tally.now.partial);
+    assert_eq!(t.due.now, count(4, 10, true));
+    assert_eq!(t.settled.due.now, count(3, 6, true));
+    assert_eq!(t.deleted.due.now, count(1, 4, false));
+    // Everything a setting would act on is covered already.
+    assert_eq!(t.cover, Count::default());
+    assert_eq!(t.idle_week.uncovered, Count::default());
+    assert_eq!(t.idle_week.covered_by.single(), Some(Setting::Settled));
+    assert_eq!(t.deleted.covered_by.single(), Some(Setting::Deleted));
     assert_eq!(band.entries["thread:busy"].due, Some(Due::Busy));
     assert_eq!(band.entries["folder:del"].due, Some(Due::Now));
     assert_eq!(band.entries["folder:orphan"].due, Some(Due::Never));
     assert_eq!(band.entries["thread:other"].due, Some(Due::Outside));
 
-    // Inactive after 90 days frees nothing; settled after 7 would free 5 GB more: loose.
+    // Inactive after 90 days covers everything with an activity time, later; the deleted
+    // thread's worktree is what the off settings would add.
     let loose = parse(
         r#"{"storageCleanup":{"worktreeAfterDays":90,"worktreeKeepWhen":"any-local-files"}}"#,
     );
     let band = summarize(&loose, &inventory, Some(&map), &projects(), false, NOW);
-    assert_eq!(band.state, CleanupState::Loose);
-    assert_eq!(band.suggestion, Some(Suggestion::Settled(7)));
-    let Estimate::Ready(tally) = band.estimate else {
-        panic!()
-    };
+    assert_eq!(band.state, CleanupState::On);
+    let t = ready(&band);
+    assert_eq!(t.due.now, Count::default());
+    assert_eq!(t.cover, count(1, 4, false));
+    assert_eq!(t.deleted.uncovered, count(1, 4, false));
+    assert!(t.deleted.covered_by.is_empty());
+    assert_eq!(t.settled.uncovered, Count::default());
+    assert_eq!(t.settled.covered_by.single(), Some(Setting::Inactive));
+    // The inactive rule's own tally: the archived thread first, in 70 days.
     assert_eq!(
-        tally.extra,
-        Some(Count {
-            worktrees: 2,
-            bytes: 5 * GB,
-            partial: false
+        t.idle_week.due.next,
+        Some(Next {
+            days: 70,
+            count: count(1, 3, false)
         })
     );
     assert!(
@@ -581,44 +600,67 @@ fn on_rules_report_due_entries_and_loose_needs_a_gigabyte_more() {
     );
     assert_eq!(band.entries["thread:s10"].due, Some(Due::InDays(80)));
 
-    // Under a gigabyte more is not loose.
-    let mut small = inventory.clone();
-    for entry in &mut small.settled_or_gone {
-        entry.sizes.worktree = Bytes::Exact(100_000_000);
-    }
-    let band = summarize(&loose, &small, Some(&map), &projects(), false, NOW);
-    assert_eq!(band.state, CleanupState::On);
+    // Settled after 7 days: s3 is not covered now but is later; it still counts as covered.
+    let seven = parse(r#"{"storageCleanup":{"worktreeSettledAfterDays":7}}"#);
+    let t = ready(&summarize(
+        &seven,
+        &inventory,
+        Some(&map),
+        &projects(),
+        false,
+        NOW,
+    ));
+    assert_eq!(t.settled.due.now, count(2, 5, false));
+    assert_eq!(
+        t.settled.due.next,
+        Some(Next {
+            days: 4,
+            count: count(1, 1, true)
+        })
+    );
+    assert_eq!(t.cover, count(1, 4, false), "only the deleted thread");
 }
 
 #[test]
-fn project_overrides_leave_the_suggestion_scope() {
+fn projects_with_their_own_rule_leave_the_global_groups() {
     let (inventory, map) = scene();
     let read = parse(
-        r#"{"projectSettingsOverrides":{"a":{"worktreeCleanup":{"mode":"custom","rules":{"worktreeAfterDays":null,"worktreeSettledAfterDays":1,"worktreeOnMerge":false,"worktreeOnDelete":false,"worktreeUnchanged":false}}}}}"#,
+        r#"{"projectSettingsOverrides":{"a":{"worktreeCleanup":{"mode":"custom","rules":{"worktreeKeepWhen":"any-local-files","worktreeAfterDays":null,"worktreeSettledAfterDays":1,"worktreeOnMerge":false,"worktreeOnDelete":false,"worktreeUnchanged":false}}}}}"#,
     );
     let band = summarize(&read, &inventory, Some(&map), &projects(), false, NOW);
     assert_eq!(band.state, CleanupState::Off { defaults: false });
     assert_eq!(band.own_rules, 1);
+    assert!(!band.all_own);
     assert!(
         matches!(band.project_rules["a"], ProjectRule::Custom(r) if r.settled_after_days == Some(1))
     );
-    let Estimate::Ready(tally) = band.estimate else {
-        panic!()
-    };
+    let t = ready(&band);
     // Every candidate is in project a, which keeps its own rule.
-    assert_eq!(tally.now, Count::default());
+    assert_eq!(t.cover, Count::default());
+    assert_eq!(t.settled.count, Count::default());
+    // Its own rule makes three settled worktrees due now.
+    assert_eq!(t.due.now, count(3, 6, true));
     assert_eq!(band.entries["thread:s3"].due, Some(Due::Now));
-    // Every known project overridden: no suggestion.
+    assert!(band.project_build.contains("a"), "s10 has build output");
+    assert!(!band.global_build);
+    assert_eq!(
+        t.no_thread,
+        count(1, 8, false),
+        "no-thread folders belong to no project"
+    );
+
     let all = parse(
         r#"{"projectSettingsOverrides":{"a":{"worktreeCleanup":{"mode":"off"}},"b":{"worktreeCleanup":null}}}"#,
     );
     let band = summarize(&all, &inventory, Some(&map), &projects(), false, NOW);
-    assert_eq!(band.suggestion, None);
+    assert!(band.all_own);
     assert_eq!(band.own_rules, 2);
+    assert!(matches!(band.project_rules["a"], ProjectRule::Off(_)));
+    assert!(matches!(band.project_rules["b"], ProjectRule::Storage(_)));
 }
 
 #[test]
-fn unknown_settings_give_no_rules_and_no_suggestion() {
+fn unknown_settings_give_no_rules_and_no_panel() {
     let (inventory, map) = scene();
     let read = RulesRead::Invalid {
         key: "storageCleanup.worktreeAfterDays",
@@ -630,7 +672,7 @@ fn unknown_settings_give_no_rules_and_no_suggestion() {
         CleanupState::Unknown(CleanupProblem::Invalid { .. })
     ));
     assert_eq!(band.global, None);
-    assert_eq!(band.suggestion, None);
+    assert!(!band.panel_available());
     assert_eq!(
         band.entries["folder:arch"],
         EntryCleanup {

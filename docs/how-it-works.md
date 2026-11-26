@@ -52,10 +52,15 @@ writes to it, and it makes no network connections.
   when the file's stat changes. When Storage opens or rescans, one
   `query_only` query reads, for thread rows that record a worktree (archived
   and deleted ones too), the creation, archive and delete times, `settledAt`,
-  `settledOverride` and the latest run times. The estimate counts the
-  WORKTREE column of idle threads inside T3's managed folders and says "up
-  to": T3 also keeps worktrees with local changes, open terminals or switched
-  branches, which Loupe does not check. Loupe never runs git and never
+  `settledOverride` and the latest run times. "They would cover" counts, once
+  per folder, the WORKTREE column of worktrees inside T3's managed folders
+  whose thread is idle and whose project follows the global settings, when
+  the thread is settled, has been idle for a week or more, or was deleted,
+  and no setting that is on already covers it. The settings panel's rows use
+  the same groups. Every size says "up to": T3 also keeps worktrees with
+  local changes, open terminals or switched branches, which Loupe does not
+  check. Merged and unchanged are not estimated: T3 checks the pull request
+  and asks git. Loupe never runs git and never
   changes the settings. The demo uses example folder sizes. An explicit
   `--db` skips filesystem measurements. Disk measurements are Linux-only.
 - **Reading everything, on several connections:** `--once`, `--status` and

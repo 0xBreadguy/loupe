@@ -76,16 +76,21 @@ The short list is in the [README](../README.md). This is the long one.
 - Press `s` for Storage. On Linux it measures worktrees and agent scratch in
   the background, with a subtotal for `target` and `node_modules`. It groups
   settled and gone folders and shows unassigned sizes in Other.
-- Storage's T3 CLEANUP band shows the worktree cleanup rules T3 is actually
-  applying. T3's automatic cleanup is off by default. When it's off, or so
-  loose that a better rule would free 1 GB more, the band suggests one:
-  delete settled worktrees after 7 days, or inactive ones after 14 if
-  auto-settle is off. The estimate counts worktree space only and says "up
-  to", because T3 also keeps worktrees with local changes. A project with its
-  own rule shows it in the details. Gone folders say whether their thread is
-  archived (the rules still apply), deleted (only "on delete" removes it) or
-  missing (T3 never removes it). Loupe only reads the rules; change them in
-  T3 Settings › Worktrees, or press `f` and the handoff carries them.
+- Storage's T3 CLEANUP band shows which of T3's five auto-delete settings
+  are on. T3's automatic cleanup is off by default. When settings are off,
+  the band names them and how much they would cover; when some are on, it
+  shows what is due now and how many are unused. Press `c` for the T3
+  CLEANUP SETTINGS panel: every setting, what yours is, and what is in your
+  worktrees today that it would cover, with the selected setting explained
+  in T3's terms. Projects with their own rule are listed there, and so are
+  folders no setting ever removes because no thread records them. Sizes
+  count worktree space only and say "up to", because T3 also keeps worktrees
+  with local changes. Gone folders say whether their thread is archived (the
+  rules still apply), deleted (only "delete worktrees with deleted threads"
+  removes it) or missing (T3 never removes it). Loupe only reads the
+  settings; change them in T3 Settings › Worktrees. `f` in the panel starts a
+  T3 thread to choose settings with you, and `f` on a folder carries the
+  settings into its cleanup.
 - When a watched volume falls below 10% free or 1 GiB available, a single
   line above the footer says how much is left. It identifies temporary space
   backed by memory. The demo uses example data.

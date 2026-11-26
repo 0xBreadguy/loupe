@@ -17,6 +17,8 @@ pub enum Effect {
     Rescan,
     OpenInT3(String),
     CleanInT3,
+    /// `f` in the cleanup settings panel: start a T3 thread to choose T3's cleanup settings.
+    CleanupSettingsInT3,
     Quit,
 }
 
@@ -27,6 +29,15 @@ pub struct StorageView {
     first: usize,
     folded: HashSet<GroupId>,
     help: bool,
+    /// The T3 CLEANUP SETTINGS panel, when open.
+    panel: Option<Panel>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Panel {
+    index: usize,
+    /// The first list line shown.
+    first: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -207,7 +218,75 @@ impl StorageView {
         let layout = draw::Layout::new(inventory, w, h);
         let rows = Rows::new(inventory, &self.folded);
         self.reconcile(&rows, layout.lines());
+        self.reconcile_panel(inventory, w, h);
         draw::render(self, &rows, inventory, dashboard, layout, palette)
+    }
+
+    /// Whether the view handles `key` itself rather than the dashboard. `c` opens and closes
+    /// the cleanup settings panel while T3's settings are known; otherwise it stays the theme key.
+    pub fn takes(&self, key: &str, inventory: &Inventory, w: usize, h: usize) -> bool {
+        key == "c"
+            && (self.panel.is_some()
+                || (!self.help && draw::Layout::fits_size(w, h) && Self::band(inventory).is_some()))
+    }
+
+    /// The panel is open, for the host's footer and tests.
+    pub fn panel_open(&self) -> bool {
+        self.panel.is_some()
+    }
+
+    /// The panel row the cursor is on, as the `f` handoff names it.
+    pub fn panel_selection(&self, inventory: &Inventory) -> Option<&'static str> {
+        let band = Self::band(inventory)?;
+        let panel = self.panel?;
+        draw::panel::rows(band)
+            .get(panel.index)
+            .map(|row| row.word())
+    }
+
+    fn band(inventory: &Inventory) -> Option<&data::Cleanup> {
+        inventory
+            .cleanup
+            .as_ref()
+            .filter(|band| band.panel_available())
+    }
+
+    /// Close the panel when the band went away; keep the selection and scroll in range.
+    fn reconcile_panel(&mut self, inventory: &Inventory, w: usize, h: usize) {
+        let Some(panel) = &mut self.panel else {
+            return;
+        };
+        let Some(band) = Self::band(inventory) else {
+            self.panel = None;
+            return;
+        };
+        let count = draw::panel::rows(band).len();
+        panel.index = panel.index.min(count.saturating_sub(1));
+        let geometry = draw::panel::Geometry::new(band, w, h);
+        panel.first = geometry.scroll(panel.first, panel.index);
+    }
+
+    fn panel_key(
+        &mut self,
+        key: &str,
+        inventory: &Inventory,
+        w: usize,
+        h: usize,
+    ) -> Option<Effect> {
+        let band = Self::band(inventory)?;
+        let count = draw::panel::rows(band).len();
+        let panel = self.panel.as_mut()?;
+        match key {
+            "c" | "escape" => self.panel = None,
+            "down" | "j" => panel.index = (panel.index + 1).min(count - 1),
+            "up" | "k" => panel.index = panel.index.saturating_sub(1),
+            "home" | "g" | "pageup" | "K" => panel.index = 0,
+            "end" | "G" | "pagedown" | "J" => panel.index = count - 1,
+            "f" if draw::Layout::fits_size(w, h) => return Some(Effect::CleanupSettingsInT3),
+            _ => {}
+        }
+        self.reconcile_panel(inventory, w, h);
+        None
     }
 
     /// Returns a host effect only for an action currently available in the view.
@@ -226,8 +305,20 @@ impl StorageView {
                 self.help = false;
                 return None;
             }
+            _ if self.panel.is_some() && Self::band(inventory).is_none() => self.panel = None,
+            _ if self.panel.is_some() => return self.panel_key(key, inventory, w, h),
             "escape" => return Some(Effect::Back),
+            "c" => {
+                if self.takes(key, inventory, w, h) {
+                    self.panel = Some(Panel::default());
+                    self.reconcile_panel(inventory, w, h);
+                }
+                return None;
+            }
             _ => {}
+        }
+        if key == "escape" {
+            return Some(Effect::Back);
         }
 
         let layout = draw::Layout::new(inventory, w, h);
@@ -344,6 +435,17 @@ impl StorageView {
     pub fn select_at(&mut self, inventory: &Inventory, w: usize, h: usize, y: usize) {
         let layout = draw::Layout::new(inventory, w, h);
         if self.help || !layout.fits() {
+            return;
+        }
+        if self.panel.is_some() {
+            self.reconcile_panel(inventory, w, h);
+            if let (Some(band), Some(panel)) = (Self::band(inventory), &mut self.panel) {
+                let geometry = draw::panel::Geometry::new(band, w, h);
+                if let Some(index) = geometry.row_at(panel.first, y) {
+                    panel.index = index;
+                }
+            }
+            self.reconcile_panel(inventory, w, h);
             return;
         }
         let rows = Rows::new(inventory, &self.folded);

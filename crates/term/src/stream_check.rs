@@ -293,7 +293,7 @@ fn dispatch_key(
         return;
     }
     if storage.is_open() {
-        if matches!(name, "c" | "C") {
+        if matches!(name, "c" | "C") && !storage.takes(name, size) {
             on_key(state, host, clock, name, false);
         } else {
             storage.key(name, state, host, handoff, size);

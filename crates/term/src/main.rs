@@ -733,7 +733,7 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                     false
                 }
                 Event::Key(name) if storage.is_open() => {
-                    if matches!(name, "c" | "C") {
+                    if matches!(name, "c" | "C") && !storage.takes(name, size) {
                         on_key(&mut state, &mut host, &mut clock, name, replay.is_some())
                     } else {
                         storage.key(name, &mut state, &host, &mut handoff, size)

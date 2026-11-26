@@ -19,7 +19,7 @@
 
 use crate::storage_view::data::{
     Bytes, Cleanup, CleanupProblem, CleanupState, Count, Due, EntryCleanup, Estimate, Inventory,
-    Next, Ownership, ProjectRule, Scan, Suggestion, Tally, ThreadState,
+    Next, Ownership, Pool, ProjectRule, Scan, Setting, Settings, Tally, ThreadState, Today,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -29,12 +29,9 @@ use std::path::{Component, Path, PathBuf};
 const DAY_MS: f64 = 86_400_000.;
 /// The settings file is capped like Telemetry Check's read of the same file.
 const SETTINGS_CAP: u64 = 4 * 1024 * 1024;
-/// A rule that frees less than this beyond the current rules is not called loose.
-pub const LOOSE_BYTES: u64 = 1_000_000_000;
-/// The owner's choice (2026-11-26): suggest settled after 7 days while auto-settle is on,
-/// otherwise inactive after 14 days.
-pub const SUGGEST_SETTLED_DAYS: u16 = 7;
-pub const SUGGEST_INACTIVE_DAYS: u16 = 14;
+/// "Idle a week+" and "idle a month+" in the settings panel and the band's coverage.
+pub const IDLE_WEEK_DAYS: f64 = 7.;
+pub const IDLE_MONTH_DAYS: f64 = 30.;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeepWhen {
@@ -88,24 +85,6 @@ impl Rules {
             || self.on_merge
             || self.on_delete
             || self.unchanged
-    }
-
-    fn with(self, suggestion: Suggestion) -> Self {
-        let tighter = |current: Option<u16>, days| Some(current.map_or(days, |c| c.min(days)));
-        match suggestion {
-            Suggestion::Settled(days) => Self {
-                settled_after_days: tighter(self.settled_after_days, days),
-                ..self
-            },
-            Suggestion::Inactive(days) => Self {
-                after_days: tighter(self.after_days, days),
-                ..self
-            },
-        }
-    }
-
-    fn suggested(suggestion: Suggestion) -> Self {
-        Self::default().with(suggestion)
     }
 }
 
@@ -843,6 +822,41 @@ fn due_in_ms(rules: &Rules, facts: &EntryFacts, now: f64) -> Option<f64> {
     soonest
 }
 
+/// The timed settings that would make an entry eligible, now or later.
+fn covering(rules: &Rules, facts: &EntryFacts, now: f64) -> Settings {
+    let mut set = Settings::default();
+    for (setting, only) in [
+        (
+            Setting::Settled,
+            Rules {
+                settled_after_days: rules.settled_after_days,
+                ..Rules::default()
+            },
+        ),
+        (
+            Setting::Inactive,
+            Rules {
+                after_days: rules.after_days,
+                ..Rules::default()
+            },
+        ),
+        (
+            Setting::Deleted,
+            Rules {
+                on_delete: rules.on_delete,
+                ..Rules::default()
+            },
+        ),
+    ] {
+        if setting.on(rules) && due_in_ms(&only, facts, now).is_some() {
+            set.insert(setting);
+        }
+    }
+    set
+}
+
+/// A worktree T3's cleanup could remove at all: inside a managed folder, its thread idle, and
+/// a thread row records it.
 fn candidate(facts: &EntryFacts) -> bool {
     facts.managed
         && facts.idle
@@ -852,26 +866,42 @@ fn candidate(facts: &EntryFacts) -> bool {
         )
 }
 
+fn settled_pool(f: &EntryFacts) -> bool {
+    f.ownership != Ownership::Deleted && f.settled_at_ms.is_some()
+}
+
+fn idle_for(f: &EntryFacts, days: f64, now: f64) -> bool {
+    f.ownership != Ownership::Deleted && f.activity_ms.is_some_and(|at| at <= now - days * DAY_MS)
+}
+
+/// The one definition of "they would cover", used by the band and the settings panel alike.
+///
+/// A candidate worktree (see `candidate`) whose project follows the global settings counts when
+/// it is in one of the groups an unused setting would act on today: its thread is settled (any
+/// age), it has been idle for `IDLE_WEEK_DAYS` or more, or its thread was deleted. It does not
+/// count when a global rule that is on already covers it, now or later. Each folder counts
+/// once, by WORKTREE bytes; callers say "up to" because T3 still keeps worktrees with local
+/// changes, and `+` when a size is a lower bound. Folders with no thread are never candidates.
+pub fn uncovered_opportunity(f: &EntryFacts, global: &Rules, now: f64) -> bool {
+    candidate(f)
+        && (settled_pool(f)
+            || idle_for(f, IDLE_WEEK_DAYS, now)
+            || f.ownership == Ownership::Deleted)
+        && due_in_ms(global, f, now).is_none()
+}
+
 #[derive(Default)]
 struct Totals {
     now: Count,
-    later: Vec<(u32, u64, bool)>,
+    later: Vec<(u32, Bytes)>,
 }
 
 impl Totals {
     fn add(&mut self, due: f64, bytes: Bytes) {
-        let (n, partial) = match bytes {
-            Bytes::Exact(n) => (n, false),
-            Bytes::AtLeast(n) => (n, true),
-            Bytes::Absent => (0, false),
-            Bytes::Unknown => (0, true),
-        };
         if due <= 0. {
-            self.now.worktrees += 1;
-            self.now.bytes = self.now.bytes.saturating_add(n);
-            self.now.partial |= partial;
+            self.now.add(bytes);
         } else {
-            self.later.push(((due / DAY_MS).ceil() as u32, n, partial));
+            self.later.push(((due / DAY_MS).ceil() as u32, bytes));
         }
     }
 
@@ -879,11 +909,9 @@ impl Totals {
         let days = self.later.iter().map(|l| l.0).min();
         let next = days.map(|days| {
             let mut count = Count::default();
-            for (d, n, partial) in &self.later {
+            for (d, bytes) in &self.later {
                 if *d == days {
-                    count.worktrees += 1;
-                    count.bytes = count.bytes.saturating_add(*n);
-                    count.partial |= partial;
+                    count.add(*bytes);
                 }
             }
             Next { days, count }
@@ -891,12 +919,47 @@ impl Totals {
         Tally {
             now: self.now,
             next,
-            extra: None,
         }
     }
 }
 
-/// Everything the T3 CLEANUP band, the detail pane and the `f` handoff show. Pure.
+/// One setting's group, built entry by entry.
+#[derive(Default)]
+struct PoolTotals {
+    count: Count,
+    uncovered: Count,
+    covered_by: Settings,
+    due: Totals,
+}
+
+impl PoolTotals {
+    fn add(&mut self, bytes: Bytes, covers: Settings, due: Option<f64>) {
+        self.count.add(bytes);
+        if covers.is_empty() {
+            self.uncovered.add(bytes);
+        }
+        self.covered_by.0 |= covers.0;
+        if let Some(ms) = due {
+            self.due.add(ms, bytes);
+        }
+    }
+
+    fn pool(self) -> Pool {
+        Pool {
+            count: self.count,
+            uncovered: self.uncovered,
+            covered_by: self.covered_by,
+            due: self.due.tally(),
+        }
+    }
+}
+
+fn has_build(bytes: Bytes) -> bool {
+    matches!(bytes, Bytes::Exact(n) | Bytes::AtLeast(n) if n > 0)
+}
+
+/// Everything the T3 CLEANUP band, its settings panel, the detail pane and the `f` handoffs
+/// show. Pure.
 ///
 /// `facts` is `None` when the thread timestamps could not be read. `projects` lists the
 /// project ids Storage knows, which decides how many keep their own rule.
@@ -915,6 +978,11 @@ pub fn summarize(
         .iter()
         .flat_map(|p| &p.threads)
         .chain(&inventory.settled_or_gone)
+        .collect();
+    let titles: BTreeMap<String, String> = inventory
+        .projects
+        .iter()
+        .map(|p| (p.id.clone(), p.title.clone()))
         .collect();
 
     let Some(settings) = settings else {
@@ -941,12 +1009,16 @@ pub fn summarize(
             }),
             global: None,
             own_rules: 0,
+            all_own: false,
             project_rules: BTreeMap::new(),
-            suggestion: None,
+            titles,
+            project_build: Default::default(),
+            global_build: false,
             estimate: Estimate::NoTimes,
             build_kept: false,
             custom_root,
             auto_settle_days: None,
+            auto_settle_on_merge: false,
             entries,
         };
     };
@@ -969,13 +1041,7 @@ pub fn summarize(
         .collect();
     let follows_global =
         |project: Option<&str>| project.is_none_or(|p| !settings.overrides.contains_key(p));
-    let suggestion = (projects.is_empty() || own.len() < projects.len()).then_some(
-        if settings.auto_settle_days.is_some() {
-            Suggestion::Settled(SUGGEST_SETTLED_DAYS)
-        } else {
-            Suggestion::Inactive(SUGGEST_INACTIVE_DAYS)
-        },
-    );
+    let all_own = !projects.is_empty() && own.len() == projects.len();
 
     let estimate_state = if matches!(inventory.scan, Scan::Unavailable) {
         Some(Estimate::NoSizes)
@@ -987,17 +1053,34 @@ pub fn summarize(
         None
     };
 
-    let mut effective = Totals::default();
-    let mut suggested = Totals::default();
-    let mut combined = Totals::default();
+    let mut today = Today::default();
+    let mut due = Totals::default();
+    let mut settled = PoolTotals::default();
+    let mut idle_week = PoolTotals::default();
+    let mut deleted = PoolTotals::default();
+    let mut oldest_settled: Option<f64> = None;
     let mut build_kept = false;
+    let mut global_build = false;
+    let mut project_build = std::collections::BTreeSet::new();
     if let Some(facts) = facts {
         for entry in &rows {
             let Some(f) = facts.get(&entry.id) else {
                 continue;
             };
             let rules = resolve(&settings, f.project_id.as_deref());
-            let due = if !rules.enabled() {
+            let follows = follows_global(f.project_id.as_deref());
+            if has_build(entry.sizes.build) && f.ownership != Ownership::NoThread {
+                match &f.project_id {
+                    Some(p) if !follows => {
+                        project_build.insert(p.clone());
+                    }
+                    _ => global_build = true,
+                }
+            }
+            if f.ownership == Ownership::NoThread {
+                today.no_thread.add(entry.sizes.worktree);
+            }
+            let entry_due = if !rules.enabled() {
                 None
             } else if f.ownership == Ownership::NoThread {
                 Some(Due::Never)
@@ -1016,95 +1099,95 @@ pub fn summarize(
                 entry.id.clone(),
                 EntryCleanup {
                     ownership: f.ownership,
-                    due,
+                    due: entry_due,
                 },
             );
             if !candidate(f) {
                 continue;
             }
             let bytes = entry.sizes.worktree;
-            if rules.enabled() {
+            if rules.enabled()
+                && let Some(ms) = due_in_ms(&rules, f, now)
+            {
+                due.add(ms, bytes);
                 // The band shows the global rules, so only their keepWhen earns the warning.
-                if global.enabled()
+                if follows
                     && global.keep_when == KeepWhen::AnyLocalFiles
-                    && follows_global(f.project_id.as_deref())
-                    && matches!(entry.sizes.build, Bytes::Exact(n) | Bytes::AtLeast(n) if n > 0)
+                    && has_build(entry.sizes.build)
                 {
                     build_kept = true;
                 }
-                if let Some(ms) = due_in_ms(&rules, f, now) {
-                    effective.add(ms, bytes);
+            }
+            if !follows {
+                continue;
+            }
+            if uncovered_opportunity(f, &global, now) {
+                today.cover.add(bytes);
+            }
+            let covers = covering(&global, f, now);
+            let only = |rules: Rules| due_in_ms(&rules, f, now);
+            if settled_pool(f) {
+                let rule = Rules {
+                    settled_after_days: global.settled_after_days,
+                    ..Rules::default()
+                };
+                settled.add(bytes, covers, global.settled_after_days.and(only(rule)));
+                let at = f.settled_at_ms.unwrap_or(now);
+                oldest_settled = Some(oldest_settled.map_or(at, |o| o.min(at)));
+            }
+            if idle_for(f, IDLE_WEEK_DAYS, now) {
+                idle_week.add(bytes, covers, None);
+                if idle_for(f, IDLE_MONTH_DAYS, now) {
+                    today.idle_month.add(bytes);
                 }
             }
-            if let (Some(s), true) = (suggestion, follows_global(f.project_id.as_deref())) {
-                if let Some(ms) = due_in_ms(&Rules::suggested(s), f, now) {
-                    suggested.add(ms, bytes);
-                }
-                if let Some(ms) = due_in_ms(&global.with(s), f, now) {
-                    combined.add(ms, bytes);
-                }
+            if f.ownership == Ownership::Deleted {
+                deleted.add(bytes, covers, global.on_delete.then_some(0.));
             }
         }
-    }
-
-    let global_now = {
-        // What the current global rules free now, over projects that follow them.
-        let mut t = Totals::default();
-        if let (Some(facts), true) = (facts, global.enabled()) {
+        // The inactive rule's own tally runs over every candidate, not only the idle week.
+        if let Some(days) = global.after_days {
+            let rule = Rules {
+                after_days: Some(days),
+                ..Rules::default()
+            };
             for entry in &rows {
                 if let Some(f) = facts
                     .get(&entry.id)
                     .filter(|f| candidate(f) && follows_global(f.project_id.as_deref()))
-                    && let Some(ms) = due_in_ms(&global, f, now)
+                    && let Some(ms) = due_in_ms(&rule, f, now)
                 {
-                    t.add(ms, entry.sizes.worktree);
+                    idle_week.due.add(ms, entry.sizes.worktree);
                 }
             }
         }
-        t.now
-    };
-
-    let (state, suggestion, estimate) = if global.enabled() {
-        let combined = combined.tally();
-        let extra = Count {
-            worktrees: combined.now.worktrees.saturating_sub(global_now.worktrees),
-            bytes: combined.now.bytes.saturating_sub(global_now.bytes),
-            partial: combined.now.partial,
-        };
-        let loose = estimate_state.is_none() && suggestion.is_some() && extra.bytes >= LOOSE_BYTES;
-        let mut tally = effective.tally();
-        if loose {
-            tally.extra = Some(extra);
-        }
-        (
-            if loose {
-                CleanupState::Loose
-            } else {
-                CleanupState::On
-            },
-            if loose { suggestion } else { None },
-            estimate_state.unwrap_or(Estimate::Ready(tally)),
-        )
-    } else {
-        (
-            CleanupState::Off {
-                defaults: matches!(read, RulesRead::Absent),
-            },
-            suggestion,
-            estimate_state.unwrap_or(Estimate::Ready(suggested.tally())),
-        )
-    };
+    }
+    today.due = due.tally();
+    today.settled = settled.pool();
+    today.oldest_settled_days = oldest_settled.map(|at| ((now - at).max(0.) / DAY_MS) as u32);
+    today.idle_week = idle_week.pool();
+    today.deleted = deleted.pool();
 
     Cleanup {
-        state,
+        state: if global.enabled() {
+            CleanupState::On
+        } else {
+            CleanupState::Off {
+                defaults: matches!(read, RulesRead::Absent),
+            }
+        },
         global: Some(global),
         own_rules: own.len(),
+        all_own,
         project_rules,
-        suggestion,
-        estimate,
+        titles,
+        project_build,
+        global_build,
+        estimate: estimate_state.unwrap_or(Estimate::Ready(today)),
         build_kept,
         custom_root,
         auto_settle_days: settings.auto_settle_days,
+        auto_settle_on_merge: settings.auto_settle_on_merge,
         entries,
     }
 }

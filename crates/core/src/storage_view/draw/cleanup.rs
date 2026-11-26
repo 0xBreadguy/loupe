@@ -1,23 +1,23 @@
 //! The T3 CLEANUP band: a section rule with the state, and one body line in the volume-row
-//! style (a role word at x = 2, the value at x = 12).
+//! style (a role word at x = 2, the value at x = 12, a summary on the right). It names the
+//! auto-delete settings that are off and what they would cover; `c` opens the settings panel.
 
 use super::status::valued_size;
 use super::{fit, width};
 use crate::storage_view::data::{
     Cleanup, CleanupProblem, CleanupState, Count, Due, Estimate, KeepWhen, Ownership, ProjectRule,
-    Rules, Suggestion,
+    Rules,
 };
 use crate::terminal::{self, Canvas, Palette, Rgb};
 
 const WHERE: &str = "T3 Settings › Worktrees";
-const LARGE: u64 = 1_000_000_000;
 
-fn plural(n: impl Into<u64>, one: &str, many: &str) -> String {
+pub(super) fn plural(n: impl Into<u64>, one: &str, many: &str) -> String {
     let n = n.into();
     format!("{n} {}", if n == 1 { one } else { many })
 }
 
-fn bytes(count: Count) -> String {
+pub(super) fn bytes(count: Count) -> String {
     let text = valued_size(count.bytes, false);
     if count.partial {
         format!("{text}+")
@@ -26,55 +26,82 @@ fn bytes(count: Count) -> String {
     }
 }
 
+/// Text, ink, bold.
+pub(super) type Part = (String, Rgb, bool);
+
+pub(super) fn part(text: impl Into<String>, ink: Rgb) -> Part {
+    (text.into(), ink, false)
+}
+
+pub(super) fn draw_parts(c: &mut Canvas, x: i32, y: i32, parts: &[Part], end: i32) -> i32 {
+    let mut x = x;
+    for (text, ink, bold) in parts {
+        let room = end - x;
+        if room <= 0 {
+            break;
+        }
+        x += c.text_with(x, y, &fit(text, room), *ink, None, *bold, usize::MAX);
+    }
+    x
+}
+
+pub(super) fn parts_width(parts: &[Part]) -> i32 {
+    parts.iter().map(|(t, ..)| width(t)).sum()
+}
+
+/// What the band's label says when every known project keeps its own rule.
+fn differ(n: usize, wide: bool) -> String {
+    if wide {
+        format!(
+            "{} {} own rule",
+            plural(n as u64, "project has", "projects have"),
+            if n == 1 { "its" } else { "their" }
+        )
+    } else {
+        plural(n as u64, "project differs", "projects differ")
+    }
+}
+
+fn cover(band: &Cleanup) -> Option<Count> {
+    match band.estimate {
+        Estimate::Ready(t) => Some(t.cover),
+        _ => None,
+    }
+}
+
 /// The status label on the rule line and its ink.
 fn label(band: &Cleanup, wide: bool, p: &Palette) -> (String, Rgb) {
-    let differ = |n: usize| {
-        if wide {
-            format!(
-                "{} {} own rule",
-                plural(n as u64, "project has", "projects have"),
-                if n == 1 { "its" } else { "their" }
-            )
-        } else {
-            plural(n as u64, "project differs", "projects differ")
-        }
-    };
-    let heavy = match band.estimate {
-        Estimate::Ready(t) => t.now.bytes.max(t.extra.map_or(0, |e| e.bytes)) >= LARGE,
-        _ => false,
-    };
+    let on = band.settings_on();
     match &band.state {
-        CleanupState::Off { defaults } => {
-            let text = if band.own_rules > 0 {
-                format!("off · {}", differ(band.own_rules))
-            } else if *defaults {
-                (if wide {
-                    "off · T3 defaults, no settings file"
-                } else {
-                    "off · T3 defaults"
-                })
-                .into()
+        CleanupState::Off { .. } | CleanupState::On if band.all_own => (
+            format!(
+                "{} · {}",
+                if on > 0 { "on" } else { "off" },
+                differ(band.own_rules, wide)
+            ),
+            p.dim,
+        ),
+        CleanupState::Off { .. } => (
+            (if wide {
+                "off · no auto-delete settings on"
             } else {
-                (if wide {
-                    "off · T3 removes no worktrees on its own"
-                } else {
-                    "off · removes no worktrees"
-                })
-                .into()
-            };
-            (text, if heavy { p.warn } else { p.dim })
-        }
-        CleanupState::On => {
-            let text = if band.own_rules > 0 {
-                format!("on · {}", differ(band.own_rules))
-            } else if wide {
-                "on · T3 checks hourly".into()
+                "off · no auto-delete on"
+            })
+            .into(),
+            if cover(band).is_some_and(|c| c.bytes > 0) {
+                p.warn
             } else {
-                "on · checked hourly".into()
-            };
-            (text, p.dim)
-        }
-        CleanupState::Loose => ("on · loose".into(), p.warn),
+                p.dim
+            },
+        ),
+        CleanupState::On => (
+            if wide {
+                format!("on · {on} of 5 auto-delete settings")
+            } else {
+                format!("on · {on} of 5 settings")
+            },
+            p.dim,
+        ),
         CleanupState::Unknown(CleanupProblem::Unreadable(_)) => (
             (if wide {
                 "unknown · could not read T3's settings"
@@ -90,24 +117,11 @@ fn label(band: &Cleanup, wide: bool, p: &Palette) -> (String, Rgb) {
     }
 }
 
-fn days(n: u16, wide: bool) -> String {
+pub(super) fn days(n: u16, wide: bool) -> String {
     if wide {
         plural(n, "day", "days")
     } else {
         format!("{n}d")
-    }
-}
-
-pub(super) fn suggestion_text(suggestion: Suggestion, wide: bool) -> String {
-    match (suggestion, wide) {
-        (Suggestion::Settled(n), true) => {
-            format!("Delete settled worktrees after {}", days(n, true))
-        }
-        (Suggestion::Inactive(n), true) => {
-            format!("Delete inactive worktrees after {}", days(n, true))
-        }
-        (Suggestion::Settled(n), false) => format!("settled after {}", days(n, true)),
-        (Suggestion::Inactive(n), false) => format!("inactive after {}", days(n, true)),
     }
 }
 
@@ -189,135 +203,68 @@ pub(super) fn ownership_text(ownership: Ownership) -> Option<&'static str> {
     }
 }
 
-type Part = (String, Rgb);
-
-fn draw_parts(c: &mut Canvas, x: i32, y: i32, parts: &[Part], end: i32) -> i32 {
-    let mut x = x;
-    for (text, ink) in parts {
-        let room = end - x;
-        if room <= 0 {
-            break;
-        }
-        x += c.text(x, y, &fit(text, room), *ink);
-    }
-    x
+/// The estimate in place of a number while there is none.
+fn no_estimate(band: &Cleanup, wide: bool, p: &Palette) -> Option<Part> {
+    Some(match band.estimate {
+        Estimate::Ready(_) => return None,
+        Estimate::Estimating => part("estimating…", p.dim),
+        Estimate::NoSizes if wide => part("no estimate: folder sizes unavailable", p.dim),
+        Estimate::NoTimes if wide => part("no estimate: thread times unavailable", p.dim),
+        _ => part("no estimate", p.dim),
+    })
 }
 
-fn parts_width(parts: &[Part]) -> i32 {
-    parts.iter().map(|(t, _)| width(t)).sum()
+/// Lay out one body line: a role word, the first left form and the first right form that fit
+/// together. Forms run from the longest to the shortest; the right side is right-aligned.
+fn body_line(c: &mut Canvas, y: i32, role: Part, left: &[Vec<Part>], right: &[Vec<Part>]) {
+    let end = c.w as i32 - 1;
+    draw_parts(c, 2, y, &[role], 12);
+    let shortest = left.last().map_or(0, |f| parts_width(f).min(10));
+    let right = right
+        .iter()
+        .find(|form| 12 + shortest + 2 + parts_width(form) <= end)
+        .or(right.last())
+        .cloned()
+        .unwrap_or_default();
+    let right_w = parts_width(&right);
+    let right_x = (end - right_w).max(12);
+    draw_parts(c, right_x, y, &right, end);
+    let room = right_x - 2;
+    let left = left
+        .iter()
+        .find(|form| 12 + parts_width(form) <= room)
+        .or(left.last())
+        .cloned()
+        .unwrap_or_default();
+    draw_parts(c, 12, y, &left, room);
 }
 
-/// What the estimate says after the arrow, from the longest form to the shortest.
-fn off_estimate(band: &Cleanup, suggestion: Suggestion, wide: bool, p: &Palette) -> Vec<Part> {
-    let mut forms: Vec<Part> = Vec::new();
-    let dim = p.dim;
-    match band.estimate {
-        Estimate::Estimating => forms.push(("estimating…".into(), dim)),
-        Estimate::NoSizes => forms.push((
-            if wide {
-                "no estimate: folder sizes unavailable"
-            } else {
-                "no estimate"
-            }
-            .into(),
-            dim,
-        )),
-        Estimate::NoTimes => forms.push((
-            if wide {
-                "no estimate: thread times unavailable"
-            } else {
-                "no estimate"
-            }
-            .into(),
-            dim,
-        )),
-        Estimate::Ready(t) if t.now.worktrees > 0 => {
-            let ink = if t.now.bytes >= LARGE {
-                p.warn
-            } else {
-                p.text2
-            };
-            if wide {
-                forms.push((
-                    format!(
-                        "up to {} · {} now",
-                        bytes(t.now),
-                        plural(t.now.worktrees as u64, "worktree", "worktrees")
-                    ),
-                    ink,
-                ));
-            }
-            forms.push((
-                format!("up to {} · {} now", bytes(t.now), t.now.worktrees),
-                ink,
-            ));
-            forms.push((format!("up to {}", bytes(t.now)), ink));
-        }
-        Estimate::Ready(t) => match t.next {
-            Some(next) => {
-                if wide {
-                    forms.push((
-                        format!(
-                            "nothing due yet · {} in {}",
-                            bytes(next.count),
-                            plural(next.days, "day", "days")
-                        ),
-                        p.text2,
-                    ));
-                }
-                forms.push((
-                    format!("none due · {} in {}d", bytes(next.count), next.days),
-                    p.text2,
-                ));
-                forms.push((format!("next in {}d", next.days), p.text2));
-            }
-            None => {
-                let noun = match suggestion {
-                    Suggestion::Settled(_) => "settled",
-                    Suggestion::Inactive(_) => "idle",
-                };
-                if wide {
-                    forms.push((format!("no {noun} worktrees yet"), dim));
-                }
-                forms.push(("none yet".into(), dim));
-            }
-        },
-    }
-    forms
+fn sep(p: &Palette) -> Part {
+    part("  ·  ", p.dim)
 }
 
-fn on_due(band: &Cleanup, wide: bool, p: &Palette) -> Vec<Part> {
-    let mut forms: Vec<Part> = Vec::new();
-    match band.estimate {
-        Estimate::Estimating => forms.push(("estimating…".into(), p.dim)),
-        Estimate::NoSizes | Estimate::NoTimes => forms.push(("no estimate".into(), p.dim)),
-        Estimate::Ready(t) if t.now.worktrees > 0 => {
-            if wide {
-                forms.push((
-                    format!(
-                        "due now: up to {} · {}",
-                        bytes(t.now),
-                        plural(t.now.worktrees as u64, "worktree", "worktrees")
-                    ),
-                    p.text2,
-                ));
-            }
-            forms.push((format!("{} due", bytes(t.now)), p.text2));
+fn key(p: &Palette) -> Vec<Part> {
+    vec![("c".into(), p.accent, true), part(" settings", p.dim)]
+}
+
+/// The right side: the summary forms, each followed by `c settings`, then `c settings` alone.
+fn with_key(p: &Palette, band: &Cleanup, wide: bool, forms: Vec<Vec<Part>>) -> Vec<Vec<Part>> {
+    let mut out = Vec::new();
+    let custom =
+        (wide && band.custom_root).then(|| part("custom worktree folder not scanned", p.warn));
+    for form in forms {
+        let mut tail = form;
+        tail.push(sep(p));
+        tail.extend(key(p));
+        if let Some(custom) = &custom {
+            let mut long = vec![custom.clone(), sep(p)];
+            long.extend(tail.iter().cloned());
+            out.push(long);
         }
-        Estimate::Ready(t) => match t.next {
-            Some(next) => {
-                if wide {
-                    forms.push((
-                        format!("nothing due · next in {}", plural(next.days, "day", "days")),
-                        p.dim,
-                    ));
-                }
-                forms.push((format!("next in {}d", next.days), p.dim));
-            }
-            None => forms.push(("nothing due".into(), p.dim)),
-        },
+        out.push(tail);
     }
-    forms
+    out.push(key(p));
+    out
 }
 
 pub(super) fn draw(c: &mut Canvas, p: &Palette, y: i32, band: &Cleanup, body: bool) {
@@ -332,129 +279,137 @@ pub(super) fn draw(c: &mut Canvas, p: &Palette, y: i32, band: &Cleanup, body: bo
     }
     let y = y + 1;
     let end = w - 1;
+    let rules = band.global.unwrap_or_default();
     match &band.state {
         CleanupState::Unknown(problem) => {
             let parts: Vec<Part> = match problem {
                 CleanupProblem::Unreadable(reason) if wide => vec![
-                    (
+                    part(
                         format!("T3's settings.json could not be read ({reason}). "),
                         p.text2,
                     ),
-                    (format!("Check {WHERE}."), p.dim),
+                    part(format!("Check {WHERE}."), p.dim),
                 ],
                 CleanupProblem::Unreadable(reason) => vec![
-                    (format!("settings.json: {reason}"), p.text2),
-                    (" · see T3 Settings".into(), p.dim),
+                    part(format!("settings.json: {reason}"), p.text2),
+                    part(" · see T3 Settings", p.dim),
                 ],
                 CleanupProblem::Invalid { key, constraint } if wide => vec![
-                    ((*key).into(), p.fg),
-                    (format!(" {constraint}. "), p.text2),
-                    (format!("Check {WHERE}."), p.dim),
+                    part(*key, p.fg),
+                    part(format!(" {constraint}. "), p.text2),
+                    part(format!("Check {WHERE}."), p.dim),
                 ],
-                CleanupProblem::Invalid { key, constraint } => {
-                    vec![((*key).into(), p.fg), (format!(" {constraint}"), p.text2)]
-                }
+                // Neon's narrow copy: the key, and where to fix it.
+                CleanupProblem::Invalid { key, .. } => vec![
+                    part(*key, p.fg),
+                    part(" invalid", p.text2),
+                    part(" · see T3 Settings", p.dim),
+                ],
             };
             draw_parts(c, 2, y, &parts, end);
         }
+        _ if band.all_own => {
+            let left = [
+                vec![part(
+                    "every project has its own rule · select a project to see it",
+                    p.text2,
+                )],
+                vec![part("each project has its own rule", p.text2)],
+            ];
+            let left = if wide { &left[..] } else { &left[1..] };
+            body_line(c, y, part("rules", p.fg), left, &[key(p)]);
+        }
         CleanupState::Off { .. } => {
-            let Some(suggestion) = band.suggestion else {
-                c.text(2, y, "rules", p.fg);
-                let text = if wide {
-                    "every project has its own rule · select a project to see it"
-                } else {
-                    "each project has its own rule"
-                };
-                c.text(12, y, &fit(text, end - 12), p.text2);
-                return;
-            };
-            c.text(2, y, "suggest", p.fg);
-            let rule: Part = (suggestion_text(suggestion, wide), p.fg);
-            let arrow: Part = (if wide { "  →  " } else { " → " }.into(), p.dim);
-            let hint: Option<Part> = wide.then(|| {
-                if band.custom_root {
-                    ("custom worktree folder not scanned".into(), p.warn)
-                } else {
-                    (WHERE.into(), p.dim)
-                }
-            });
-            let forms = off_estimate(band, suggestion, wide, p);
-            let left = |estimate: &Part| vec![rule.clone(), arrow.clone(), estimate.clone()];
-            // Keep the rule and the bytes; drop the hint, then shorten the estimate.
-            for (i, estimate) in forms.iter().enumerate() {
-                let parts = left(estimate);
-                let need = 12 + parts_width(&parts);
-                if let Some(hint) = &hint
-                    && need + 3 + width(&hint.0) <= end
-                {
-                    draw_parts(c, 12, y, &parts, end);
-                    c.right(end, y, &hint.0, hint.1);
-                    return;
-                }
-                if need <= end || i + 1 == forms.len() {
-                    draw_parts(c, 12, y, &parts, end);
-                    return;
-                }
+            let list = "settled · inactive · deleted threads · merged · unchanged";
+            let mut left = Vec::new();
+            if wide {
+                left.push(vec![part(list, p.fg)]);
             }
+            left.push(vec![part("5 settings", p.fg)]);
+            let right = match (no_estimate(band, wide, p), cover(band)) {
+                (Some(none), _) => vec![vec![none]],
+                (None, Some(cover)) if cover.worktrees > 0 => {
+                    let upto = format!("up to {}", bytes(cover));
+                    let mut forms = Vec::new();
+                    if wide {
+                        forms.push(vec![part(format!("{upto} they would cover"), p.warn)]);
+                    }
+                    forms.push(vec![part(upto, p.warn)]);
+                    forms
+                }
+                _ => {
+                    let mut forms = Vec::new();
+                    if wide {
+                        forms.push(vec![part("nothing for them to cover yet", p.dim)]);
+                    }
+                    forms.push(vec![part("nothing yet", p.dim)]);
+                    forms
+                }
+            };
+            body_line(
+                c,
+                y,
+                part("unused", p.fg),
+                &left,
+                &with_key(p, band, wide, right),
+            );
         }
         CleanupState::On => {
-            let rules = band.global.unwrap_or_default();
-            c.text(2, y, "rules", p.fg);
-            let forms = on_due(band, wide, p);
-            let due = forms
-                .iter()
-                .find(|form| 12 + 12 + 3 + width(&form.0) <= end)
-                .or(forms.last())
-                .cloned()
-                .unwrap_or_default();
-            let right_x = end - width(&due.0);
-            c.right(end, y, &due.0, due.1);
-            let mut parts: Vec<Part> = rule_tokens(&rules, wide, false)
-                .into_iter()
-                .flat_map(|t| [(t, p.text2), (" · ".to_owned(), p.dim)])
-                .collect();
-            let keep = keep_text(rules.keep_when, wide);
-            if band.build_kept {
-                parts.push((
-                    if wide {
-                        format!("{keep} (target/ too)")
-                    } else {
-                        keep.into()
-                    },
-                    p.warn,
-                ));
-            } else {
-                parts.push((keep.into(), p.dim));
+            let mut left = Vec::new();
+            for tokens_wide in [true, false] {
+                if tokens_wide && !wide {
+                    continue;
+                }
+                let mut parts: Vec<Part> = rule_tokens(&rules, tokens_wide, false)
+                    .into_iter()
+                    .flat_map(|t| [part(t, p.text2), part(" · ", p.dim)])
+                    .collect();
+                let keep = keep_text(rules.keep_when, tokens_wide);
+                if band.build_kept {
+                    parts.push(part(
+                        if tokens_wide {
+                            format!("{keep} (target/ too)")
+                        } else {
+                            keep.into()
+                        },
+                        p.warn,
+                    ));
+                } else {
+                    parts.push(part(keep, p.dim));
+                }
+                left.push(parts);
             }
-            draw_parts(c, 12, y, &parts, right_x - 2);
-        }
-        CleanupState::Loose => {
-            let rules = band.global.unwrap_or_default();
-            c.text(2, y, "loose", p.warn);
-            let extra = match band.estimate {
-                Estimate::Ready(t) => t.extra.unwrap_or_default(),
-                _ => Count::default(),
+            let unused = 5 - band.settings_on();
+            let right = match (no_estimate(band, wide, p), band.estimate) {
+                (Some(none), _) => vec![vec![none]],
+                (None, Estimate::Ready(t)) => {
+                    let due = if t.due.now.worktrees > 0 {
+                        part(
+                            format!("{} due{}", bytes(t.due.now), if wide { " now" } else { "" }),
+                            p.text2,
+                        )
+                    } else {
+                        part("nothing due", p.dim)
+                    };
+                    let mut forms = Vec::new();
+                    if wide && unused > 0 {
+                        forms.push(vec![
+                            due.clone(),
+                            part(format!("  ·  {unused} unused"), p.dim),
+                        ]);
+                    }
+                    forms.push(vec![due]);
+                    forms
+                }
+                _ => Vec::new(),
             };
-            let suggestion = band.suggestion.unwrap_or(Suggestion::Settled(7));
-            let current = rule_tokens(&rules, wide, wide).join(" · ");
-            let target = if wide {
-                format!(
-                    "add {}: up to {} more",
-                    suggestion_text(suggestion, false),
-                    bytes(extra)
-                )
-            } else {
-                let short = match suggestion {
-                    Suggestion::Settled(n) => format!("settled {n}d"),
-                    Suggestion::Inactive(n) => format!("inactive {n}d"),
-                };
-                format!("{short}: up to {} more", bytes(extra))
-            };
-            let arrow = if wide { "  →  " } else { " → " };
-            // The target never shortens; the current rules give way.
-            let target_w = width(arrow) + width(&target);
-            let x = draw_parts(c, 12, y, &[(current, p.text2)], (end - target_w).max(14));
-            draw_parts(c, x, y, &[(arrow.into(), p.dim), (target, p.warn)], end);
+            body_line(
+                c,
+                y,
+                part("rules", p.fg),
+                &left,
+                &with_key(p, band, wide, right),
+            );
         }
     }
 }

@@ -190,7 +190,7 @@ pub struct Inventory {
 
 pub use crate::cleanup_rules::{KeepWhen, Rules};
 
-/// The T3 CLEANUP band, already computed by `cleanup_rules::summarize`.
+/// The T3 CLEANUP band and its settings panel, already computed by `cleanup_rules::summarize`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cleanup {
     pub state: CleanupState,
@@ -198,10 +198,16 @@ pub struct Cleanup {
     pub global: Option<Rules>,
     /// Projects Storage knows that have their own rule.
     pub own_rules: usize,
+    /// Every project Storage knows has its own rule, so the global settings apply to none.
+    pub all_own: bool,
     /// Those projects' rules, keyed by project ID.
     pub project_rules: std::collections::BTreeMap<String, ProjectRule>,
-    /// Shown while the rules are off, or loose.
-    pub suggestion: Option<Suggestion>,
+    /// Display names for project IDs, where Storage knows them.
+    pub titles: std::collections::BTreeMap<String, String>,
+    /// Projects with their own rule that have build output (`target/`, `node_modules/`).
+    pub project_build: std::collections::BTreeSet<String>,
+    /// A worktree that follows the global settings has build output.
+    pub global_build: bool,
     pub estimate: Estimate,
     /// The global rules are on and keep any local files, and a candidate that follows them
     /// has build output (T3 keeps a worktree for any ignored entry but `node_modules/`).
@@ -209,18 +215,100 @@ pub struct Cleanup {
     /// T3 creates new worktrees outside the folder Storage scans.
     pub custom_root: bool,
     pub auto_settle_days: Option<f64>,
+    pub auto_settle_on_merge: bool,
     /// Keyed by `Entry::id`.
     pub entries: std::collections::BTreeMap<String, EntryCleanup>,
 }
 
+impl Cleanup {
+    /// The settings panel needs known settings.
+    pub fn panel_available(&self) -> bool {
+        self.global.is_some()
+    }
+
+    /// How many of the five global auto-delete settings are on.
+    pub fn settings_on(&self) -> usize {
+        self.global
+            .map_or(0, |r| Setting::ALL.iter().filter(|s| s.on(&r)).count())
+    }
+
+    pub fn title<'a>(&'a self, project: &'a str) -> &'a str {
+        self.titles.get(project).map_or(project, String::as_str)
+    }
+}
+
+/// T3's five auto-delete settings, in the order T3 Settings lists them in the panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Setting {
+    Settled,
+    Inactive,
+    Deleted,
+    Merged,
+    Unchanged,
+}
+
+impl Setting {
+    pub const ALL: [Self; 5] = [
+        Self::Settled,
+        Self::Inactive,
+        Self::Deleted,
+        Self::Merged,
+        Self::Unchanged,
+    ];
+
+    pub fn on(self, rules: &Rules) -> bool {
+        match self {
+            Self::Settled => rules.settled_after_days.is_some(),
+            Self::Inactive => rules.after_days.is_some(),
+            Self::Deleted => rules.on_delete,
+            Self::Merged => rules.on_merge,
+            Self::Unchanged => rules.unchanged,
+        }
+    }
+
+    fn bit(self) -> u8 {
+        1 << self as u8
+    }
+
+    /// The word the panel uses for "already covered by …".
+    pub fn word(self) -> &'static str {
+        match self {
+            Self::Settled => "settled",
+            Self::Inactive => "inactive",
+            Self::Deleted => "deleted threads",
+            Self::Merged => "merged",
+            Self::Unchanged => "unchanged",
+        }
+    }
+}
+
+/// A set of settings, as bits.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Settings(pub u8);
+
+impl Settings {
+    pub fn insert(&mut self, setting: Setting) {
+        self.0 |= setting.bit();
+    }
+
+    /// The only setting in the set, if there is exactly one.
+    pub fn single(self) -> Option<Setting> {
+        let mut found = Setting::ALL.into_iter().filter(|s| self.0 & s.bit() != 0);
+        let first = found.next();
+        found.next().is_none().then_some(first).flatten()
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum CleanupState {
-    /// No rule removes worktrees for projects that follow the global rule.
+    /// No setting removes worktrees for projects that follow the global settings.
     /// `defaults` when there is no settings file.
     Off { defaults: bool },
     On,
-    /// On, but the suggestion would free at least 1 GB more.
-    Loose,
     Unknown(CleanupProblem),
 }
 
@@ -250,12 +338,14 @@ impl ProjectRule {
             Self::Off(rules) | Self::Custom(rules) | Self::Storage(rules) => rules,
         }
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Suggestion {
-    Settled(u16),
-    Inactive(u16),
+    pub fn mode(self) -> &'static str {
+        match self {
+            Self::Off(_) => "off",
+            Self::Custom(_) => "custom",
+            Self::Storage(_) => "storage-cleanup",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -266,17 +356,48 @@ pub enum Estimate {
     NoSizes,
     /// Thread timestamps could not be read.
     NoTimes,
-    Ready(Tally),
+    Ready(Today),
 }
 
-/// Off: what the suggestion would make eligible. On: what the rules make eligible.
+/// What is in the worktrees today, for the band and the settings panel. Every group counts
+/// idle worktrees inside T3's managed folders whose project follows the global settings,
+/// except `due`, which follows each project's own resolved rules, and `no_thread`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Today {
+    /// What the settings that are off would cover: see `cleanup_rules::uncovered_opportunity`.
+    pub cover: Count,
+    /// What the rules that are on make eligible, for every project.
+    pub due: Tally,
+    /// Settled threads' worktrees, any age.
+    pub settled: Pool,
+    pub oldest_settled_days: Option<u32>,
+    /// Worktrees whose thread has had no activity for a week or more.
+    pub idle_week: Pool,
+    pub idle_month: Count,
+    /// Worktrees of deleted threads.
+    pub deleted: Pool,
+    /// Folders no thread records, anywhere. T3 never removes them. Exact bytes, not "up to".
+    pub no_thread: Count,
+}
+
+/// One setting's group of worktrees.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Pool {
+    pub count: Count,
+    /// The part no setting that is on covers.
+    pub uncovered: Count,
+    /// The settings that are on and cover part of it.
+    pub covered_by: Settings,
+    /// While this setting is on: what it makes eligible on its own.
+    pub due: Tally,
+}
+
+/// What a rule makes eligible now, and the soonest batch after that.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct Tally {
     pub now: Count,
     /// The soonest batch that is not due yet.
     pub next: Option<Next>,
-    /// Loose only: what the suggestion would add to the current rules.
-    pub extra: Option<Count>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -292,6 +413,20 @@ pub struct Count {
     pub bytes: u64,
     /// A size was a lower bound or unknown.
     pub partial: bool,
+}
+
+impl Count {
+    pub fn add(&mut self, bytes: Bytes) {
+        let (n, partial) = match bytes {
+            Bytes::Exact(n) => (n, false),
+            Bytes::AtLeast(n) => (n, true),
+            Bytes::Absent => (0, false),
+            Bytes::Unknown => (0, true),
+        };
+        self.worktrees += 1;
+        self.bytes = self.bytes.saturating_add(n);
+        self.partial |= partial;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

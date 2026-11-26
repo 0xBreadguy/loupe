@@ -31,7 +31,7 @@ it's already open with its app id, which foot always sets and
 | `e` | [Telemetry](features.md#telemetry-check): check what T3 Code sends and whether opt-outs work |
 | `m` | calm mode: nothing animates (on by default when Omarchy's animations are off) |
 | `x` | CRT effects, purely for fun (off in calm mode) |
-| `c` / `C` | next / previous theme, saved for next time ([themes](themes.md)) |
+| `c` / `C` | next / previous theme, saved for next time ([themes](themes.md)); in Storage, `c` opens T3 cleanup settings |
 | `w` | [trace](features.md#trace) the selected agent's task: every step on one clock; `w` or `Esc` goes back |
 | `?` / `h` | help and legend (scroll it with `↑` `↓` / `j` `k` or the wheel) |
 | `Esc` | close help, return from Insights, Storage, Telemetry or Trace, or quit |
@@ -49,9 +49,13 @@ In Storage, use the arrows or wheel to select a row, Space to fold a project,
 Enter to open an eligible thread in T3 Code, `f` to have a T3 Code thread
 inspect and clean up the selected worktrees or build caches (asks before
 starting), and `r` to measure again. Press `s` or Esc to return to the
-dashboard. The T3 CLEANUP band above the list shows the worktree rules T3
-applies and, when they're off or loose, a rule to try and what it would free.
-Change rules in T3 Settings › Worktrees; Loupe only reads them. Disk measurements are available with the live dashboard on Linux. The
+dashboard. The T3 CLEANUP band above the list names T3's auto-delete
+settings that are off and what they would cover. Press `c` there for the T3
+cleanup settings panel: `↑` `↓` / `j` `k` or a click selects a setting and
+explains it, `f` starts a T3 thread to set them up with you, and `c` or Esc
+goes back. In Storage `c` opens this panel instead of changing the theme
+whenever T3's settings could be read; `C` still changes it. Change settings in
+T3 Settings › Worktrees; Loupe only reads them. Disk measurements are available with the live dashboard on Linux. The
 demo uses sample sizes, and an explicit `--db` leaves filesystem measurements
 unavailable.
 

@@ -6,10 +6,10 @@
 use loupe_core::cleanup_rules::{self, EntryFacts, RulesRead};
 use loupe_core::headroom::Volume;
 use loupe_core::model::{Snapshot, State};
-use loupe_core::storage_view::StorageView;
 use loupe_core::storage_view::data::{
     Bytes, Entry, Inventory, Ownership, Project, Scan, Shown, Sizes, ThreadState, VolumePath,
 };
+use loupe_core::storage_view::{Effect, StorageView};
 use loupe_core::terminal::{self, Canvas};
 use std::collections::HashMap;
 use std::time::Duration;
@@ -218,31 +218,46 @@ struct Case {
     narrow: [&'static str; 2],
 }
 
+/// Facts in which nothing is settled or idle for a week.
+fn quiet_facts() -> HashMap<String, EntryFacts> {
+    let mut map = facts(12., 9.);
+    for f in map.values_mut() {
+        f.settled_at_ms = None;
+        f.activity_ms = Some(NOW - DAY);
+        if f.ownership == Ownership::Settled {
+            f.ownership = Ownership::Active;
+        }
+    }
+    map
+}
+
+const SETTLED_1_ANY: &str = r#"{"worktreeCleanup":{"mode":"custom","rules":{"worktreeAfterDays":null,"worktreeSettledAfterDays":1,"worktreeOnMerge":false,"worktreeOnDelete":false,"worktreeUnchanged":false,"worktreeKeepWhen":"any-local-files"}}}"#;
+
 fn cases() -> Vec<Case> {
     vec![
         Case {
-            name: "off-suggestion",
+            name: "off-they-would-cover",
             data: band(parse("{}"), &facts(12., 9.)),
             wide: [
-                "off · T3 removes no worktrees on its own",
-                "suggest   Delete settled worktrees after 7 days  →  up to 3.0 GB · 2 worktrees now",
+                "off · no auto-delete settings on",
+                "unused    settled · inactive · deleted threads · merged · unchanged      up to 5.0 GB they would cover  ·  c settings",
             ],
             narrow: [
-                "off · removes no worktrees",
-                "suggest   settled after 7 days → up to 3.0 GB · 2 now",
+                "off · no auto-delete on",
+                "unused    5 settings                              up to 5.0 GB  ·  c settings",
             ],
         },
         Case {
-            name: "off-nothing-due",
-            data: band(RulesRead::Absent, &facts(2., 3.)),
+            name: "off-nothing-yet",
+            data: band(RulesRead::Absent, &quiet_facts()),
             wide: [
-                "off · T3 defaults, no settings file",
-                "→  nothing due yet · 1.9 GB in 4 days",
+                "off · no auto-delete settings on",
+                "nothing for them to cover yet  ·  c settings",
             ],
-            narrow: ["off · T3 defaults", "→ none due · 1.9 GB in 4d"],
+            narrow: ["off · no auto-delete on", "nothing yet  ·  c settings"],
         },
         Case {
-            name: "on-adequate",
+            name: "on-due",
             data: band(
                 parse(
                     r#"{"storageCleanup":{"worktreeSettledAfterDays":3,"worktreeOnMerge":true}}"#,
@@ -250,13 +265,16 @@ fn cases() -> Vec<Case> {
                 &facts(12., 9.),
             ),
             wide: [
-                "on · T3 checks hourly",
-                "rules     settled after 3 days · merged · keeps uncommitted changes",
+                "on · 2 of 5 auto-delete settings",
+                "rules     settled after 3 days · merged · keeps uncommitted changes        3.0 GB due now  ·  3 unused  ·  c settings",
             ],
-            narrow: ["on · checked hourly", "3.0 GB due"],
+            narrow: [
+                "on · 2 of 5 settings",
+                "rules     settled 3d · merged · keeps uncommitted   3.0 GB due  ·  c settings",
+            ],
         },
         Case {
-            name: "on-loose",
+            name: "on-nothing-due",
             data: band(
                 parse(
                     r#"{"storageCleanup":{"worktreeAfterDays":90,"worktreeKeepWhen":"any-local-files"}}"#,
@@ -264,26 +282,26 @@ fn cases() -> Vec<Case> {
                 &facts(12., 9.),
             ),
             wide: [
-                "on · loose",
-                "inactive after 90 days · keeps any local files  →  add settled after 7 days: up to 3.0 GB more",
+                "on · 1 of 5 auto-delete settings",
+                "inactive after 90 days · keeps any local files (target/ too)",
             ],
-            narrow: ["on · loose", "inactive 90d → settled 7d: up to 3.0 GB more"],
+            narrow: ["on · 1 of 5 settings", "nothing due  ·  c settings"],
         },
         Case {
             name: "mixed-overrides",
             data: band(
-                parse(
-                    r#"{"storageCleanup":{"worktreeSettledAfterDays":3},"projectSettingsOverrides":{
-                        "Map rendering":{"worktreeCleanup":{"mode":"off"}},
-                        "File export":{"worktreeCleanup":{"mode":"custom","rules":{"worktreeAfterDays":null,"worktreeSettledAfterDays":1,"worktreeOnMerge":false,"worktreeOnDelete":false,"worktreeUnchanged":false,"worktreeKeepWhen":"any-local-files"}}}}}"#,
-                ),
+                parse(&format!(
+                    r#"{{"storageCleanup":{{"worktreeSettledAfterDays":3}},"projectSettingsOverrides":{{
+                        "Map rendering":{{"worktreeCleanup":{{"mode":"off"}}}},
+                        "File export":{SETTLED_1_ANY}}}}}"#
+                )),
                 &facts(12., 9.),
             ),
             wide: [
                 "on · 2 projects have their own rule",
-                "rules     settled after 3 days · keeps uncommitted changes      ",
+                "rules     every project has its own rule · select a project to see it",
             ],
-            narrow: ["on · 2 projects differ", "1.1 GB due"],
+            narrow: ["on · 2 projects differ", "each project has its own rule"],
         },
         Case {
             name: "unknown-unreadable",
@@ -312,7 +330,7 @@ fn cases() -> Vec<Case> {
             ],
             narrow: [
                 "unknown · settings not understood",
-                "storageCleanup.worktreeAfterDays is not a whole",
+                "storageCleanup.worktreeAfterDays invalid · see T3 Settings",
             ],
         },
     ]
@@ -362,7 +380,7 @@ fn hidden_band_keeps_the_old_layout_and_short_terminals_keep_only_the_rule() {
         assert!(canvas.row_text(4).starts_with(" BY PROJECT"), "{h}");
     }
     let canvas = frame(&data, 80, 20);
-    assert!(canvas.row_text(4).starts_with("  suggest"));
+    assert!(canvas.row_text(4).starts_with("  unused"));
 }
 
 #[test]
@@ -393,7 +411,7 @@ fn every_state_fits_every_width_and_height() {
     }
     let canvas = frame(all.last().unwrap(), 120, 40);
     capture("band-estimating", &canvas);
-    assert!(canvas.row_text(4).contains("→  estimating…"));
+    assert!(canvas.row_text(4).contains("estimating…  ·  c settings"));
     assert!(
         canvas
             .row_text(4)
@@ -432,7 +450,7 @@ fn detail_pane_shows_own_rules_ownership_and_due() {
 
     let on = cases()
         .into_iter()
-        .find(|c| c.name == "on-adequate")
+        .find(|c| c.name == "on-due")
         .unwrap()
         .data;
     let mut view = StorageView::default();
@@ -476,4 +494,375 @@ fn keeping_any_local_files_is_flagged_when_build_output_would_keep_worktrees() {
     );
     let narrow = frame(&data, 80, 24);
     assert!(narrow.row_text(4).contains("settled 3d · keeps any local"));
+}
+
+fn palette() -> loupe_core::terminal::Palette {
+    loupe_core::integration::derive_themed(loupe_core::theme::builtin("frontier").unwrap().text)
+}
+
+/// Open the panel and press `keys`, then render.
+fn panel(data: &Inventory, w: usize, h: usize, keys: &[&str]) -> (StorageView, Canvas) {
+    let mut view = StorageView::default();
+    let state = State::new(Snapshot::default());
+    assert!(view.takes("c", data, w, h));
+    assert_eq!(view.key("c", data, w, h), None);
+    assert!(view.panel_open());
+    for key in keys {
+        view.key(key, data, w, h);
+    }
+    let canvas = view.render(data, &state, w, h, &palette());
+    (view, canvas)
+}
+
+fn line_with<'a>(text: &'a str, start: &str) -> &'a str {
+    text.lines()
+        .find(|l| l.trim_start_matches('▌').trim_start().starts_with(start))
+        .unwrap_or_else(|| panic!("no line starting {start:?} in\n{text}"))
+}
+
+fn one_override() -> Inventory {
+    band(
+        parse(&format!(
+            r#"{{"projectSettingsOverrides":{{"Map rendering":{SETTLED_1_ANY}}}}}"#
+        )),
+        &facts(12., 9.),
+    )
+}
+
+#[test]
+fn panel_off_lists_every_setting_with_what_it_would_cover() {
+    let data = one_override();
+    let (_, canvas) = panel(&data, 120, 40, &[]);
+    capture("panel-off", &canvas);
+    let text = canvas.to_text();
+    assert!(canvas.row_text(1).starts_with(" T3 CLEANUP SETTINGS ─"));
+    assert!(
+        canvas
+            .row_text(1)
+            .trim_end()
+            .ends_with("read from T3's settings.json · Loupe changes nothing")
+    );
+    assert!(canvas.row_text(3).starts_with("  SETTING                                 YOURS                 WHAT'S IN YOUR WORKTREES TODAY"));
+    // Map rendering keeps its own rule, so tree-3f2 leaves the global groups.
+    let rows = [
+        (
+            "Delete settled worktrees",
+            "Delete settled worktrees                off                   1 settled · 1.1 GB · oldest settled 12 days ago",
+        ),
+        (
+            "Delete inactive worktrees",
+            "Delete inactive worktrees               off                   2 idle a week+ · 3.1 GB · none idle a month+",
+        ),
+        (
+            "Delete worktrees with",
+            "Delete worktrees with deleted threads   off                   no deleted threads",
+        ),
+        (
+            "Delete merged",
+            "Delete merged worktrees                 off                   not estimated · T3 checks the pull request itself",
+        ),
+        (
+            "Delete unchanged",
+            "Delete unchanged worktrees              off                   not estimated · needs git",
+        ),
+        (
+            "Keep worktrees",
+            "Keep worktrees with local changes       uncommitted changes   T3 default · edits and untracked files are kept",
+        ),
+        (
+            "Map rendering",
+            "Map rendering                           settled after 1 day   keeps any local files · target/ keeps its worktrees",
+        ),
+        (
+            "Folders with no thread",
+            "Folders with no thread in T3            —                     1 folder · 890 MB · press f on it to clean it up",
+        ),
+    ];
+    for (start, expect) in rows {
+        assert!(
+            line_with(&text, start).contains(expect),
+            "{}",
+            line_with(&text, start)
+        );
+    }
+    assert!(text.contains("  PROJECTS WITH THEIR OWN RULE"));
+    assert!(text.contains("  NOT COVERED BY ANY SETTING"));
+    assert!(
+        canvas.row_text(4).starts_with("▌ Delete settled worktrees"),
+        "the first row is selected"
+    );
+    // The explanation names the selected row and where to change it.
+    assert!(
+        text.contains("  Delete settled worktrees \n")
+            || text
+                .lines()
+                .filter(|l| l.trim() == "Delete settled worktrees")
+                .count()
+                == 1
+    );
+    assert!(text.contains("by you or by T3 auto-settle (after 7 idle days or a"));
+    assert!(text.contains("T3 Settings › Worktrees › Automatic worktree cleanup."));
+    assert!(text.contains("Sizes count WORKTREE only and say \"up to\""));
+    let footer = canvas.row_text(39);
+    assert!(
+        footer.starts_with(" ↑↓ select  f set this up with a T3 agent  c / Esc back  q quit"),
+        "{footer}"
+    );
+    assert!(footer.trim_end().ends_with("deletes nothing"));
+}
+
+#[test]
+fn panel_with_a_setting_on_shows_what_is_due_and_what_the_others_add() {
+    let data = band(
+        parse(r#"{"storageCleanup":{"worktreeSettledAfterDays":7}}"#),
+        &facts(12., 9.),
+    );
+    let (_, canvas) = panel(&data, 120, 40, &[]);
+    capture("panel-on", &canvas);
+    let text = canvas.to_text();
+    assert!(
+        line_with(&text, "Delete settled").contains("after 7 days          2 due now · 3.0 GB")
+    );
+    // Handle long exports is idle 20 days but not settled: the inactive setting would add it.
+    assert!(
+        line_with(&text, "Delete inactive")
+            .contains("off                   3 idle a week+ · 5.0 GB · adds 1 · 2.0 GB")
+    );
+
+    let mut quiet = facts(12., 9.);
+    quiet.get_mut("Handle long exports").unwrap().activity_ms = Some(NOW - DAY);
+    let data = band(
+        parse(r#"{"storageCleanup":{"worktreeSettledAfterDays":7}}"#),
+        &quiet,
+    );
+    let (_, canvas) = panel(&data, 120, 40, &[]);
+    let text = canvas.to_text();
+    assert!(
+        line_with(&text, "Delete inactive")
+            .contains("2 idle a week+ · 3.0 GB · already covered by settled")
+    );
+
+    // With the deleted-thread setting off and a deleted thread, nothing else covers it.
+    let mut deleted = facts(12., 9.);
+    deleted.get_mut("tree-3f2").unwrap().ownership = Ownership::Deleted;
+    deleted.get_mut("tree-3f2").unwrap().settled_at_ms = None;
+    let data = band(
+        parse(r#"{"storageCleanup":{"worktreeSettledAfterDays":7}}"#),
+        &deleted,
+    );
+    let (_, canvas) = panel(&data, 120, 40, &[]);
+    let text = canvas.to_text();
+    assert!(
+        line_with(&text, "Delete worktrees with")
+            .contains("1 deleted thread · 1.9 GB · nothing else covers it")
+    );
+    assert!(line_with(&text, "Delete settled").contains("1 due now · 1.1 GB"));
+
+    // Not due yet: when the next batch comes.
+    let data = band(
+        parse(r#"{"storageCleanup":{"worktreeSettledAfterDays":30}}"#),
+        &facts(12., 9.),
+    );
+    let (_, canvas) = panel(&data, 120, 40, &[]);
+    assert!(
+        line_with(&canvas.to_text(), "Delete settled").contains("nothing due · next in 18 days")
+    );
+}
+
+#[test]
+fn panel_keys_move_the_selection_and_close_it() {
+    let data = one_override();
+    let (mut view, canvas) = panel(&data, 120, 40, &["down"]);
+    capture("panel-down", &canvas);
+    let text = canvas.to_text();
+    assert!(
+        canvas
+            .row_text(5)
+            .starts_with("▌ Delete inactive worktrees")
+    );
+    assert!(
+        text.contains("no activity for that many days"),
+        "the explanation follows the selection"
+    );
+    assert_eq!(view.panel_selection(&data), Some("inactive"));
+    // f in the panel is the settings handoff; on the list it is the folder cleanup handoff.
+    assert_eq!(
+        view.key("f", &data, 120, 40),
+        Some(Effect::CleanupSettingsInT3)
+    );
+    for _ in 0..10 {
+        view.key("j", &data, 120, 40);
+    }
+    assert_eq!(view.panel_selection(&data), Some("no-thread-folders"));
+    view.key("k", &data, 120, 40);
+    assert_eq!(view.panel_selection(&data), Some("project-rule"));
+    // Help opens over the panel and Esc returns to it.
+    view.key("?", &data, 120, 40);
+    let state = State::new(Snapshot::default());
+    assert!(
+        view.render(&data, &state, 120, 40, &palette())
+            .to_text()
+            .contains("STORAGE HELP")
+    );
+    view.key("escape", &data, 120, 40);
+    assert!(view.panel_open());
+    view.key("escape", &data, 120, 40);
+    assert!(!view.panel_open());
+    assert_eq!(view.key("f", &data, 120, 40), Some(Effect::CleanInT3));
+    view.key("c", &data, 120, 40);
+    assert!(view.panel_open());
+    view.key("c", &data, 120, 40);
+    assert!(!view.panel_open());
+    view.key("c", &data, 120, 40);
+    assert_eq!(view.key("q", &data, 120, 40), Some(Effect::Quit));
+    assert_eq!(view.key("s", &data, 120, 40), Some(Effect::Back));
+
+    // A click selects the row under it.
+    let (mut view, canvas) = panel(&data, 120, 40, &[]);
+    let y = (0..canvas.h)
+        .find(|&y| canvas.row_text(y).starts_with("  Map rendering"))
+        .unwrap();
+    view.select_at(&data, 120, 40, y);
+    assert_eq!(view.panel_selection(&data), Some("project-rule"));
+    view.select_at(&data, 120, 40, 3);
+    assert_eq!(
+        view.panel_selection(&data),
+        Some("project-rule"),
+        "headings are inert"
+    );
+
+    // `c` stays the theme key without known settings, and without the band.
+    let unknown = band(RulesRead::Unreadable("x".into()), &facts(12., 9.));
+    let mut view = StorageView::default();
+    assert!(!view.takes("c", &unknown, 120, 40));
+    view.key("c", &unknown, 120, 40);
+    assert!(!view.panel_open());
+    assert!(!StorageView::default().takes("c", &inventory(), 120, 40));
+    assert!(!StorageView::default().takes("C", &data, 120, 40));
+}
+
+#[test]
+fn storage_footer_offers_c_and_drops_it_first_when_narrow() {
+    let data = one_override();
+    let wide = frame(&data, 120, 40);
+    assert!(
+        wide.row_text(39)
+            .contains("␣ fold  c cleanup settings  f clean in T3"),
+        "{}",
+        wide.row_text(39)
+    );
+    let narrow = frame(&data, 80, 24);
+    let footer = narrow.row_text(23);
+    assert!(!footer.contains("cleanup settings"), "{footer}");
+    assert!(footer.contains("q quit"), "{footer}");
+    let plain = frame(&inventory(), 120, 40);
+    assert!(!plain.row_text(39).contains("cleanup settings"));
+}
+
+#[test]
+fn panel_narrow_table_and_every_size_fits() {
+    let data = one_override();
+    let (_, canvas) = panel(&data, 80, 24, &[]);
+    capture("panel-off", &canvas);
+    let text = canvas.to_text();
+    assert!(
+        canvas
+            .row_text(1)
+            .trim_end()
+            .ends_with("from T3 · read-only")
+    );
+    assert!(
+        canvas
+            .row_text(2)
+            .starts_with("  DELETE WORKTREES      YOURS         TODAY")
+    );
+    for (start, expect) in [
+        (
+            "settled",
+            "settled               off           1 · 1.1 GB · oldest 12d",
+        ),
+        (
+            "inactive",
+            "inactive              off           2 idle 7d+ · 3.1 GB",
+        ),
+        (
+            "with deleted",
+            "with deleted threads  off           no deleted threads",
+        ),
+        (
+            "merged",
+            "merged                off           not estimated",
+        ),
+        (
+            "keep local",
+            "keep local changes    uncommitted   T3 default",
+        ),
+        (
+            "Map rendering",
+            "Map rendering         own rule      settled 1d · any local",
+        ),
+        (
+            "no thread",
+            "no thread in T3       —             1 · 890 MB · never removed",
+        ),
+    ] {
+        assert!(
+            line_with(&text, start).contains(expect),
+            "{}",
+            line_with(&text, start)
+        );
+    }
+    assert!(
+        canvas
+            .row_text(21)
+            .starts_with("  Removes a worktree some days after its thread settles.")
+    );
+    assert!(
+        canvas
+            .row_text(22)
+            .starts_with("  Set it in T3 Settings › Worktrees.")
+    );
+    assert!(
+        canvas
+            .row_text(23)
+            .starts_with(" ↑↓ select  f set up in T3  c back  q quit")
+    );
+
+    let state = State::new(Snapshot::default());
+    let mut all: Vec<Inventory> = cases()
+        .into_iter()
+        .map(|c| c.data)
+        .filter(|d| d.cleanup.as_ref().unwrap().panel_available())
+        .collect();
+    all.push(data);
+    for data in &all {
+        for w in [48, 60, 79, 80, 99, 100, 120, 160] {
+            for h in [14, 19, 20, 24, 30, 40] {
+                let mut view = StorageView::default();
+                view.key("c", data, w, h);
+                for step in 0..12 {
+                    let canvas = view.render(data, &state, w, h, &palette());
+                    assert!(
+                        (0..canvas.h).all(|y| terminal::width(&canvas.row_text(y)) <= canvas.w),
+                        "{w}x{h}"
+                    );
+                    let text = canvas.to_text();
+                    assert!(text.contains("T3 CLEANUP SETTINGS"), "{w}x{h}");
+                    assert_eq!(
+                        text.matches('▌').count(),
+                        1,
+                        "the selection stays visible {w}x{h} step {step}\n{text}"
+                    );
+                    view.key("down", data, w, h);
+                }
+            }
+        }
+        // Below Storage's minimum the panel shows Storage's "too small" screen, and c still closes it.
+        let mut view = StorageView::default();
+        view.key("c", data, 120, 40);
+        let canvas = view.render(data, &state, 40, 12, &palette());
+        assert!(canvas.to_text().contains("Minimum: 48 × 14"));
+        view.key("c", data, 40, 12);
+        assert!(!view.panel_open());
+    }
 }

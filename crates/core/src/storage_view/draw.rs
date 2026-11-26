@@ -5,6 +5,7 @@ use crate::terminal::{self, Canvas, Palette, Rgb};
 
 mod cleanup;
 mod detail;
+pub(super) mod panel;
 mod status;
 use status::{VolumeLine, draw_volumes, empty, measure, scan_heading, volumes};
 
@@ -302,13 +303,21 @@ fn draw_row(
     }
 }
 
+fn footer_width(keys: &[(&str, &str)]) -> i32 {
+    keys.iter()
+        .map(|(key, label)| width(key) + width(label) + 3)
+        .sum()
+}
+
+/// Every key and the "deletes nothing" status fit on the footer line.
+fn footer_fits(w: i32, keys: &[(&str, &str)]) -> bool {
+    footer_width(keys) + width("deletes nothing") + 2 <= w
+}
+
 fn draw_footer(c: &mut Canvas, p: &Palette, keys: &[(&str, &str)]) {
     let w = c.w as i32;
     let y = c.h as i32 - 1;
-    let controls_width: i32 = keys
-        .iter()
-        .map(|(key, label)| width(key) + width(label) + 3)
-        .sum();
+    let controls_width = footer_width(keys);
     let status = "deletes nothing";
     let room = w - if controls_width + width(status) + 2 <= w {
         width(status) + 2
@@ -331,44 +340,46 @@ fn draw_footer(c: &mut Canvas, p: &Palette, keys: &[(&str, &str)]) {
 
 fn help(c: &mut Canvas, p: &Palette, cleanup: bool) {
     terminal::section(c, 1, 1, c.w as i32 - 2, "STORAGE HELP", p, "");
-    let keys = [
+    let mut keys = vec![
         ("↑↓ / j k", "select a row · mouse wheel moves selection"),
         ("PgUp / PgDn", "move a page · Home / End jump to an end"),
         ("␣ / ⏎", "fold or unfold the selected group"),
         ("⏎ / o", "open in T3 when the thread is available"),
         ("f", "start a T3 thread to inspect & clean up this selection"),
+    ];
+    if cleanup {
+        keys.push((
+            "c",
+            "T3 cleanup settings: each auto-delete setting and what it would cover",
+        ));
+    }
+    keys.extend([
         ("r", "measure again when no scan is running"),
         ("s / Esc", "dashboard · Esc closes this help first"),
-    ];
+    ]);
+    let notes_y = 2 + keys.len() as i32;
     for (i, (key, label)) in keys.into_iter().enumerate() {
         let y = 2 + i as i32;
         c.text_bold(2, y, key, p.accent);
         c.text(15, y, &fit(label, c.w as i32 - 16), p.text2);
     }
-    for (i, text) in [
+    let mut notes = vec![
         "WORKTREE is allocated space. BUILD is its build subset.",
         "SCRATCH is owned temp space. Other has no thread owner.",
         "+ marks a lower bound. … means the size is unknown.",
         "This view measures folder sizes and deletes nothing.",
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        c.text(2, 9 + i as i32, &fit(text, c.w as i32 - 3), p.dim);
-    }
+    ];
     if cleanup {
-        for (i, text) in [
-            "T3 CLEANUP shows T3's worktree rules, read from its settings.json.",
-            "Loupe changes nothing there. Set rules in T3 Settings › Worktrees.",
+        notes.extend([
+            "T3 CLEANUP names T3's auto-delete settings that are off and what they would cover.",
+            "Loupe reads T3's settings.json and changes nothing. Set them in T3 Settings › Worktrees.",
             "Estimates count WORKTREE only and say \"up to\": T3 keeps local changes.",
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            let y = 13 + i as i32;
-            if y < c.h as i32 - 1 {
-                c.text(2, y, &fit(text, c.w as i32 - 3), p.dim);
-            }
+        ]);
+    }
+    for (i, text) in notes.into_iter().enumerate() {
+        let y = notes_y + i as i32;
+        if y < c.h as i32 - 1 {
+            c.text(2, y, &fit(text, c.w as i32 - 3), p.dim);
         }
     }
     draw_footer(c, p, &[("?", "close help"), ("s", "back"), ("q", "quit")]);
@@ -392,8 +403,16 @@ pub(super) fn render(
     }
 
     crate::overview::draw_header(&mut c, dashboard, p, None, true);
+    let cleanup = inventory
+        .cleanup
+        .as_ref()
+        .filter(|band| band.panel_available());
     if view.help {
-        help(&mut c, p, inventory.cleanup.is_some());
+        help(&mut c, p, cleanup.is_some());
+        return c;
+    }
+    if let (Some(state), Some(band)) = (&view.panel, cleanup) {
+        panel::draw(&mut c, p, band, state.index, state.first);
         return c;
     }
 
@@ -523,6 +542,7 @@ pub(super) fn render(
         }
         _ => {}
     }
+    let settings_at = keys.len();
     if !rows.items.is_empty() {
         keys.push(("f", if cols.short { "clean" } else { "clean in T3" }));
     }
@@ -532,6 +552,14 @@ pub(super) fn render(
         Scan::Finished { .. } => keys.push(("r", "rescan")),
     }
     keys.extend([("?", "help"), ("q", "quit")]);
+    // `c` is the first item to go when the footer is narrow.
+    if cleanup.is_some() {
+        let mut with = keys.clone();
+        with.insert(settings_at, ("c", "cleanup settings"));
+        if footer_fits(layout.w as i32, &with) {
+            keys = with;
+        }
+    }
     draw_footer(&mut c, p, &keys);
     c
 }
