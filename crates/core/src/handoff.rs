@@ -112,19 +112,19 @@ impl ModelChoice {
         }
     }
 
-    /// Unabbreviated provider, model, and provenance string shown in the exact payload preview.
+    /// Readable provider, model, and provenance string shown in the payload preview.
     pub fn exact_preview_label(&self) -> String {
         match self {
-            Self::Unselected => "unselected (press ↑↓ to choose a provider/model)".into(),
+            Self::Unselected => "unselected (press ↑↓ to choose a model)".into(),
             Self::ProjectDefault {
                 provider_hint: Some(prov),
                 model_hint: Some(model),
-            } => format!("project default (provider={prov}, model={model})"),
+            } => format!("{} / {} (project default)", short_provider(prov), model),
             Self::ProjectDefault {
                 provider_hint: None,
                 model_hint: Some(model),
-            } => format!("project default (model={model})"),
-            Self::ProjectDefault { .. } => "project default (no --provider/--model flags)".into(),
+            } => format!("{model} (project default)"),
+            Self::ProjectDefault { .. } => "project default".into(),
             Self::Explicit {
                 provider,
                 model,
@@ -132,9 +132,9 @@ impl ModelChoice {
             } => {
                 let prov_word = match provenance {
                     ModelProvenance::ProjectRecent => "project recent",
-                    ModelProvenance::GlobalRecent => "other project — explicit selection",
+                    ModelProvenance::GlobalRecent => "other project",
                 };
-                format!("--provider={provider} --model={model} ({prov_word})")
+                format!("{} / {} ({prov_word})", short_provider(provider), model)
             }
         }
     }
@@ -1791,18 +1791,19 @@ fn draw_preview_modal(
 
     let inner_w = (box_w - 4).max(16) as usize;
     let mut lines: Vec<String> = Vec::new();
-    wrap_preview_line(&format!("Title (--title=): {}", terminal::clean(title)), inner_w, &mut lines);
+    wrap_preview_line(&format!("Title: {}", terminal::clean(title)), inner_w, &mut lines);
     let proj_switch = if project_count > 1 {
         format!("  [←→ switch · {project_count} options]")
     } else {
         String::new()
     };
+    let display_project = if project_name.trim().is_empty() {
+        project_id
+    } else {
+        project_name
+    };
     wrap_preview_line(
-        &format!(
-            "Project arg: {} ({}){proj_switch}",
-            terminal::clean(project_id),
-            terminal::clean(project_name)
-        ),
+        &format!("Project: {}{proj_switch}", terminal::clean(display_project)),
         inner_w,
         &mut lines,
     );
@@ -2707,6 +2708,8 @@ mod tests {
         c.clear(p.bg, p.fg);
         draw_handoff_bar(&mut c, 24, &st, &p);
         let text = c.to_text();
+        assert!(text.contains("Project: No project"), "expected clean project name:\n{text}");
+        assert!(!text.contains("p-scratch"), "underlying project id should not clutter popup:\n{text}");
         assert!(text.contains("←→ project"), "missing ←→ project hint:\n{text}");
         assert!(text.contains("↑↓ model"), "missing ↑↓ model hint:\n{text}");
         assert!(text.contains("[←→ switch · 3 options]"), "missing inline project hint:\n{text}");
