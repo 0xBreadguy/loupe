@@ -1,6 +1,6 @@
 //! The T3 CLEANUP band: a section rule with the state, and one body line in the volume-row
 //! style (a role word at x = 2, the value at x = 12, a summary on the right). It names the
-//! auto-delete settings that are off and what they would cover; `c` opens the settings panel.
+//! auto-delete settings that are off and what they would cover; `Tab` opens the settings panel.
 
 use super::status::valued_size;
 use super::{fit, width};
@@ -244,10 +244,10 @@ fn sep(p: &Palette) -> Part {
 }
 
 fn key(p: &Palette) -> Vec<Part> {
-    vec![("c".into(), p.accent, true), part(" settings", p.dim)]
+    vec![("Tab".into(), p.accent, true), part(" settings", p.dim)]
 }
 
-/// The right side: the summary forms, each followed by `c settings`, then `c settings` alone.
+/// The right side: the summary forms, each followed by `Tab settings`, then `Tab settings` alone.
 fn with_key(p: &Palette, band: &Cleanup, wide: bool, forms: Vec<Vec<Part>>) -> Vec<Vec<Part>> {
     let mut out = Vec::new();
     let custom =

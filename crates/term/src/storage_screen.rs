@@ -149,13 +149,6 @@ impl StorageScreen {
         display.cleanup = Some(band);
     }
 
-    /// Whether Storage handles `key` itself: `c` while the cleanup settings panel can open.
-    pub(super) fn takes(&self, key: &str, (w, h): (usize, usize)) -> bool {
-        self.view
-            .as_ref()
-            .is_some_and(|view| view.takes(key, &self.display, w, h))
-    }
-
     /// Rebuild the band over the rows already on screen.
     fn refresh_band(&mut self) {
         let mut display = std::mem::take(&mut self.display);

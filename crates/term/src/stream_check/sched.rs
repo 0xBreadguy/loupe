@@ -578,7 +578,7 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
                     insights_dirty = false;
                     continue;
                 }
-                Input::Key("tab" | "shift-tab") if !telemetry.is_open() => continue,
+                Input::Key("tab" | "shift-tab") if !telemetry.is_open() && !storage.is_open() => continue,
                 Input::Key(name) => dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut telemetry, &mut handoff, &mut tracing, name, size),
                 Input::PressAt(..) | Input::PressRow(_) | Input::PressNeedsYou => {
                     let (x, y) = point(input, &state, size);

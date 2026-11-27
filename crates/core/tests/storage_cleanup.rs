@@ -240,11 +240,11 @@ fn cases() -> Vec<Case> {
             data: band(parse("{}"), &facts(12., 9.)),
             wide: [
                 "off · no auto-delete settings on",
-                "unused    settled · inactive · deleted threads · merged · unchanged      up to 5.0 GB they would cover  ·  c settings",
+                "unused    settled · inactive · deleted threads · merged · unchanged    up to 5.0 GB they would cover  ·  Tab settings",
             ],
             narrow: [
                 "off · no auto-delete on",
-                "unused    5 settings                              up to 5.0 GB  ·  c settings",
+                "unused    5 settings                            up to 5.0 GB  ·  Tab settings",
             ],
         },
         Case {
@@ -252,9 +252,9 @@ fn cases() -> Vec<Case> {
             data: band(RulesRead::Absent, &quiet_facts()),
             wide: [
                 "off · no auto-delete settings on",
-                "nothing for them to cover yet  ·  c settings",
+                "nothing for them to cover yet  ·  Tab settings",
             ],
-            narrow: ["off · no auto-delete on", "nothing yet  ·  c settings"],
+            narrow: ["off · no auto-delete on", "nothing yet  ·  Tab settings"],
         },
         Case {
             name: "on-due",
@@ -266,11 +266,11 @@ fn cases() -> Vec<Case> {
             ),
             wide: [
                 "on · 2 of 5 auto-delete settings",
-                "rules     settled after 3 days · merged · keeps uncommitted changes        3.0 GB due now  ·  3 unused  ·  c settings",
+                "rules     settled after 3 days · merged · keeps uncommitted changes      3.0 GB due now  ·  3 unused  ·  Tab settings",
             ],
             narrow: [
                 "on · 2 of 5 settings",
-                "rules     settled 3d · merged · keeps uncommitted   3.0 GB due  ·  c settings",
+                "rules     settled 3d · merged · keeps uncommitt…  3.0 GB due  ·  Tab settings",
             ],
         },
         Case {
@@ -285,7 +285,7 @@ fn cases() -> Vec<Case> {
                 "on · 1 of 5 auto-delete settings",
                 "inactive after 90 days · keeps any local files (target/ too)",
             ],
-            narrow: ["on · 1 of 5 settings", "nothing due  ·  c settings"],
+            narrow: ["on · 1 of 5 settings", "nothing due  ·  Tab settings"],
         },
         Case {
             name: "mixed-overrides",
@@ -411,7 +411,7 @@ fn every_state_fits_every_width_and_height() {
     }
     let canvas = frame(all.last().unwrap(), 120, 40);
     capture("band-estimating", &canvas);
-    assert!(canvas.row_text(4).contains("estimating…  ·  c settings"));
+    assert!(canvas.row_text(4).contains("estimating…  ·  Tab settings"));
     assert!(
         canvas
             .row_text(4)
@@ -504,8 +504,7 @@ fn palette() -> loupe_core::terminal::Palette {
 fn panel(data: &Inventory, w: usize, h: usize, keys: &[&str]) -> (StorageView, Canvas) {
     let mut view = StorageView::default();
     let state = State::new(Snapshot::default());
-    assert!(view.takes("c", data, w, h));
-    assert_eq!(view.key("c", data, w, h), None);
+    assert_eq!(view.key("tab", data, w, h), None);
     assert!(view.panel_open());
     for key in keys {
         view.key(key, data, w, h);
@@ -575,7 +574,7 @@ fn panel_off_lists_every_setting_with_what_it_would_cover() {
         ),
         (
             "Folders with no thread",
-            "Folders with no thread in T3            —                     1 folder · 890 MB · press f on it to clean it up",
+            "Folders with no thread in T3            —                     1 folder · 890 MB · T3 never removes these",
         ),
     ];
     for (start, expect) in rows {
@@ -605,7 +604,7 @@ fn panel_off_lists_every_setting_with_what_it_would_cover() {
     assert!(text.contains("Sizes count WORKTREE only and say \"up to\""));
     let footer = canvas.row_text(39);
     assert!(
-        footer.starts_with(" ↑↓ select  f set this up with a T3 agent  c / Esc back  q quit"),
+        footer.starts_with(" ↑↓ select  f set this up with a T3 agent  Tab / Esc back  q quit"),
         "{footer}"
     );
     assert!(footer.trim_end().ends_with("deletes nothing"));
@@ -704,16 +703,28 @@ fn panel_keys_move_the_selection_and_close_it() {
             .to_text()
             .contains("STORAGE HELP")
     );
+    // Keys pressed over help do not reach the hidden panel.
+    for key in ["f", "j", "k", "g", "tab", "enter"] {
+        assert_eq!(view.key(key, &data, 120, 40), None, "{key}");
+    }
+    assert_eq!(view.panel_selection(&data), Some("project-rule"));
     view.key("escape", &data, 120, 40);
     assert!(view.panel_open());
     view.key("escape", &data, 120, 40);
     assert!(!view.panel_open());
     assert_eq!(view.key("f", &data, 120, 40), Some(Effect::CleanInT3));
-    view.key("c", &data, 120, 40);
+    // Tab and Shift-Tab switch between the folder list and the panel; `c` is the theme key.
+    view.key("tab", &data, 120, 40);
     assert!(view.panel_open());
-    view.key("c", &data, 120, 40);
+    view.key("shift-tab", &data, 120, 40);
     assert!(!view.panel_open());
-    view.key("c", &data, 120, 40);
+    view.key("shift-tab", &data, 120, 40);
+    assert!(view.panel_open());
+    view.key("tab", &data, 120, 40);
+    assert!(!view.panel_open());
+    assert_eq!(view.key("c", &data, 120, 40), None);
+    assert!(!view.panel_open());
+    view.key("tab", &data, 120, 40);
     assert_eq!(view.key("q", &data, 120, 40), Some(Effect::Quit));
     assert_eq!(view.key("s", &data, 120, 40), Some(Effect::Back));
 
@@ -731,23 +742,47 @@ fn panel_keys_move_the_selection_and_close_it() {
         "headings are inert"
     );
 
-    // `c` stays the theme key without known settings, and without the band.
+    // Tab does nothing without known settings, without the band, or below the minimum size.
     let unknown = band(RulesRead::Unreadable("x".into()), &facts(12., 9.));
     let mut view = StorageView::default();
-    assert!(!view.takes("c", &unknown, 120, 40));
-    view.key("c", &unknown, 120, 40);
+    view.key("tab", &unknown, 120, 40);
     assert!(!view.panel_open());
-    assert!(!StorageView::default().takes("c", &inventory(), 120, 40));
-    assert!(!StorageView::default().takes("C", &data, 120, 40));
+    let mut view = StorageView::default();
+    view.key("tab", &inventory(), 120, 40);
+    assert!(!view.panel_open());
+    let mut view = StorageView::default();
+    view.key("tab", &data, 40, 12);
+    assert!(!view.panel_open());
 }
 
 #[test]
-fn storage_footer_offers_c_and_drops_it_first_when_narrow() {
+fn panel_pages_with_shift_j_and_k() {
+    let data = one_override();
+    // 120x14 shows six list lines, so a page (five rows) is less than the whole list.
+    let (mut view, _) = panel(&data, 120, 14, &[]);
+    view.key("J", &data, 120, 14);
+    let paged = view.panel_selection(&data);
+    assert_ne!(paged, Some("settled"));
+    assert_ne!(
+        paged,
+        Some("no-thread-folders"),
+        "J moves a page, not to the end"
+    );
+    view.key("K", &data, 120, 14);
+    assert_eq!(view.panel_selection(&data), Some("settled"));
+    view.key("G", &data, 120, 14);
+    assert_eq!(view.panel_selection(&data), Some("no-thread-folders"));
+    view.key("g", &data, 120, 14);
+    assert_eq!(view.panel_selection(&data), Some("settled"));
+}
+
+#[test]
+fn storage_footer_offers_tab_and_drops_it_first_when_narrow() {
     let data = one_override();
     let wide = frame(&data, 120, 40);
     assert!(
         wide.row_text(39)
-            .contains("␣ fold  c cleanup settings  f clean in T3"),
+            .contains("␣ fold  Tab cleanup settings  f clean in T3"),
         "{}",
         wide.row_text(39)
     );
@@ -825,7 +860,7 @@ fn panel_narrow_table_and_every_size_fits() {
     assert!(
         canvas
             .row_text(23)
-            .starts_with(" ↑↓ select  f set up in T3  c back  q quit")
+            .starts_with(" ↑↓ select  f set up in T3  Esc back  q quit")
     );
 
     let state = State::new(Snapshot::default());
@@ -839,7 +874,7 @@ fn panel_narrow_table_and_every_size_fits() {
         for w in [48, 60, 79, 80, 99, 100, 120, 160] {
             for h in [14, 19, 20, 24, 30, 40] {
                 let mut view = StorageView::default();
-                view.key("c", data, w, h);
+                view.key("tab", data, w, h);
                 for step in 0..12 {
                     let canvas = view.render(data, &state, w, h, &palette());
                     assert!(
@@ -857,12 +892,12 @@ fn panel_narrow_table_and_every_size_fits() {
                 }
             }
         }
-        // Below Storage's minimum the panel shows Storage's "too small" screen, and c still closes it.
+        // Below Storage's minimum the panel shows Storage's "too small" screen, and Tab still closes it.
         let mut view = StorageView::default();
-        view.key("c", data, 120, 40);
+        view.key("tab", data, 120, 40);
         let canvas = view.render(data, &state, 40, 12, &palette());
         assert!(canvas.to_text().contains("Minimum: 48 × 14"));
-        view.key("c", data, 40, 12);
+        view.key("tab", data, 40, 12);
         assert!(!view.panel_open());
     }
 }

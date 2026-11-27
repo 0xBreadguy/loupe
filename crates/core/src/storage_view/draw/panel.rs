@@ -113,6 +113,12 @@ impl Geometry {
         }
     }
 
+    /// How many rows `J`/`K` and PgDn/PgUp move: one screen of the list, less one so the row
+    /// the cursor leaves stays in view.
+    pub(crate) fn page(&self) -> usize {
+        self.list_lines.saturating_sub(1).max(1)
+    }
+
     pub(crate) fn line_of(&self, row: usize) -> usize {
         self.lines
             .iter()
@@ -424,7 +430,7 @@ fn what(row: PanelRow<'_>, band: &Cleanup, wide: bool, p: &Palette) -> Vec<Part>
                         ),
                         p.fg,
                     ),
-                    part(" · press f on it to clean it up", p.text2),
+                    part(" · T3 never removes these", p.text2),
                 ]
             } else {
                 vec![
@@ -638,7 +644,7 @@ fn explain(row: PanelRow<'_>, band: &Cleanup, p: &Palette) -> (Vec<Part>, Option
         PanelRow::NoThread => (
             vec![t(
                 "T3 removes only worktrees a thread records, so no setting ever removes these folders. \
-                 Select one in Storage and press f to clean it up with a T3 agent.",
+                 Press Tab for the folder list, select one and press f to clean it up with a T3 agent.",
             )],
             None,
         ),
@@ -677,7 +683,7 @@ fn explain_short(row: PanelRow<'_>) -> [&'static str; 2] {
         ],
         PanelRow::NoThread => [
             "No T3 setting removes a folder with no thread.",
-            "Select it in Storage and press f.",
+            "Tab to the folder list, select it, press f.",
         ],
     }
 }
@@ -832,14 +838,14 @@ pub(super) fn draw(c: &mut Canvas, p: &Palette, band: &Cleanup, selected: usize,
         &[
             ("↑↓", "select"),
             ("f", "set this up with a T3 agent"),
-            ("c / Esc", "back"),
+            ("Tab / Esc", "back"),
             ("q", "quit"),
         ]
     } else {
         &[
             ("↑↓", "select"),
             ("f", "set up in T3"),
-            ("c", "back"),
+            ("Esc", "back"),
             ("q", "quit"),
         ]
     };

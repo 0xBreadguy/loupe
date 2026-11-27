@@ -79,7 +79,7 @@ The short list is in the [README](../README.md). This is the long one.
 - Storage's T3 CLEANUP band shows which of T3's five auto-delete settings
   are on. T3's automatic cleanup is off by default. When settings are off,
   the band names them and how much they would cover; when some are on, it
-  shows what is due now and how many are unused. Press `c` for the T3
+  shows what is due now and how many are unused. Press `Tab` for the T3
   CLEANUP SETTINGS panel: every setting, what yours is, and what is in your
   worktrees today that it would cover, with the selected setting explained
   in T3's terms. Projects with their own rule are listed there, and so are

@@ -17,7 +17,8 @@ pub enum Effect {
     Rescan,
     OpenInT3(String),
     CleanInT3,
-    /// `f` in the cleanup settings panel: start a T3 thread to choose T3's cleanup settings.
+    /// `f` in the cleanup settings panel (`Tab` from the folder list): start a T3 thread to
+    /// choose T3's cleanup settings.
     CleanupSettingsInT3,
     Quit,
 }
@@ -222,12 +223,10 @@ impl StorageView {
         draw::render(self, &rows, inventory, dashboard, layout, palette)
     }
 
-    /// Whether the view handles `key` itself rather than the dashboard. `c` opens and closes
-    /// the cleanup settings panel while T3's settings are known; otherwise it stays the theme key.
-    pub fn takes(&self, key: &str, inventory: &Inventory, w: usize, h: usize) -> bool {
-        key == "c"
-            && (self.panel.is_some()
-                || (!self.help && draw::Layout::fits_size(w, h) && Self::band(inventory).is_some()))
+    /// Whether `Tab` can switch between the folder list and the cleanup settings panel: T3's
+    /// settings are known, help is closed and the terminal is big enough.
+    fn panel_switchable(&self, inventory: &Inventory, w: usize, h: usize) -> bool {
+        !self.help && draw::Layout::fits_size(w, h) && Self::band(inventory).is_some()
     }
 
     /// The panel is open, for the host's footer and tests.
@@ -275,13 +274,16 @@ impl StorageView {
     ) -> Option<Effect> {
         let band = Self::band(inventory)?;
         let count = draw::panel::rows(band).len();
+        let page = draw::panel::Geometry::new(band, w, h).page();
         let panel = self.panel.as_mut()?;
         match key {
-            "c" | "escape" => self.panel = None,
+            "tab" | "shift-tab" | "escape" => self.panel = None,
             "down" | "j" => panel.index = (panel.index + 1).min(count - 1),
             "up" | "k" => panel.index = panel.index.saturating_sub(1),
-            "home" | "g" | "pageup" | "K" => panel.index = 0,
-            "end" | "G" | "pagedown" | "J" => panel.index = count - 1,
+            "pagedown" | "J" => panel.index = (panel.index + page).min(count - 1),
+            "pageup" | "K" => panel.index = panel.index.saturating_sub(page),
+            "home" | "g" => panel.index = 0,
+            "end" | "G" => panel.index = count - 1,
             "f" if draw::Layout::fits_size(w, h) => return Some(Effect::CleanupSettingsInT3),
             _ => {}
         }
@@ -305,11 +307,13 @@ impl StorageView {
                 self.help = false;
                 return None;
             }
+            // Help covers the panel and the list; nothing else reaches what it hides.
+            _ if self.help => return None,
             _ if self.panel.is_some() && Self::band(inventory).is_none() => self.panel = None,
             _ if self.panel.is_some() => return self.panel_key(key, inventory, w, h),
             "escape" => return Some(Effect::Back),
-            "c" => {
-                if self.takes(key, inventory, w, h) {
+            "tab" | "shift-tab" => {
+                if self.panel_switchable(inventory, w, h) {
                     self.panel = Some(Panel::default());
                     self.reconcile_panel(inventory, w, h);
                 }

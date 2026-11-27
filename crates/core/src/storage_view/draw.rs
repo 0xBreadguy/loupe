@@ -349,7 +349,7 @@ fn help(c: &mut Canvas, p: &Palette, cleanup: bool) {
     ];
     if cleanup {
         keys.push((
-            "c",
+            "Tab",
             "T3 cleanup settings: each auto-delete setting and what it would cover",
         ));
     }
@@ -552,10 +552,10 @@ pub(super) fn render(
         Scan::Finished { .. } => keys.push(("r", "rescan")),
     }
     keys.extend([("?", "help"), ("q", "quit")]);
-    // `c` is the first item to go when the footer is narrow.
+    // `Tab` is the first item to go when the footer is narrow.
     if cleanup.is_some() {
         let mut with = keys.clone();
-        with.insert(settings_at, ("c", "cleanup settings"));
+        with.insert(settings_at, ("Tab", "cleanup settings"));
         if footer_fits(layout.w as i32, &with) {
             keys = with;
         }
