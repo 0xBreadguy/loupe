@@ -208,11 +208,23 @@ fn trace_key(
         trace_live::Outcome::Read => trace_read(t, s, host, wake),
         trace_live::Outcome::InvestigateInT3 => {
             if let Some(tr) = t.trace() {
+                // Prefer the non-remote owning root thread with storage/cwd over a native subagent.
+                let has_project = |a: &loupe_core::model::Agent| {
+                    a.remote.is_none()
+                        && (a.storage.as_ref().is_some_and(|st| !st.project_id.is_empty())
+                            || !a.cwd.is_empty())
+                };
                 let agent = s
                     .snap
                     .agents
                     .iter()
-                    .find(|a| a.thread_id == tr.thread || a.id == tr.thread);
+                    .find(|a| (a.id == tr.thread || a.thread_id == tr.thread) && has_project(a))
+                    .or_else(|| {
+                        s.snap
+                            .agents
+                            .iter()
+                            .find(|a| a.thread_id == tr.thread || a.id == tr.thread)
+                    });
                 let project_name = agent.map(|a| a.project.as_str());
                 let project_id = agent.and_then(|a| {
                     a.storage
@@ -901,7 +913,20 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                             {
                                 let paces = state.paces();
                                 let pace = paces.get(&agent.id);
-                                handoff.begin_send(agent, pace);
+                                // If a native subagent is selected, display the owning root thread's title
+                                // since `t3 thread send` delivers to `agent.thread_id`.
+                                let mut target: loupe_core::model::Agent = (**agent).clone();
+                                if target.id != target.thread_id {
+                                    if let Some(root) = state
+                                        .snap
+                                        .agents
+                                        .iter()
+                                        .find(|a| a.id == target.thread_id && !a.title.is_empty())
+                                    {
+                                        target.title = root.title.clone();
+                                    }
+                                }
+                                handoff.begin_send(&target, pace);
                             } else {
                                 let at = host::input_now(&state, &host);
                                 state.note("Select a thread to message it in T3", false, at);
@@ -1070,6 +1095,7 @@ fn product_launch(
     let telemetry_source = TelemetrySource::for_database(&database);
     let now = clock::wall_now();
     let insights_source = InsightsSource::from(&database);
+    let default_sidebar = !theme::disabled() && !matches!(&database, Database::Path { origin: Origin::Db, .. });
     let (mut state, mut host) = match database {
         Database::Demo => {
             let state = match demo::snapshot(now, now) {
@@ -1120,6 +1146,10 @@ fn product_launch(
     };
     state.calm = calm;
     state.storage_key_in_help = !theme::disabled();
+    if default_sidebar {
+        state.scope = "t3".into();
+        state.normalize();
+    }
     state.interval = interval;
     // Use the same launch roots for the dashboard warning and the Storage view.
     if let StorageSource::Disk(roots) = &storage {
@@ -1234,7 +1264,8 @@ extern "C" fn report_cache_stats() {
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("loupe-term: {e}");
+        // Stderr may share stdout's closed pipe (2>&1).
+        let _ = writeln!(io::stderr().lock(), "loupe-term: {e}");
         std::process::exit(1);
     }
 }

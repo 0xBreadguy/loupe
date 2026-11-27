@@ -2481,28 +2481,41 @@ fn footer(c: &mut Canvas, s: &State, p: &Palette) {
     }
     let mut keys = Vec::new();
     if s.themes {
-        keys.extend([("?", "help"), ("w", "trace")]);
+        keys.push(("?", "help"));
         if s.storage_key_in_help {
             keys.push(("s", "storage"));
         }
+        keys.push(("w", "trace"));
+        if s.storage_key_in_help {
+            keys.extend([("i", "insights"), ("e", "telemetry")]);
+        }
+        if s.snap.agents.iter().any(|a| model::wants_attention(a)) {
+            keys.push(("n", "needs you"));
+        }
+        keys.push(("⏎", "open in T3"));
+        if s.storage_key_in_help {
+            keys.push(("M", "message"));
+        }
+        keys.extend([("a", scope_name(&s.scope)), ("␣", "fold")]);
+        if s.t3_link {
+            keys.push(("f", if s.follow { "follow T3" } else { "follow off" }));
+        }
+        keys.extend([("t", "lane"), ("q", "quit")]);
+    } else {
+        if s.snap.agents.iter().any(|a| model::wants_attention(a)) {
+            keys.push(("n", "needs you"));
+        }
+        keys.extend([
+            ("↑↓", "select"),
+            ("⏎", "open in T3"),
+            ("␣", "fold"),
+            ("a", scope_name(&s.scope)),
+        ]);
+        if s.t3_link {
+            keys.push(("f", if s.follow { "follow T3" } else { "follow off" }));
+        }
+        keys.extend([("t", "lane"), ("x", "fx"), ("?", "help"), ("q", "quit")]);
     }
-    if s.snap.agents.iter().any(|a| model::wants_attention(a)) {
-        keys.push(("n", "needs you"));
-    }
-    keys.extend([
-        ("↑↓", "select"),
-        ("⏎", "open in T3"),
-        ("␣", "fold"),
-        ("a", scope_name(&s.scope)),
-    ]);
-    if s.t3_link {
-        keys.push(("f", if s.follow { "follow T3" } else { "follow off" }));
-    }
-    keys.extend([("t", "lane"), ("x", "fx")]);
-    if !s.themes {
-        keys.push(("?", "help"));
-    }
-    keys.push(("q", "quit"));
     let mut x = 1;
     for (key, label) in keys {
         if x + width(key) + width(label) + 3 > w - 24 {
@@ -2838,21 +2851,29 @@ mod prepared_tests {
     fn product_footer_names_help_and_the_two_views_at_phone_width() {
         let mut state = State::new(model::Snapshot::default());
         let palette = Palette::fallback();
-        for width in [55, 60, 80, 120] {
+        for width in [55, 60, 80, 120, 160] {
             let mut canvas = Canvas::new(width, 24);
             state.themes = false;
             state.storage_key_in_help = false;
             footer(&mut canvas, &state, &palette);
             let original = canvas.row_text(23);
             assert!(!original.contains("w trace") && !original.contains("s storage"));
+            if width >= 120 {
+                assert!(original.contains("x fx"), "oracle parity keeps x fx: {original}");
+            }
             state.themes = true;
             state.storage_key_in_help = true;
             state.demo = true;
             footer(&mut canvas, &state, &palette);
             let row = canvas.row_text(23);
-            for label in ["? help", "w trace", "s storage", "demo data · made up"] {
+            for label in ["? help", "s storage", "w trace", "demo data · made up"] {
                 assert!(row.contains(label), "{width}: {row}");
             }
+            if width >= 80 {
+                assert!(row.contains("i insights"), "{width}: {row}");
+                assert!(row.contains("e telemetry"), "{width}: {row}");
+            }
+            assert!(!row.contains("x fx"), "product footer omits x fx: {width}: {row}");
         }
     }
 

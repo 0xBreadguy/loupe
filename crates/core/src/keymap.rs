@@ -105,6 +105,7 @@ pub fn lines(screen: Screen, cleanup: bool) -> Vec<(&'static str, String)> {
             (PAGE, s("a page")),
             (VIEW, s("Telemetry ↔ Sources; or click its name")),
             (JUMP, jump(screen)),
+            ("⏎ / ␣", s("show or hide the suggested commands")),
             (HAND, s("fix instructions to a T3 agent (asks first)")),
             (READ, s("check again; it also does when a file changes")),
             (LOOK, s(LOOK_WORDS)),

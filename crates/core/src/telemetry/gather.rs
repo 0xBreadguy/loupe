@@ -8,9 +8,10 @@
 //! `/proc/<pid>/environ`, `/proc/<pid>/cmdline`, `OTEL_EXPORTER_OTLP_HEADERS`, `statev2.sqlite`.
 
 use super::{
-    DEFAULT_POSTHOG_HOST, EnvKey, EnvSet, EnvValue, HostsMatch, HostsScan, Inputs, Launch,
-    Liveness, LoadedPolicy, Platform, Policy, Read, ReadOutcome, ReadRecord, Runtime, Server,
-    Settings, Signal, Source, Stamp, is_sinkhole_ip, parse_http_endpoint, parse_timestamp_ms,
+    Bool3, DEFAULT_POSTHOG_HOST, DesktopEnv, EnvKey, EnvSet, EnvValue, HostsMatch, HostsScan,
+    Inputs, Launch, Liveness, LoadedPolicy, Platform, Policy, Read, ReadOutcome, ReadRecord,
+    Runtime, Server, Settings, ShellRcSource, Signal, Source, Stamp, is_sinkhole_ip,
+    parse_http_endpoint, parse_timestamp_ms,
 };
 use crate::platform::{ProcStat, ProcessAlive};
 use crate::product::{self, Environment, PLATFORM_HOME_RULES};
@@ -43,6 +44,10 @@ pub struct Paths {
     pub hosts: PathBuf,
     pub nsswitch: Option<PathBuf>,
     pub uwsm_dir: Option<PathBuf>,
+    pub omarchy_hypr_lua: Option<PathBuf>,
+    pub environment_d_dir: Option<PathBuf>,
+    pub etc_environment: Option<PathBuf>,
+    pub home_dir: Option<PathBuf>,
     pub container_markers: Vec<PathBuf>,
 }
 
@@ -71,15 +76,19 @@ impl Paths {
             PathBuf::from("/etc/hosts")
         };
         let nsswitch = cfg!(target_os = "linux").then(|| PathBuf::from("/etc/nsswitch.conf"));
-        let uwsm_dir = if cfg!(target_os = "linux") {
+        let home_dir = env.home.as_ref().map(PathBuf::from);
+        let config_dir = if cfg!(target_os = "linux") {
             std::env::var_os("XDG_CONFIG_HOME")
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from)
-                .or_else(|| env.home.as_ref().map(|h| PathBuf::from(h).join(".config")))
-                .map(|c| c.join("uwsm"))
+                .or_else(|| home_dir.as_ref().map(|h| h.join(".config")))
         } else {
             None
         };
+        let uwsm_dir = config_dir.as_ref().map(|c| c.join("uwsm"));
+        let omarchy_hypr_lua = config_dir.as_ref().map(|c| c.join("hypr").join("hyprland.lua"));
+        let environment_d_dir = config_dir.map(|c| c.join("environment.d"));
+        let etc_environment = cfg!(target_os = "linux").then(|| PathBuf::from("/etc/environment"));
         let container_markers = if cfg!(target_os = "linux") {
             vec![
                 PathBuf::from("/.flatpak-info"),
@@ -95,6 +104,10 @@ impl Paths {
             hosts,
             nsswitch,
             uwsm_dir,
+            omarchy_hypr_lua,
+            environment_d_dir,
+            etc_environment,
+            home_dir,
             container_markers,
         }
     }
@@ -165,6 +178,26 @@ pub fn fingerprint(paths: &Paths, runtime_pid: Option<u32>, sys: &dyn System) ->
     }
     if let Some(prefs) = &paths.macos_managed_prefs {
         files.push(file_sig(prefs, false));
+    }
+    if let Some(etc_env) = &paths.etc_environment {
+        files.push(system_file_sig(etc_env));
+    }
+    if let Some(envd) = &paths.environment_d_dir {
+        files.push(file_sig(envd, false));
+    }
+    if let Some(uwsm) = &paths.uwsm_dir {
+        files.push(sig_under_root_nofollow(uwsm, &["env"]));
+    }
+    if let Some(hypr_lua) = &paths.omarchy_hypr_lua {
+        files.push(file_sig(hypr_lua, false));
+        if let Some(parent) = hypr_lua.parent() {
+            files.push(sig_under_root_nofollow(parent, &["envs.lua"]));
+        }
+    }
+    if let Some(home) = &paths.home_dir {
+        for rc in [".profile", ".bash_profile", ".zprofile", ".bashrc", ".zshrc"] {
+            files.push(sig_under_root_nofollow(home, &[rc]));
+        }
     }
     let pid_alive = runtime_pid.map(|pid| (pid, sys.alive(pid) == ProcessAlive::Alive));
     Fingerprint { files, pid_alive }
@@ -416,7 +449,17 @@ pub fn gather(
         None => Read::Absent,
     };
 
-    // 9. Shell & process tree summary + explicit "never opened" audit rows
+    // 9. Desktop session env configs (allowlisted keys only, O_NOFOLLOW) + shell rc attribution
+    let (desktop_env, desktop_rec) = read_desktop_env(paths, home_ref);
+    if let Some(rec) = desktop_rec {
+        reads.push(rec);
+    }
+    let shell_rc_source = paths
+        .home_dir
+        .as_deref()
+        .and_then(|home| detect_shell_rc_source(home, &shell));
+
+    // 10. Shell & process tree summary + explicit "never opened" audit rows
     reads.push(ReadRecord {
         name: "environment".into(),
         path: "this shell · T3's process tree".into(),
@@ -437,6 +480,10 @@ pub fn gather(
         .uwsm_dir
         .as_deref()
         .is_some_and(|p| fs::symlink_metadata(p).is_ok());
+    let omarchy_hypr_detected = paths
+        .omarchy_hypr_lua
+        .as_deref()
+        .is_some_and(|p| fs::symlink_metadata(p).is_ok());
     let in_container = paths
         .container_markers
         .iter()
@@ -448,8 +495,11 @@ pub fn gather(
         checked_at: now,
         data_folder_exists,
         uwsm_detected,
+        omarchy_hypr_detected,
         in_container,
         shell,
+        desktop_env,
+        shell_rc_source,
         service_env,
         policy,
         macos_managed_prefs_present,
@@ -1295,4 +1345,318 @@ fn read_nsswitch(path: &Path) -> Read<bool> {
     }
     // No explicit hosts: line -> glibc defaults to consulting files.
     Read::Ok { value: true, stamp }
+}
+
+// ── Desktop session env & shell rc allowlist-only readers ───────────────────
+
+const DESKTOP_LUA_CAP: u64 = 256 * 1024;
+const SHELL_RC_CAP: u64 = 256 * 1024;
+
+/// Parses an env-style file (`KEY=VAL`, optional `export `) line-by-line, retaining ONLY
+/// keys in [`EnvKey::ALLOWLIST`] and discarding every other key immediately.
+fn parse_env_stream_allowlisted(file: File, meta: fs::Metadata, cap: u64) -> Option<(EnvSet, Stamp)> {
+    if meta.len() > cap {
+        return None;
+    }
+    let stamp = stamp_from_meta(&meta);
+    let mut reader = BufReader::new(file.take(cap + 1));
+    let mut env = EnvSet::default();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => return None,
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let rest = trimmed
+            .strip_prefix("export ")
+            .or_else(|| trimmed.strip_prefix("export\t"))
+            .map(str::trim_start)
+            .unwrap_or(trimmed);
+        let Some((key_raw, val_raw)) = rest.split_once('=') else {
+            continue;
+        };
+        let Some(key) = EnvKey::from_name(key_raw.trim()) else {
+            continue;
+        };
+        let val_start = val_raw.trim_start();
+        if let Some(quote) = val_start.chars().next().filter(|c| matches!(c, '"' | '\'')) {
+            let after_open = &val_start[quote.len_utf8()..];
+            let body = after_open.trim_end_matches(['\r', '\n']);
+            if let Some((parsed, true)) = consume_quoted_body(body, quote) {
+                env.set_raw(key, &parsed);
+            }
+        } else {
+            let unquoted = val_start
+                .split('#')
+                .next()
+                .unwrap_or(val_start)
+                .trim_end_matches(|c: char| c.is_whitespace() || c == ';');
+            env.set_raw(key, unquoted);
+        }
+    }
+    Some((env, stamp))
+}
+
+/// Parses Omarchy Hyprland Lua `hl.env("KEY", "VAL")` calls line-by-line, keeping ONLY
+/// keys in [`EnvKey::ALLOWLIST`]. Never retains any other variable or Lua code.
+fn parse_hypr_lua_allowlisted(file: File, meta: fs::Metadata, cap: u64) -> Option<(EnvSet, Stamp)> {
+    if meta.len() > cap {
+        return None;
+    }
+    let stamp = stamp_from_meta(&meta);
+    let mut reader = BufReader::new(file.take(cap + 1));
+    let mut env = EnvSet::default();
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(_) => return None,
+        }
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("--") {
+            continue;
+        }
+        let Some(idx) = trimmed.find("hl.env(") else {
+            continue;
+        };
+        let prefix = &trimmed[..idx];
+        if prefix.contains("--") {
+            continue;
+        }
+        let args = &trimmed[idx + "hl.env(".len()..];
+        let Some((k, rest)) = take_lua_string(args.trim_start()) else {
+            continue;
+        };
+        let Some(key) = EnvKey::from_name(&k) else {
+            continue;
+        };
+        let Some(after_comma) = rest.trim_start().strip_prefix(',') else {
+            continue;
+        };
+        let Some((v, _)) = take_lua_string(after_comma.trim_start()) else {
+            continue;
+        };
+        env.set_raw(key, &v);
+    }
+    Some((env, stamp))
+}
+
+fn take_lua_string(s: &str) -> Option<(String, &str)> {
+    let quote = s.chars().next().filter(|c| matches!(c, '"' | '\''))?;
+    let mut out = String::new();
+    let mut escaped = false;
+    let rest = &s[quote.len_utf8()..];
+    for (idx, ch) in rest.char_indices() {
+        if escaped {
+            out.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+            continue;
+        }
+        if ch == quote {
+            return Some((out, &rest[idx + ch.len_utf8()..]));
+        }
+        out.push(ch);
+    }
+    None
+}
+
+fn open_user_regular_nofollow(path: &Path) -> Option<(File, fs::Metadata)> {
+    let parent = path.parent()?;
+    let name = path.file_name()?.to_str()?;
+    open_under_root_nofollow(parent, &[name]).ok()
+}
+
+fn read_desktop_env(paths: &Paths, home_ref: Option<&str>) -> (Option<DesktopEnv>, Option<ReadRecord>) {
+    let mut merged = EnvSet::default();
+    let mut source_label: Option<String> = None;
+    let mut latest_stamp: Option<Stamp> = None;
+    let mut any_checked = false;
+
+    let mut absorb = |env: EnvSet, stamp: Stamp, label: String| {
+        if env.entries.is_empty() {
+            return;
+        }
+        for entry in env.entries {
+            merged.entries.push(entry);
+        }
+        source_label = Some(label);
+        latest_stamp = match latest_stamp.take() {
+            Some(prev) if prev.modified_ms >= stamp.modified_ms => Some(prev),
+            _ => Some(stamp),
+        };
+    };
+
+    // 1. /etc/environment (system-wide PAM env)
+    if let Some(etc_env) = &paths.etc_environment {
+        if let Ok((file, meta)) = open_system_regular(etc_env) {
+            any_checked = true;
+            if let Some((env, stamp)) = parse_env_stream_allowlisted(file, meta, SERVICE_ENV_CAP) {
+                absorb(env, stamp, shorten(etc_env, home_ref));
+            }
+        }
+    }
+
+    // 2. ~/.config/environment.d/*.conf (sorted lexically; unrelated filenames are never retained)
+    if let Some(envd) = &paths.environment_d_dir {
+        if let Ok(entries) = fs::read_dir(envd) {
+            let mut names: Vec<String> = entries
+                .filter_map(|e| e.ok())
+                .filter_map(|e| e.file_name().into_string().ok())
+                .filter(|n| n.ends_with(".conf"))
+                .collect();
+            names.sort();
+            for name in names.into_iter().take(64) {
+                if let Ok((file, meta)) = open_under_root_nofollow(envd, &[&name]) {
+                    any_checked = true;
+                    if let Some((env, stamp)) = parse_env_stream_allowlisted(file, meta, SERVICE_ENV_CAP) {
+                        let label = shorten(&envd.join(&name), home_ref);
+                        absorb(env, stamp, label);
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. ~/.config/uwsm/env
+    if let Some(uwsm) = &paths.uwsm_dir {
+        if let Ok((file, meta)) = open_under_root_nofollow(uwsm, &["env"]) {
+            any_checked = true;
+            if let Some((env, stamp)) = parse_env_stream_allowlisted(file, meta, SERVICE_ENV_CAP) {
+                absorb(env, stamp, shorten(&uwsm.join("env"), home_ref));
+            }
+        }
+    }
+
+    // 4. Omarchy Hyprland Lua (~/.config/hypr/hyprland.lua & optional envs.lua)
+    if let Some(hypr_lua) = &paths.omarchy_hypr_lua {
+        if let Some((file, meta)) = open_user_regular_nofollow(hypr_lua) {
+            any_checked = true;
+            if let Some((env, stamp)) = parse_hypr_lua_allowlisted(file, meta, DESKTOP_LUA_CAP) {
+                absorb(env, stamp, shorten(hypr_lua, home_ref));
+            }
+        }
+        if let Some(parent) = hypr_lua.parent() {
+            if let Ok((file, meta)) = open_under_root_nofollow(parent, &["envs.lua"]) {
+                any_checked = true;
+                if let Some((env, stamp)) = parse_hypr_lua_allowlisted(file, meta, DESKTOP_LUA_CAP) {
+                    absorb(env, stamp, shorten(&parent.join("envs.lua"), home_ref));
+                }
+            }
+        }
+    }
+
+    // 5. macOS login shell profiles (Electron desktop T3 loads login shell env on macOS)
+    if cfg!(target_vendor = "apple") {
+        if let Some(home) = &paths.home_dir {
+            for name in [".profile", ".bash_profile", ".zprofile", ".zshrc"] {
+                if let Ok((file, meta)) = open_under_root_nofollow(home, &[name]) {
+                    any_checked = true;
+                    if let Some((env, stamp)) = parse_env_stream_allowlisted(file, meta, SHELL_RC_CAP) {
+                        absorb(env, stamp, format!("~/{name}"));
+                    }
+                }
+            }
+        }
+    }
+
+    match (source_label, latest_stamp) {
+        (Some(label), Some(stamp)) if !merged.entries.is_empty() => {
+            let n = merged.entries.len();
+            let detail = if n == 1 {
+                "1 telemetry key".into()
+            } else {
+                format!("{n} telemetry keys")
+            };
+            let rec = ReadRecord {
+                name: "desktop_env".into(),
+                path: label.clone(),
+                outcome: ReadOutcome::Read,
+                modified_ms: Some(stamp.modified_ms),
+                detail,
+            };
+            (
+                Some(DesktopEnv {
+                    env: merged,
+                    source_label: label,
+                    stamp,
+                }),
+                Some(rec),
+            )
+        }
+        _ if any_checked => (
+            None,
+            Some(ReadRecord {
+                name: "desktop_env".into(),
+                path: "desktop session env".into(),
+                outcome: ReadOutcome::Read,
+                modified_ms: None,
+                detail: "no telemetry keys".into(),
+            }),
+        ),
+        _ => (None, None),
+    }
+}
+
+fn env_has_opt_out(env: &EnvSet) -> bool {
+    matches!(
+        env.get(EnvKey::TelemetryEnabled),
+        Some(EnvValue::TelemetryBool {
+            product_parsed: Bool3::False,
+            ..
+        }) | Some(EnvValue::TelemetryBool {
+            relay_parsed: Bool3::False,
+            ..
+        })
+    ) || matches!(
+        env.get(EnvKey::T3OtelSdkDisabled),
+        Some(EnvValue::Bool {
+            parsed: Bool3::True,
+            ..
+        })
+    ) || matches!(
+        env.get(EnvKey::OtelSdkDisabled),
+        Some(EnvValue::Bool {
+            parsed: Bool3::True,
+            ..
+        })
+    )
+}
+
+fn detect_shell_rc_source(home_dir: &Path, shell: &EnvSet) -> Option<ShellRcSource> {
+    if !env_has_opt_out(shell) {
+        return None;
+    }
+    const CANDIDATES: [(&str, bool); 5] = [
+        (".profile", false),
+        (".bash_profile", false),
+        (".zprofile", false),
+        (".bashrc", true),
+        (".zshrc", true),
+    ];
+    for (name, interactive_only) in CANDIDATES {
+        let Ok((file, meta)) = open_under_root_nofollow(home_dir, &[name]) else {
+            continue;
+        };
+        if let Some((env, _)) = parse_env_stream_allowlisted(file, meta, SHELL_RC_CAP) {
+            if env_has_opt_out(&env) {
+                return Some(ShellRcSource {
+                    path: format!("~/{name}"),
+                    interactive_only,
+                });
+            }
+        }
+    }
+    None
 }

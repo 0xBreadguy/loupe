@@ -30,8 +30,8 @@ Telemetry and Trace.
 | `?` / `h` | help; on Insights, Storage, Telemetry and Trace every key but the theme and calm keys goes to it while it's open |
 | `Esc` / `q` | back one level / quit |
 
-One exception: on the dashboard `f` means **follow**, and keeps the thread
-open in T3 selected. Everywhere else it hands work to a T3 agent.
+One exception: on the dashboard `f` means **follow** (on by default), and
+keeps the thread open in T3 selected. Everywhere else it hands work to a T3 agent.
 
 The dashboard also has these:
 
@@ -39,7 +39,7 @@ The dashboard also has these:
 | --- | --- |
 | `n` | jump to the next agent waiting on you (or click the NEEDS YOU tile) |
 | `Space` / `←` `→` | fold or unfold subagents; `→` again lists the earlier ones too, `←` steps back (on a leaf it jumps to the parent) |
-| `a` | scope: all threads → active only → T3's sidebar (not settled or snoozed) → all |
+| `a` | scope (starts on T3's sidebar by default; `--db` keeps all for parity): T3's sidebar (not settled or snoozed) → all threads → active only → T3's sidebar |
 | `t` | lane window: 15 min, 30 min, 1 h, 3 h |
 | `p` | pause updates |
 | `x` | CRT effects, purely for fun (off in calm mode) |
@@ -53,7 +53,8 @@ its arrows, Home, End and Page Up/Down act like the main keys.
 **Insights** opens on Recap for this week. `←` `→` step through this week,
 last week, this month and last month, and a click on a period or on RECAP /
 TOOLS picks it. `f` starts a T3 Code thread to audit slow or failing tools
-(Tools) or turn the week's findings into workflow changes (Recap). `r` reads
+(Tools) or turn the period's findings into workflow changes (Recap), with
+"No project" picked by default. `r` reads
 the report again and keeps the old one on screen until it's done.
 
 **Storage** lists disk use by project and thread. `Space` folds a project
@@ -77,7 +78,8 @@ straight back.
 
 **Telemetry** checks what T3 Code sends and whether opt-outs work. On the
 Telemetry view the selection picks a stream and shows its decision ladder or
-notes; on Sources the arrows and wheel scroll, and a click on TELEMETRY or
+notes, and `Enter` or `Space` shows or hides its suggested fix commands; on
+Sources the arrows and wheel scroll, and a click on TELEMETRY or
 SOURCES in the header switches views. `f` starts a T3 Code thread with the
 findings and fix instructions when telemetry isn't already off, and `r`
 checks again (it also does when a file changes). It reads local files only
@@ -94,7 +96,7 @@ project, model, base folder and prompt.
 | Key | In the confirmation bar |
 | --- | --- |
 | `Enter` | start the T3 thread; for changes to files or settings, the first `Enter` arms and the second starts |
-| `←` `→` / `Tab` | pick the project |
+| `←` `→` / `Tab` | pick the project, including "No project" (the default for Insights and Telemetry) |
 | `↑` `↓` | pick the model (`j` `k` too while the preview is hidden) |
 | `p` | show or hide the preview |
 | `j` `k` / `PgDn` `PgUp` | scroll the preview |
@@ -160,6 +162,7 @@ Options:
 | `--tools` | [what agents ran last week and what failed](features.md#tools); with `--this-week`, `--month`, `--this-month` or `--json`, as `--recap`; `--wide` or `--compact` picks the report's size |
 | `--trace [ID]` | [one task on a time axis](features.md#trace): the latest, a thread's latest (its id, or the end of it), or the task that holds a run; with `--json`, the spans |
 | `--telemetry-check` | [check T3 Code telemetry](features.md#telemetry-check) on this machine (local files only, never opens secrets); with `--json`, `--wide`, `--compact` or `--narrow` |
+| `--version` | print the installed version, `loupe X.Y.Z` |
 | `--help` | list the options |
 
 Recap and Tools read directly by default. Set `LOUPE_CACHE=1` to reuse

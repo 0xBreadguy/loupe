@@ -176,11 +176,6 @@ impl T3Handoff {
                 self.state = HandoffState::Error("T3 handoff is unavailable with --db".into());
             }
             HandoffSource::Machine => {
-                let projects = collect_projects(dashboard, preferred_project_id);
-                let project_id = projects[0].0.clone();
-                let models = db_path
-                    .map(|p| handoff::read_model_choices(p, &project_id))
-                    .unwrap_or_else(|| vec![ModelChoice::Unselected]);
                 let resolved_base_dir = base_dir
                     .filter(|p| validate_base_dir(p).is_ok())
                     .or_else(|| {
@@ -188,6 +183,17 @@ impl T3Handoff {
                             .and_then(base_dir_from_db)
                             .filter(|p| validate_base_dir(p).is_ok())
                     });
+                let scratch_project = db_path
+                    .and_then(|p| handoff::read_scratch_project(p, resolved_base_dir.as_deref()));
+                let db_projects = db_path
+                    .map(handoff::read_project_titles)
+                    .unwrap_or_default();
+                let projects =
+                    collect_projects(dashboard, preferred_project_id, scratch_project, &db_projects);
+                let project_id = projects[0].0.clone();
+                let models = db_path
+                    .map(|p| handoff::read_model_choices(p, &project_id))
+                    .unwrap_or_else(|| vec![ModelChoice::Unselected]);
                 let pending = PendingAction::Start {
                     action_label,
                     title: exact_title,
@@ -500,15 +506,16 @@ impl T3Handoff {
         } else if should_launch {
             self.launch_pending(host);
         } else if let Some(pending) = &mut self.pending {
-            self.state = state_for_pending(pending);
-            // The preview scrolls no further than its last line, so `k` always scrolls back at once.
+            let next_state = state_for_pending(pending);
+            let clamped = handoff::clamp_preview_scroll(&next_state, size.0, size.1);
             if let PendingAction::Start { preview_scroll, .. } = pending {
-                let max = handoff::preview_max_scroll(&self.state, size.0, size.1);
-                if *preview_scroll > max {
-                    *preview_scroll = max;
+                if *preview_scroll != clamped {
+                    *preview_scroll = clamped;
                     self.state = state_for_pending(pending);
+                    return HandoffKey::Consumed;
                 }
             }
+            self.state = next_state;
         }
         HandoffKey::Consumed
     }
@@ -556,14 +563,19 @@ impl T3Handoff {
                 if chosen_model.is_unselected() {
                     self.finish_worker();
                     self.state = HandoffState::Error(
-                        "Pick a provider/model with ↑↓ before starting".into(),
+                        "Pick a model with ↑↓ before starting".into(),
                     );
                     return;
                 }
                 let dir = base_dir.or(host_base_dir);
                 let model_tag = chosen_model.short_label();
+                let running_label = if project_name.eq_ignore_ascii_case("no project") {
+                    format!("Starting T3 thread (No project · {model_tag})…")
+                } else {
+                    format!("Starting T3 thread in {project_name} ({model_tag})…")
+                };
                 self.state = HandoffState::Running {
-                    label: format!("Starting T3 thread in {project_name} ({model_tag})…"),
+                    label: running_label,
                 };
                 let _ = std::thread::Builder::new()
                     .name("loupe-t3-handoff".into())
@@ -664,7 +676,7 @@ fn state_for_pending(pending: &PendingAction) -> HandoffState {
             let base_dir_display = base_dir
                 .as_deref()
                 .and_then(|p| validate_base_dir(p).ok())
-                .map(str::to_owned)
+                .map(format_base_dir_display)
                 .unwrap_or_else(|| "(default)".into());
             HandoffState::ConfirmStart {
                 action_label: action_label.clone(),
@@ -705,11 +717,30 @@ fn state_for_pending(pending: &PendingAction) -> HandoffState {
     }
 }
 
+fn format_base_dir_display(path: &str) -> String {
+    if let Some(home) = std::env::var_os("HOME").map(|h| h.to_string_lossy().into_owned()) {
+        let home_trim = home.trim_end_matches('/');
+        if !home_trim.is_empty() {
+            if path.trim_end_matches('/') == format!("{home_trim}/.t3") {
+                return "(default)".into();
+            }
+            let prefix = format!("{home_trim}/");
+            if let Some(rest) = path.strip_prefix(&prefix) {
+                return format!("~/{rest}");
+            }
+        }
+    }
+    path.to_owned()
+}
+
 pub(super) fn collect_projects(
     state: &State,
     preferred_project_id: Option<&str>,
+    scratch_project: Option<(String, String)>,
+    db_projects: &[(String, String)],
 ) -> Vec<(String, String)> {
     let mut out: Vec<(String, String)> = Vec::new();
+    let scratch_id = scratch_project.as_ref().map(|(id, _)| id.as_str());
     let mut push_unique = |id: &str, name: &str| {
         if id.is_empty()
             || validate_project_arg(id).is_err()
@@ -717,7 +748,16 @@ pub(super) fn collect_projects(
         {
             return;
         }
-        let label = if name.is_empty() { id } else { name };
+        let label = if scratch_id == Some(id) {
+            "No project"
+        } else {
+            let trimmed = name.trim();
+            if trimmed.is_empty() {
+                "Untitled project"
+            } else {
+                trimmed
+            }
+        };
         out.push((id.to_owned(), label.to_owned()));
     };
 
@@ -729,17 +769,48 @@ pub(super) fn collect_projects(
             .or_else(|| (!a.cwd.is_empty()).then_some(a.cwd.as_str()))
     }
 
+    let lookup_db_title = |id: &str| -> Option<&str> {
+        db_projects
+            .iter()
+            .find(|(pid, _)| pid == id)
+            .map(|(_, title)| title.as_str())
+    };
+
     if let Some(pref_id) = preferred_project_id.filter(|s| !s.is_empty()) {
-        if let Some(a) = state.snap.agents.iter().find(|a| {
+        if scratch_id == Some(pref_id) {
+            push_unique(pref_id, "No project");
+        } else if let Some(a) = state.snap.agents.iter().find(|a| {
             a.remote.is_none()
+                && agent_project_key(a).is_some()
                 && (agent_project_key(a) == Some(pref_id) || a.project == pref_id)
         }) {
             if let Some(key) = agent_project_key(a) {
-                push_unique(key, &a.project);
+                let label = lookup_db_title(key)
+                    .filter(|_| a.project.trim().is_empty())
+                    .unwrap_or(a.project.as_str());
+                push_unique(key, label);
             }
+        } else if let Some(title) = lookup_db_title(pref_id) {
+            push_unique(pref_id, title);
         } else {
-            push_unique(pref_id, pref_id);
+            let fallback = if pref_id.contains('/') || pref_id.contains('\\') {
+                Path::new(pref_id)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .filter(|n| !n.is_empty())
+                    .unwrap_or_else(|| "Selected project".into())
+            } else {
+                "Selected project".into()
+            };
+            push_unique(pref_id, &fallback);
         }
+        // Keep T3's "No project" scratch workspace one ←→ tap away even for repo-scoped handoffs.
+        if let Some((sid, slabel)) = &scratch_project {
+            push_unique(sid, slabel);
+        }
+    } else if let Some((sid, slabel)) = &scratch_project {
+        // Machine-wide handoffs (e.g. Telemetry, global Insights) default to "No project".
+        push_unique(sid, slabel);
     }
 
     for preferred in [state.selected.as_deref(), state.linked.as_deref()]
@@ -753,7 +824,10 @@ pub(super) fn collect_projects(
             .find(|a| a.id == preferred && a.remote.is_none())
         {
             if let Some(key) = agent_project_key(a) {
-                push_unique(key, &a.project);
+                let label = lookup_db_title(key)
+                    .filter(|_| a.project.trim().is_empty())
+                    .unwrap_or(a.project.as_str());
+                push_unique(key, label);
             }
         }
     }
@@ -761,9 +835,16 @@ pub(super) fn collect_projects(
     for a in &state.snap.agents {
         if a.remote.is_none() {
             if let Some(key) = agent_project_key(a) {
-                push_unique(key, &a.project);
+                let label = lookup_db_title(key)
+                    .filter(|_| a.project.trim().is_empty())
+                    .unwrap_or(a.project.as_str());
+                push_unique(key, label);
             }
         }
+    }
+
+    for (pid, title) in db_projects {
+        push_unique(pid, title);
     }
 
     if out.is_empty() {
@@ -1241,7 +1322,7 @@ fn run_t3_thread_start(
 ) -> WorkerOutcome {
     let explicit = match chosen_model {
         ModelChoice::Unselected => {
-            return WorkerOutcome::Error("Pick a provider/model with ↑↓ before starting".into());
+            return WorkerOutcome::Error("Pick a model with ↑↓ before starting".into());
         }
         ModelChoice::Explicit {
             provider, model, ..
@@ -1258,9 +1339,12 @@ fn run_t3_thread_start(
     if !output.status.success() {
         let err_line = first_error_line(&output.stderr, &output.stdout, "t3 thread start failed");
         if explicit.is_none() && err_line.to_ascii_lowercase().contains("no default model") {
-            return WorkerOutcome::Error(format!(
-                "No default model for {project_name} — press ↑↓ to choose a provider/model"
-            ));
+            let msg = if project_name.eq_ignore_ascii_case("no project") {
+                "No default model — press f again and choose a model with ↑↓".to_owned()
+            } else {
+                format!("No default model for {project_name} — press f again and choose a model with ↑↓")
+            };
+            return WorkerOutcome::Error(msg);
         }
         return WorkerOutcome::Error(err_line);
     }
@@ -1277,23 +1361,18 @@ fn run_t3_thread_start(
         }
     }
 
-    let short_id = match parsed_id {
-        Some(ref id) if id.chars().count() > 14 => {
-            let prefix: String = id.chars().take(12).collect();
-            format!("{prefix}…")
-        }
-        Some(id) => id,
-        None => "started".into(),
-    };
     let tail = if opened_app {
         "opened in T3 Code"
     } else {
         "open in T3 Code"
     };
-    let model_suffix = format!(" ({})", chosen_model.short_label());
-    WorkerOutcome::Done(format!(
-        "Started in {project_name}{model_suffix} · {short_id} · {tail}"
-    ))
+    let model_tag = chosen_model.short_label();
+    let done = if project_name.eq_ignore_ascii_case("no project") {
+        format!("Started thread (No project · {model_tag}) · {tail}")
+    } else {
+        format!("Started in {project_name} ({model_tag}) · {tail}")
+    };
+    WorkerOutcome::Done(done)
 }
 
 fn invoke_t3_thread_start(
@@ -1693,7 +1772,7 @@ mod tests {
         let mut canvas = loupe_core::terminal::Canvas::new(140, 40);
         handoff::draw_handoff_bar(&mut canvas, 38, &armed, &palette);
         let row = canvas.row_text(38);
-        assert!(row.contains("Esc back") && !row.contains("Esc cancel"), "{row}");
+        assert!(row.contains("Esc disarm") && !row.contains("Esc cancel"), "{row}");
         assert!(bar(&h).contains("Esc cancel"));
         if let Some(PendingAction::Start { armed, .. }) = &mut h.pending {
             *armed = true;
@@ -1729,5 +1808,104 @@ mod tests {
         // Pressing Enter on a tiny terminal must NOT launch or error out; it stays blocked.
         h.key("enter", &host, (20, 5));
         assert!(matches!(h.state(), HandoffState::ConfirmStart { .. }));
+    }
+
+    #[test]
+    fn collect_projects_orders_no_project_and_never_leaks_raw_uuids() {
+        let mut snap = loupe_core::model::Snapshot::default();
+        // Native subagent without storage/cwd sharing project title must not shadow root match.
+        let mut sub = Agent::default();
+        sub.id = "sub-1".into();
+        sub.project = "Loupe".into();
+        let mut root = Agent::default();
+        root.id = "root-1".into();
+        root.project = "Loupe".into();
+        root.cwd = "/home/u/code/loupe".into();
+        root.storage = Some(loupe_core::model::ThreadStorage {
+            project_id: "uuid-loupe".into(),
+            project_root: Some("/home/u/code/loupe".into()),
+            worktree: None,
+        });
+        snap.agents = vec![Arc::new(sub), Arc::new(root)];
+        let state = State::new(snap);
+        let scratch = Some(("uuid-scratch".into(), "No project".into()));
+        let db_projects = vec![
+            ("uuid-loupe".into(), "Loupe".into()),
+            ("uuid-archived".into(), "Old Service".into()),
+            ("uuid-scratch".into(), "Omarchy (XPS14)".into()),
+        ];
+
+        // Machine-wide (None): "No project" goes first, all DB projects are selectable with clean titles.
+        let global = collect_projects(&state, None, scratch.clone(), &db_projects);
+        assert_eq!(global[0], ("uuid-scratch".into(), "No project".into()));
+        assert!(global.iter().any(|(id, name)| id == "uuid-loupe" && name == "Loupe"));
+        assert!(global.iter().any(|(id, name)| id == "uuid-archived" && name == "Old Service"));
+        assert_eq!(
+            global.iter().filter(|(id, _)| id == "uuid-scratch").count(),
+            1,
+            "scratch project must not be duplicated"
+        );
+
+        // Repo-scoped with archived/settled project ID not in live agents: resolves title from DB, never UUID.
+        let scoped = collect_projects(&state, Some("uuid-archived"), scratch.clone(), &db_projects);
+        assert_eq!(scoped[0], ("uuid-archived".into(), "Old Service".into()));
+        assert_eq!(scoped[1], ("uuid-scratch".into(), "No project".into()));
+
+        // Unknown opaque UUID not in agents or DB: falls back to "Selected project", never raw UUID.
+        let unknown = collect_projects(&state, Some("deadbeef-1234-5678"), scratch, &db_projects);
+        assert_eq!(unknown[0].0, "deadbeef-1234-5678");
+        assert_eq!(unknown[0].1, "Selected project");
+    }
+
+    #[test]
+    fn confirm_start_key_transitions_arm_disarm_and_clamp_scroll() {
+        let mut h = T3Handoff::new(HandoffSource::Machine, None);
+        let host = Host::demo(0.0);
+        let pending = PendingAction::Start {
+            action_label: "turn off telemetry".into(),
+            title: "Turn off telemetry".into(),
+            prompt: "line 1\nline 2".into(),
+            projects: vec![
+                ("uuid-scratch".into(), "No project".into()),
+                ("uuid-loupe".into(), "Loupe".into()),
+            ],
+            project_idx: 0,
+            models: vec![
+                ModelChoice::Explicit {
+                    provider: "codex".into(),
+                    model: "gpt-6.2-sol".into(),
+                    provenance: handoff::ModelProvenance::ProjectRecent,
+                },
+                ModelChoice::Explicit {
+                    provider: "claudeAgent".into(),
+                    model: "claude-opus-5-5".into(),
+                    provenance: handoff::ModelProvenance::GlobalRecent,
+                },
+            ],
+            model_idx: 0,
+            destructive: true,
+            armed: false,
+            preview: true,
+            preview_scroll: 0,
+            db_path: None,
+            base_dir: None,
+        };
+        h.state = state_for_pending(&pending);
+        h.pending = Some(pending);
+
+        // Overshooting scroll clamps immediately to 0 for a short prompt.
+        h.key("pagedown", &host, (120, 30));
+        match h.state() {
+            HandoffState::ConfirmStart { preview_scroll, .. } => assert_eq!(*preview_scroll, 0),
+            other => panic!("unexpected: {other:?}"),
+        }
+
+        // Enter arms destructive start; Esc disarms without dismissing; second Esc dismisses.
+        h.key("enter", &host, (120, 30));
+        assert!(matches!(h.state(), HandoffState::ConfirmStart { armed: true, .. }));
+        h.key("escape", &host, (120, 30));
+        assert!(matches!(h.state(), HandoffState::ConfirmStart { armed: false, .. }));
+        h.key("escape", &host, (120, 30));
+        assert!(h.state().is_idle());
     }
 }

@@ -431,6 +431,7 @@ def main(scratch):
         ('every row of the card is 80 cells or fewer', lambda: (lambda plain: all((len(row) <= 80 for row in plain.stdout.split('\n'))))(piped(["--recap", "--demo"]))),
         ('the card is 23 rows', lambda: (lambda plain: plain.stdout.rstrip('\n').count('\n') + 1 == 23)(piped(["--recap", "--demo"]))),
         ('--json is valid and names no thread', lambda: json.loads(piped(['--recap', '--demo', '--json']).stdout)['runs'] > 0),
+        ('--json carries schema 1 as its first key', lambda: piped(['--recap', '--demo', '--json']).stdout.startswith('{\n  "schema": 1,\n')),
         ('a missing database exits 1 with advice on stderr and nothing on stdout', lambda: (lambda r: r.returncode == 1 and r.stdout == '' and ('no T3 database' in r.stderr))(piped(['--recap', '--db', dbs + '/missing.sqlite']))),
         ('an empty database exits 0 and says there is nothing', lambda: (lambda r: r.returncode == 0 and 'No agent runs recorded' in r.stdout)(piped(['--recap', '--db', empty]))),
         ('--this-week on an empty database says so far', lambda: 'so far' in piped(['--recap', '--this-week', '--db', empty]).stdout),
