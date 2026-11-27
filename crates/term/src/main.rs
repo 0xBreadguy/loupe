@@ -133,6 +133,16 @@ fn trace_read(t: &mut trace_live::Screen, s: &State, host: &Host, wake: &Wake) {
     if t.watch.is_some() || t.data.is_some() {
         return;
     }
+    trace_start(t, s, host, wake);
+}
+
+/// `r` on Trace: read the task again now. What is on screen stays until the new read arrives.
+fn trace_reread(t: &mut trace_live::Screen, s: &State, host: &Host, wake: &Wake) {
+    t.watch = None;
+    trace_start(t, s, host, wake);
+}
+
+fn trace_start(t: &mut trace_live::Screen, s: &State, host: &Host, wake: &Wake) {
     match &host.db {
         Some(path) => {
             let waker = wake.waker();
@@ -167,12 +177,24 @@ fn trace_key(
 ) -> Option<bool> {
     let t = tracing.as_mut()?;
     if s.help {
-        return None;
+        // While help is open every key goes to it: `?`, `h` and Esc close it (the dashboard's
+        // help keys), the theme and calm keys still work, and nothing reaches the trace or the
+        // dashboard behind it.
+        return match name {
+            "q" => Some(true),
+            "?" | "h" | "escape" | "m" | "c" | "C" => None,
+            _ => Some(false),
+        };
     }
     match name {
         "q" => return Some(true),
-        // Help, calm, pause, refresh and the theme keys are the dashboard's still.
-        "?" | "h" | "m" | "p" | "r" | "c" | "C" => return None,
+        // `r` reads the trace again, and the dashboard behind it as before.
+        "r" => {
+            trace_reread(t, s, host, wake);
+            return None;
+        }
+        // Help, calm, pause and the theme keys are the dashboard's still.
+        "?" | "h" | "m" | "p" | "c" | "C" => return None,
         _ => {}
     }
     let at = host::input_now(s, host);
@@ -216,6 +238,121 @@ fn trace_key(
         trace_live::Outcome::Stay => {}
     }
     Some(false)
+}
+
+/// The screen in front.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum View {
+    Dashboard,
+    Storage,
+    Insights,
+    Telemetry,
+    Trace,
+}
+
+fn front(insights: &InsightsScreen, tracing: &Option<trace_live::Screen>, telemetry: &TelemetryScreen, storage: &StorageScreen) -> View {
+    if insights.is_open() {
+        View::Insights
+    } else if tracing.is_some() {
+        View::Trace
+    } else if telemetry.is_open() {
+        View::Telemetry
+    } else if storage.is_open() {
+        View::Storage
+    } else {
+        View::Dashboard
+    }
+}
+
+/// Whether the screen in front has its help open. Trace's help is the dashboard's flag.
+fn help_open(view: View, s: &State, insights: &InsightsScreen, telemetry: &TelemetryScreen, storage: &StorageScreen) -> bool {
+    match view {
+        View::Dashboard | View::Trace => s.help,
+        View::Storage => storage.help_open(),
+        View::Insights => insights.help_open(),
+        View::Telemetry => telemetry.help_open(),
+    }
+}
+
+/// The screen a jump key asks for. `s` `i` `e` `w` reach Storage, Insights, Telemetry and Trace
+/// from any screen, and the screen's own key goes back to the dashboard. While help is open the
+/// keys go to it, so nothing jumps. `product` gates `s` `i` `e` (`storage_key_in_help`) and
+/// `trace` gates `w`, so `LOUPE_NO_THEMES=1` keeps the original's keys: none of them is one.
+fn jump(name: &str, on: View, help: bool, product: bool, trace: bool, insights: bool) -> Option<View> {
+    if help {
+        return None;
+    }
+    let to = match name {
+        "s" if product => View::Storage,
+        "i" if product && insights => View::Insights,
+        "e" if product => View::Telemetry,
+        "w" if trace => View::Trace,
+        _ => return None,
+    };
+    Some(if to == on { View::Dashboard } else { to })
+}
+
+/// Close the screen in front and open `to`. Returns the screen now in front: the dashboard when
+/// Trace has nothing to show, with the reason on its notice line. Insights is opened but not
+/// drawn; the caller presents it.
+#[allow(clippy::too_many_arguments)]
+fn switch(
+    to: View,
+    s: &mut State,
+    host: &mut Host,
+    storage: &mut StorageScreen,
+    telemetry: &mut TelemetryScreen,
+    insights: &mut InsightsScreen,
+    tracing: &mut Option<trace_live::Screen>,
+    handoff: &mut T3Handoff,
+    read: &mut dyn FnMut(&mut trace_live::Screen, &State, &Host),
+) -> View {
+    handoff.dismiss();
+    if storage.is_open() {
+        storage.close();
+    }
+    if telemetry.is_open() {
+        telemetry.close();
+    }
+    if insights.is_open() {
+        insights.close();
+    }
+    *tracing = None;
+    match to {
+        View::Dashboard => {}
+        View::Storage => storage.open(s),
+        View::Telemetry => telemetry.open(s, host),
+        View::Insights => insights.open(),
+        View::Trace => match trace_target(s) {
+            Ok(target) => {
+                let mut t = trace_live::Screen::new(target);
+                read(&mut t, s, host);
+                *tracing = Some(t);
+            }
+            Err(message) => {
+                let at = host::input_now(s, host);
+                s.note(message, false, at);
+                return View::Dashboard;
+            }
+        },
+    }
+    to
+}
+
+/// Whether the screen in front draws the handoff bar at this size. Insights and Telemetry draw
+/// nothing of it below their floor, where a confirmation would be live but unseen.
+fn bar_drawn(view: View, (cols, rows): (usize, usize)) -> bool {
+    match view {
+        View::Insights => cols >= loupe_core::handoff::INSIGHTS_BAR_MIN.0 && rows >= loupe_core::handoff::INSIGHTS_BAR_MIN.1,
+        View::Telemetry => cols >= loupe_core::telemetry_view::MIN_COLUMNS && rows >= loupe_core::telemetry_view::MIN_ROWS,
+        View::Dashboard | View::Storage | View::Trace => rows >= 3,
+    }
+}
+
+/// Esc quits from the dashboard. While a T3 thread is being started it waits instead: the
+/// start cannot be called back, and quitting mid-way would hide how it ended.
+fn escape_waits(running: bool, view: View, help: bool) -> bool {
+    running && view == View::Dashboard && !help
 }
 
 fn on_key(s: &mut State, host: &mut Host, clock: &mut TermClock, name: &str, replay: bool) -> bool {
@@ -583,6 +720,10 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
             if now != size {
                 size = now;
                 full = true;
+                // A confirmation the screen can no longer draw is dropped, not kept live unseen.
+                if !bar_drawn(front(&insights, &tracing, &telemetry, &storage), size) {
+                    handoff.dismiss();
+                }
             }
         }
         let host_changed = if let Some(replay) = &replay {
@@ -611,7 +752,18 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
             painted = true;
         }
         let mut quit = eof || signals.quit;
+        let product = state.storage_key_in_help;
+        let trace_ok = host.themes.is_some() && replay.is_none();
         for event in events {
+            let view = front(&insights, &tracing, &telemetry, &storage);
+            // A confirmation the screen cannot draw is not kept: Enter must not start what
+            // nobody can see.
+            if !bar_drawn(view, size) {
+                handoff.dismiss();
+            }
+            if matches!(event, Event::Key("escape")) && escape_waits(handoff.state().is_running(), view, state.help) {
+                continue;
+            }
             // Route interactive handoff confirmation / quick-reply events first (works across every screen).
             if handoff.is_active() {
                 let handled = match &event {
@@ -647,15 +799,46 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                     continue;
                 }
             }
-            if insights.is_open() {
-                if quit {
-                    break;
+            if quit {
+                break;
+            }
+            if let Event::Key(name) = event {
+                let help = help_open(view, &state, &insights, &telemetry, &storage);
+                // `s` `i` `e` `w`: to that screen from any screen, or back from its own.
+                if let Some(to) = jump(name, view, help, product, trace_ok, insights_source.is_some()) {
+                    let shown = switch(to, &mut state, &mut host, &mut storage, &mut telemetry, &mut insights, &mut tracing, &mut handoff, &mut |t, s, h| trace_read(t, s, h, &wake));
+                    if shown == View::Insights {
+                        let source = insights_source.unwrap();
+                        insights.present_key(&state, source, host.db.as_deref(), size, handoff.state(), &mut encoder, &mut full, &wake)?;
+                        insights_dirty = false;
+                    } else {
+                        paint(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
+                    }
+                    painted = true;
+                    continue;
                 }
+                // The theme and calm keys work on every screen, over help too. The dashboard and
+                // Trace pass them to the dashboard below.
+                if matches!(view, View::Storage | View::Insights | View::Telemetry) && matches!(name, "c" | "C" | "m") {
+                    on_key(&mut state, &mut host, &mut clock, name, replay.is_some());
+                    if view == View::Insights {
+                        let source = insights_source.unwrap();
+                        insights.paint(&state, source, size, handoff.state(), &mut encoder, &mut full)?;
+                        insights_dirty = false;
+                    } else {
+                        paint(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
+                        painted = true;
+                    }
+                    continue;
+                }
+            }
+            if insights.is_open() {
                 let source = insights_source.unwrap();
                 let effect = match event {
                     Event::Quit => InsightsEffect::Quit,
                     Event::Key(name) => insights.key(name, source),
                     Event::Wheel { down, .. } => insights.key(if down { "down" } else { "up" }, source),
+                    Event::Press { x, y } => insights.press(x, y, source),
                     _ => InsightsEffect::Stay,
                 };
                 match effect {
@@ -680,6 +863,9 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                                 false,
                                 &state,
                             );
+                            if !bar_drawn(View::Insights, size) {
+                                handoff.dismiss();
+                            }
                             insights.paint(&state, source, size, handoff.state(), &mut encoder, &mut full)?;
                             insights_dirty = false;
                         }
@@ -692,76 +878,18 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                 }
                 continue;
             }
+            // Tab switches views within a screen, and the dashboard has none; `i` is not one of
+            // its keys either. Neither draws anything there, as in the original.
+            if view == View::Dashboard && matches!(event, Event::Key("i" | "tab" | "shift-tab")) {
+                continue;
+            }
             let stop = match event {
                 Event::Quit => true,
                 Event::Char(_) => false,
-                Event::Key("e") if state.storage_key_in_help && tracing.is_none()
-                    && !storage.is_open() && !telemetry.is_open() && !quit => {
-                    if state.help {
-                        on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
-                    }
-                    handoff.dismiss();
-                    telemetry.open(&state, &mut host);
-                    false
-                }
-                Event::Key(name) if telemetry.is_open() => {
-                    if matches!(name, "c" | "C") {
-                        on_key(&mut state, &mut host, &mut clock, name, replay.is_some())
-                    } else {
-                        telemetry.key(name, &state, &mut host, &mut handoff)
-                    }
-                }
-                Event::Key("i") if state.storage_key_in_help && tracing.is_none()
-                    && !storage.is_open() && !telemetry.is_open() && !quit && let Some(source) = insights_source => {
-                    if state.help {
-                        on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
-                    }
-                    handoff.dismiss();
-                    insights.open();
-                    insights.present_key(&state, source, host.db.as_deref(), size, handoff.state(), &mut encoder, &mut full, &wake)?;
-                    insights_dirty = false;
-                    painted = true;
-                    continue;
-                }
-                // Tab switches Storage between its folder list and the cleanup settings panel.
-                Event::Key("i") => continue,
-                Event::Key("tab" | "shift-tab") if !storage.is_open() => continue,
-                Event::Key("s") if state.storage_key_in_help && tracing.is_none() && !storage.is_open() && !telemetry.is_open() => {
-                    if state.help {
-                        on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());
-                    }
-                    handoff.dismiss();
-                    storage.open(&state);
-                    false
-                }
-                Event::Key(name) if storage.is_open() => {
-                    if matches!(name, "c" | "C") {
-                        on_key(&mut state, &mut host, &mut clock, name, replay.is_some())
-                    } else {
-                        storage.key(name, &mut state, &host, &mut handoff, size)
-                    }
-                }
+                Event::Key(name) if telemetry.is_open() => telemetry.key(name, &state, &mut host, &mut handoff),
+                Event::Key(name) if storage.is_open() => storage.key(name, &mut state, &host, &mut handoff, size),
                 Event::Key(name) => match trace_key(&mut state, &host, &mut tracing, &mut handoff, &wake, name) {
                     Some(quit) => quit,
-                    // `w` opens Trace on the selected agent: the product's key, like `c`. Without
-                    // the product's options it is not a key, as in the original.
-                    None if name == "w" => {
-                        if host.themes.is_some() && !state.help && replay.is_none() {
-                            match trace_target(&state) {
-                                Ok(target) => {
-                                    handoff.dismiss();
-                                    let mut t = trace_live::Screen::new(target);
-                                    trace_read(&mut t, &state, &host, &wake);
-                                    tracing = Some(t);
-                                }
-                                Err(message) => {
-                                    let at = host::input_now(&state, &host);
-                                    state.note(message, false, at);
-                                }
-                            }
-                        }
-                        false
-                    }
                     // `M` opens quick-reply / nudge (`t3 thread send`) on the selected local thread.
                     // Product-only (`storage_key_in_help`), so `LOUPE_NO_THEMES=1` ignores it.
                     None if name == "M" => {
@@ -781,12 +909,15 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                         }
                         false
                     }
+                    // The product's screen keys are not the dashboard's: with help open they do
+                    // nothing, and the original never sees them.
+                    None if trace_ok && name == "w" || product && matches!(name, "s" | "i" | "e") => false,
                     None => on_key(&mut state, &mut host, &mut clock, name, replay.is_some()),
                 },
                 Event::Press { x, y } => {
                     match tracing.as_mut() {
                         Some(t) if !state.help => t.press(y),
-                        _ if telemetry.is_open() => telemetry.press(y),
+                        _ if telemetry.is_open() => telemetry.press(x, y),
                         _ if storage.is_open() => storage.press(y, size),
                         _ => on_press(&mut state, &mut host, &mut clock, x, y, replay.is_some()),
                     }
@@ -794,7 +925,8 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                 }
                 Event::Wheel { x, y, down } => {
                     match tracing.as_mut() {
-                        Some(t) if !state.help => {
+                        Some(_) if state.help => {}
+                        Some(t) => {
                             t.key(if down { "down" } else { "up" });
                         }
                         _ if telemetry.is_open() => telemetry.wheel(down, &state, &mut host, &mut handoff),
@@ -806,6 +938,9 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                 // Answers were taken above.
                 Event::Report(_) => false,
             };
+            if !bar_drawn(front(&insights, &tracing, &telemetry, &storage), size) {
+                handoff.dismiss();
+            }
             parser.set_text_mode(handoff.wants_text_input());
             paint(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut encoder, &mut full, &mut tracing)?;
             painted = true;
@@ -816,6 +951,9 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
         }
         if quit {
             break;
+        }
+        if !bar_drawn(front(&insights, &tracing, &telemetry, &storage), size) {
+            handoff.dismiss();
         }
         // Fold a host wake into the key's paint when both arrived together.
         if insights_dirty && insights.is_open() {
@@ -1152,6 +1290,90 @@ mod tests {
                 "{key} selects the first revealed row, got {picked}"
             );
         }
+    }
+
+    #[test]
+    fn screen_keys_jump_from_every_screen_and_their_own_key_goes_back() {
+        use View::*;
+        for on in [Dashboard, Storage, Insights, Telemetry, Trace] {
+            for (key, to) in [("s", Storage), ("i", Insights), ("e", Telemetry), ("w", Trace)] {
+                let want = if on == to { Dashboard } else { to };
+                assert_eq!(jump(key, on, false, true, true, true), Some(want), "{key} on {on:?}");
+                // While help is open the key goes to it.
+                assert_eq!(jump(key, on, true, true, true, true), None, "{key} over help on {on:?}");
+            }
+            assert_eq!(jump("j", on, false, true, true, true), None);
+        }
+        // Without the product's options none of them is a key, as in the original.
+        for key in ["s", "i", "e", "w"] {
+            assert_eq!(jump(key, Dashboard, false, false, false, true), None, "{key}");
+        }
+        // Insights needs its source; Trace has its own gate.
+        assert_eq!(jump("i", Storage, false, true, true, false), None);
+        assert_eq!(jump("w", Storage, false, true, false, true), None);
+        assert_eq!(jump("s", Trace, false, true, false, true), Some(Storage));
+    }
+
+    #[test]
+    fn a_confirmation_is_kept_only_where_the_screen_draws_it() {
+        use View::*;
+        for view in [Insights, Telemetry] {
+            assert!(bar_drawn(view, (52, 14)), "{view:?}");
+            assert!(!bar_drawn(view, (51, 14)), "{view:?}");
+            assert!(!bar_drawn(view, (52, 13)), "{view:?}");
+        }
+        for view in [Dashboard, Storage, Trace] {
+            assert!(bar_drawn(view, (20, 3)), "{view:?}");
+            assert!(!bar_drawn(view, (20, 2)), "{view:?}");
+        }
+    }
+
+    #[test]
+    fn escape_waits_only_where_it_would_quit_during_a_start() {
+        assert!(escape_waits(true, View::Dashboard, false));
+        assert!(!escape_waits(false, View::Dashboard, false), "Esc quits when nothing runs");
+        assert!(!escape_waits(true, View::Dashboard, true), "Esc closes help");
+        assert!(!escape_waits(true, View::Storage, false), "Esc goes back from a screen");
+    }
+
+    /// With help over Trace every key goes to help: nothing reaches the trace or the dashboard.
+    #[test]
+    fn help_over_trace_keeps_keys_from_the_dashboard() {
+        let (mut s, host, _) = demo_state();
+        let wake = Wake::new().expect("a wake");
+        let mut handoff = T3Handoff::new(HandoffSource::Demo, None);
+        let row = s.rows().into_iter().find(|r| !r.is_earlier()).expect("an ordinary row");
+        select(&mut s, &row.id);
+        let mut tracing = Some(trace_live::Screen::new(trace_target(&s).expect("a local row")));
+        s.help = true;
+        let (selected, scope, window) = (s.selected.clone(), s.scope.clone(), s.window_index);
+        for key in ["enter", "o", "f", "a", "n", "t", "down", "up", "left", "right", "space", "x", "p", "r", "w", "j"] {
+            assert_eq!(trace_key(&mut s, &host, &mut tracing, &mut handoff, &wake, key), Some(false), "{key}");
+        }
+        assert_eq!((s.selected.clone(), s.scope.clone(), s.window_index), (selected, scope, window));
+        assert!(s.notice.is_none(), "{:?}", s.notice);
+        assert!(handoff.state().is_idle(), "f started nothing");
+        assert!(tracing.is_some() && s.help);
+        // Help's own keys and the theme and calm keys are the dashboard's still; q quits.
+        for key in ["?", "h", "escape", "m", "c", "C"] {
+            assert_eq!(trace_key(&mut s, &host, &mut tracing, &mut handoff, &wake, key), None, "{key}");
+        }
+        assert_eq!(trace_key(&mut s, &host, &mut tracing, &mut handoff, &wake, "q"), Some(true));
+    }
+
+    /// `r` on Trace reads the trace again, then lets the dashboard refresh too.
+    #[test]
+    fn r_on_trace_reads_the_trace_again() {
+        let (mut s, host, _) = demo_state();
+        let wake = Wake::new().expect("a wake");
+        let mut handoff = T3Handoff::new(HandoffSource::Demo, None);
+        let row = s.rows().into_iter().find(|r| !r.is_earlier()).expect("an ordinary row");
+        select(&mut s, &row.id);
+        let mut t = trace_live::Screen::new(trace_target(&s).expect("a local row"));
+        t.data = Some(Err(loupe_core::source::SourceError { kind: "unreadable", path: "stale".into(), detail: "stale".into() }));
+        let mut tracing = Some(t);
+        assert_eq!(trace_key(&mut s, &host, &mut tracing, &mut handoff, &wake, "r"), None);
+        assert!(tracing.as_ref().unwrap().trace().is_some(), "the demo trace was read again");
     }
 
     #[test]

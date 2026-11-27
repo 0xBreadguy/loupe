@@ -13,7 +13,9 @@
 //! A bracketed paste (`ESC [ 200 ~` … `ESC [ 201 ~`, which the presenter asks the terminal for with
 //! mode 2004) is dropped whole: everything between the markers is discarded unread, so pasted
 //! text cannot press a key, however many reads it arrives in and whatever bytes it holds. The
-//! original does the same. Where it waits for the end marker for as long as it takes, this parser
+//! original does the same. In text mode (the product's reply prompt, which the original does not
+//! have) the paste's text is typed instead, as characters only: a line break becomes a space and
+//! nothing in it can press Enter, Escape or any other key. Where it waits for the end marker for as long as it takes, this parser
 //! gives up after [`PASTE_QUIET`] without a byte, so a lost end marker cannot swallow the user's
 //! input for good (see [`Parser::deadline`]).
 use std::time::{Duration, Instant};
@@ -182,20 +184,30 @@ impl Parser {
         let mut out = Vec::new();
         loop {
             if self.paste.is_some() {
-                // Everything up to the end marker is the paste, and is dropped unread.
-                if let Some(at) = find(&self.buf, PASTE_END) {
-                    self.buf.drain(..at + PASTE_END.len());
+                // Everything up to the end marker is the paste. It is dropped unread, except in
+                // text mode, where its text is typed (and still presses no key).
+                let end = find(&self.buf, PASTE_END);
+                // The end marker may be cut between two reads: keep only a tail that could be
+                // the start of it, so a paste of any size costs no memory.
+                let body = end.unwrap_or_else(|| {
+                    let keep = (1..PASTE_END.len())
+                        .rev()
+                        .find(|&n| self.buf.ends_with(&PASTE_END[..n]))
+                        .unwrap_or(0);
+                    self.buf.len() - keep
+                });
+                let taken = if self.text_mode {
+                    pasted_text(&self.buf[..body], end.is_some(), &mut out)
+                } else {
+                    body
+                };
+                self.buf.drain(..taken);
+                if end.is_some() {
+                    self.buf.drain(..PASTE_END.len());
                     self.paste = None;
                     self.esc_at = None;
                     continue;
                 }
-                // The end marker may be cut between two reads: keep only a tail that could be
-                // the start of it, so a paste of any size costs no memory.
-                let keep = (1..PASTE_END.len())
-                    .rev()
-                    .find(|&n| self.buf.ends_with(&PASTE_END[..n]))
-                    .unwrap_or(0);
-                self.buf.drain(..self.buf.len() - keep);
                 break;
             }
             if self.buf.is_empty() {
@@ -317,6 +329,74 @@ impl Parser {
         }
         out
     }
+}
+
+/// A paste's text, typed: printable characters as they are, line breaks and tabs as one space
+/// each (a pasted line break must not send), escape sequences and other controls dropped.
+/// Returns how many bytes of `body` were used: all of them when `whole`, else all but a
+/// character or sequence cut off at the end, which waits for the next read.
+fn pasted_text(body: &[u8], whole: bool, out: &mut Vec<Event>) -> usize {
+    let mut i = 0;
+    while i < body.len() {
+        let b = body[i];
+        if b == 0x1b {
+            // A sequence is dropped whole: CSI to its final byte, SS3 with its one letter, OSC
+            // and DCS to BEL or ST. A lone ESC is dropped by itself.
+            let rest = &body[i + 1..];
+            let len = match rest.first() {
+                None if !whole => return i,
+                Some(b'[') => rest[1..].iter().position(|b| (0x40..=0x7e).contains(b)).map(|n| 1 + n + 2),
+                Some(b'O') => (rest.len() >= 2).then_some(3),
+                Some(b']' | b'P') => rest
+                    .iter()
+                    .position(|b| *b == 7)
+                    .map(|n| n + 2)
+                    .or_else(|| find(rest, b"\x1b\\").map(|n| n + 3)),
+                _ => Some(1),
+            };
+            match len {
+                Some(len) => i += len,
+                None if whole => return body.len(),
+                None => return i,
+            }
+            continue;
+        }
+        if b == b'\r' && body.get(i + 1) == Some(&b'\n') {
+            i += 1;
+            continue;
+        }
+        if matches!(b, b'\r' | b'\n' | b'\t') {
+            out.push(Event::Char(' '));
+            i += 1;
+            continue;
+        }
+        if b < 0x80 {
+            if b >= 0x20 && b != 0x7f {
+                out.push(Event::Char(b as char));
+            }
+            i += 1;
+            continue;
+        }
+        let need = match b {
+            0xc0..=0xdf => 2,
+            0xe0..=0xef => 3,
+            0xf0..=0xf7 => 4,
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        if i + need > body.len() {
+            return if whole { body.len() } else { i };
+        }
+        if let Some(ch) = std::str::from_utf8(&body[i..i + need]).ok().and_then(|s| s.chars().next()) {
+            if !ch.is_control() && !loupe_core::terminal::is_hidden(ch) {
+                out.push(Event::Char(ch));
+            }
+        }
+        i += need;
+    }
+    body.len()
 }
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
@@ -993,6 +1073,41 @@ mod tests {
             parse(&[START, b"qq", START, b"qq", END, b"j"].concat()),
             vec![Event::Key("j")]
         );
+    }
+
+    fn typed(events: &[Event]) -> String {
+        events
+            .iter()
+            .map(|e| match e {
+                Event::Char(c) => *c,
+                other => panic!("a paste in text mode pressed {other:?}"),
+            })
+            .collect()
+    }
+
+    /// In the reply prompt a paste is typed: its text, with line breaks as spaces, and never a key.
+    #[test]
+    fn a_paste_in_text_mode_is_typed_and_presses_no_key() {
+        let t0 = Instant::now();
+        let mut p = Parser::new();
+        p.set_text_mode(true);
+        assert_eq!(typed(&p.push(&pasted("ship it\r\nnow é🍞".as_bytes()), t0)), "ship it now é🍞");
+        // Nothing hostile becomes a key: controls, arrows, answers and mouse reports are dropped.
+        let mut p = Parser::new();
+        p.set_text_mode(true);
+        let text = typed(&p.push(&pasted(&hostile_paste()), t0));
+        assert_eq!(text, "qqqjjkk?xnapt  q\u{e9}\u{1f35e}q");
+        // Split across reads anywhere, a character, a sequence and the end marker still arrive whole.
+        let bytes = [START, "a\x1b[31mé🍞b".as_bytes(), END, b"\r"].concat();
+        for cut in 1..bytes.len() {
+            let mut p = Parser::new();
+            p.set_text_mode(true);
+            let mut events = p.push(&bytes[..cut], t0);
+            events.extend(p.push(&bytes[cut..], t0));
+            assert_eq!(events.last(), Some(&Event::Key("enter")), "cut at {cut}");
+            events.pop();
+            assert_eq!(typed(&events), "aé🍞b", "cut at {cut}");
+        }
     }
 
     #[test]

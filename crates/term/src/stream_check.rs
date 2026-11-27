@@ -154,6 +154,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut bytes_total = 0u64;
     let mut clock = TermClock { now: 0., wake: None };
     let mut tracing: Option<trace_live::Screen> = None;
+    // The fixed script never opens Insights (a database read would be real).
+    let mut no_insights = InsightsScreen::default();
     let mut full = true;
     let mut time = 0.;
     let mut last_read = f64::NEG_INFINITY;
@@ -222,7 +224,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
                 paint_with(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut sink)?;
             }
             for &(_, key) in seg.keys.iter().filter(|(at, _)| *at == i) {
-                dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut telemetry, &mut handoff, &mut tracing, key, size);
+                dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut telemetry, &mut no_insights, false, &mut handoff, &mut tracing, key, size);
                 paint_with(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut sink)?;
             }
             let elapsed = started.elapsed().saturating_sub(sink_time);
@@ -257,7 +259,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// The key handling of `present`'s loop, for the keys the script presses.
+/// The key handling of `present`'s loop, for the keys the script presses. Returns the screen a
+/// jump key brought to the front; Insights is then for the caller to present.
 #[allow(clippy::too_many_arguments)]
 fn dispatch_key(
     state: &mut State,
@@ -265,43 +268,49 @@ fn dispatch_key(
     clock: &mut TermClock,
     storage: &mut StorageScreen,
     telemetry: &mut TelemetryScreen,
+    insights: &mut InsightsScreen,
+    insights_available: bool,
     handoff: &mut T3Handoff,
     tracing: &mut Option<trace_live::Screen>,
     name: &'static str,
     size: (usize, usize),
-) {
-    if name == "e" && state.storage_key_in_help && tracing.is_none() && !storage.is_open() && !telemetry.is_open() {
-        if state.help {
-            on_key(state, host, clock, "escape", false);
-        }
-        telemetry.open(state, host);
-        return;
+) -> Option<View> {
+    let view = front(insights, tracing, telemetry, storage);
+    if !bar_drawn(view, size) {
+        handoff.dismiss();
+    }
+    let help = help_open(view, state, insights, telemetry, storage);
+    let product = state.storage_key_in_help;
+    let trace_key = host.themes.is_some();
+    if let Some(to) = jump(name, view, help, product, trace_key, insights_available) {
+        return Some(switch(to, state, host, storage, telemetry, insights, tracing, handoff, &mut |t, s, h| trace_read_now(t, s, h)));
+    }
+    if matches!(view, View::Storage | View::Insights | View::Telemetry) && matches!(name, "c" | "C" | "m") {
+        on_key(state, host, clock, name, false);
+        return None;
+    }
+    if view == View::Dashboard && matches!(name, "i" | "tab" | "shift-tab") {
+        return None;
     }
     if telemetry.is_open() {
-        if matches!(name, "c" | "C") {
-            on_key(state, host, clock, name, false);
-        } else {
-            telemetry.key(name, state, host, handoff);
-        }
-        return;
-    }
-    if name == "s" && state.storage_key_in_help && tracing.is_none() && !storage.is_open() {
-        if state.help {
-            on_key(state, host, clock, "escape", false);
-        }
-        storage.open(state);
-        return;
+        telemetry.key(name, state, host, handoff);
+        return None;
     }
     if storage.is_open() {
-        if matches!(name, "c" | "C") {
-            on_key(state, host, clock, name, false);
-        } else {
-            storage.key(name, state, host, handoff, size);
-        }
-        return;
+        storage.key(name, state, host, handoff, size);
+        return None;
     }
     if let Some(t) = tracing.as_mut() {
-        if !state.help && !matches!(name, "?" | "h" | "m" | "p" | "r" | "c" | "C" | "q") {
+        if state.help {
+            if !matches!(name, "?" | "h" | "escape" | "m" | "c" | "C") {
+                return None;
+            }
+        } else if name == "r" {
+            // `trace_reread`, in this thread.
+            t.data = None;
+            t.watch = None;
+            trace_read_now(t, state, host);
+        } else if !matches!(name, "?" | "h" | "m" | "p" | "c" | "C" | "q") {
             let at = host::input_now(state, host);
             match t.key(name) {
                 trace_live::Outcome::Close => *tracing = None,
@@ -310,26 +319,14 @@ fn dispatch_key(
                 trace_live::Outcome::Read => trace_read_now(t, state, host),
                 trace_live::Outcome::Stay => {}
             }
-            return;
+            return None;
         }
     }
-    if name == "w" {
-        if host.themes.is_some() && !state.help {
-            match trace_target(state) {
-                Ok(target) => {
-                    let mut t = trace_live::Screen::new(target);
-                    trace_read_now(&mut t, state, host);
-                    *tracing = Some(t);
-                }
-                Err(message) => {
-                    let at = host::input_now(state, host);
-                    state.note(message, false, at);
-                }
-            }
-        }
-        return;
+    if trace_key && name == "w" || product && matches!(name, "s" | "i" | "e") {
+        return None;
     }
     on_key(state, host, clock, name, false);
+    None
 }
 
 /// `trace_read`, in this thread: one read now instead of a watch thread.

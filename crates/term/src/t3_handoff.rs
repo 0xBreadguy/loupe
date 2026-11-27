@@ -499,8 +499,16 @@ impl T3Handoff {
             self.state = HandoffState::Error(err);
         } else if should_launch {
             self.launch_pending(host);
-        } else if let Some(pending) = &self.pending {
+        } else if let Some(pending) = &mut self.pending {
             self.state = state_for_pending(pending);
+            // The preview scrolls no further than its last line, so `k` always scrolls back at once.
+            if let PendingAction::Start { preview_scroll, .. } = pending {
+                let max = handoff::preview_max_scroll(&self.state, size.0, size.1);
+                if *preview_scroll > max {
+                    *preview_scroll = max;
+                    self.state = state_for_pending(pending);
+                }
+            }
         }
         HandoffKey::Consumed
     }
@@ -1619,6 +1627,81 @@ mod tests {
             HandoffState::ComposeSend { draft, .. } => assert_eq!(draft, "ab"),
             other => panic!("unexpected state: {other:?}"),
         }
+    }
+
+    fn confirm(prompt: String, destructive: bool) -> T3Handoff {
+        let mut h = T3Handoff::new(HandoffSource::Machine, None);
+        let state = State::new(loupe_core::model::Snapshot::default());
+        h.begin_start("diagnose trace", "title".into(), prompt, Some("proj-1"), None, None, destructive, &state);
+        h
+    }
+
+    fn preview_scroll(h: &T3Handoff) -> usize {
+        match h.state() {
+            HandoffState::ConfirmStart { preview_scroll, .. } => *preview_scroll,
+            other => panic!("unexpected state: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_preview_scrolls_no_further_than_its_last_line() {
+        let host = Host::demo(0.0);
+        let prompt: String = (0..60).map(|i| format!("line {i}\n")).collect();
+        let mut h = confirm(prompt, false);
+        let max = handoff::preview_max_scroll(h.state(), 120, 40);
+        assert!(max > 0, "sixty lines do not fit in the box");
+        for _ in 0..max + 20 {
+            h.key("j", &host, (120, 40));
+        }
+        assert_eq!(preview_scroll(&h), max);
+        h.key("pagedown", &host, (120, 40));
+        assert_eq!(preview_scroll(&h), max);
+        h.key("k", &host, (120, 40));
+        assert_eq!(preview_scroll(&h), max - 1, "one k scrolls back one line at once");
+        // A prompt that fits does not scroll, and its header offers no scrolling.
+        let mut short = confirm("short".into(), false);
+        assert_eq!(handoff::preview_max_scroll(short.state(), 120, 40), 0);
+        short.key("j", &host, (120, 40));
+        assert_eq!(preview_scroll(&short), 0);
+        let mut canvas = loupe_core::terminal::Canvas::new(120, 40);
+        handoff::draw_handoff_bar(&mut canvas, 38, short.state(), &loupe_core::terminal::Palette::default());
+        let text = canvas.to_text();
+        assert!(text.contains("T3 PAYLOAD PREVIEW") && !text.contains("j/k scroll"), "{text}");
+        let mut canvas = loupe_core::terminal::Canvas::new(120, 40);
+        handoff::draw_handoff_bar(&mut canvas, 38, h.state(), &loupe_core::terminal::Palette::default());
+        assert!(canvas.to_text().contains("j/k scroll"));
+    }
+
+    #[test]
+    fn an_armed_bar_says_esc_steps_back_and_esc_does() {
+        let host = Host::demo(0.0);
+        let mut h = confirm("prompt".into(), true);
+        let palette = loupe_core::terminal::Palette::default();
+        let bar = |h: &T3Handoff| {
+            let mut canvas = loupe_core::terminal::Canvas::new(140, 40);
+            handoff::draw_handoff_bar(&mut canvas, 38, h.state(), &palette);
+            canvas.row_text(38)
+        };
+        let mut armed = h.state().clone();
+        match &mut armed {
+            HandoffState::ConfirmStart { armed, needs_model_pick, .. } => {
+                *armed = true;
+                *needs_model_pick = false;
+            }
+            other => panic!("unexpected state: {other:?}"),
+        }
+        let mut canvas = loupe_core::terminal::Canvas::new(140, 40);
+        handoff::draw_handoff_bar(&mut canvas, 38, &armed, &palette);
+        let row = canvas.row_text(38);
+        assert!(row.contains("Esc back") && !row.contains("Esc cancel"), "{row}");
+        assert!(bar(&h).contains("Esc cancel"));
+        if let Some(PendingAction::Start { armed, .. }) = &mut h.pending {
+            *armed = true;
+        }
+        h.key("escape", &host, (140, 40));
+        assert!(matches!(h.state(), HandoffState::ConfirmStart { armed: false, .. }), "Esc disarms, and the bar stays");
+        h.key("escape", &host, (140, 40));
+        assert!(h.state().is_idle(), "a second Esc cancels");
     }
 
     #[test]

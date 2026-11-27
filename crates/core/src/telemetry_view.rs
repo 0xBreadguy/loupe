@@ -1021,6 +1021,8 @@ pub struct TelemetryView {
     body: Option<Canvas>,
     /// `(body_y, selectable_row_index)` hits for mouse clicks on the TELEMETRY tab.
     hits: Vec<(i32, usize)>,
+    /// The header's tab names, `(first x, end x, tab)`, as the last frame drew them.
+    tab_hits: Vec<(i32, i32, Tab)>,
     body_builds: u64,
     last_viewport_h: usize,
     follow_selection: bool,
@@ -1077,8 +1079,22 @@ impl TelemetryView {
         }
     }
 
-    pub fn press(&mut self, y: i32) -> bool {
-        if self.help || self.tab != Tab::Telemetry || y < 2 {
+    /// A click: on a tab's name in the header it shows that view; on the TELEMETRY tab's rows
+    /// it selects the row. Returns whether anything changed.
+    pub fn press(&mut self, x: i32, y: i32) -> bool {
+        if self.help {
+            return false;
+        }
+        if y == 0 {
+            let Some(&(_, _, tab)) = self.tab_hits.iter().find(|(from, to, _)| (*from..*to).contains(&x)) else {
+                return false;
+            };
+            if tab != self.tab {
+                self.toggle_tab();
+            }
+            return true;
+        }
+        if self.tab != Tab::Telemetry || y < 2 {
             return false;
         }
         let body_y = (y - 2) + self.scroll as i32;
@@ -1195,6 +1211,10 @@ impl TelemetryView {
             ("SOURCES", self.tab == Tab::Sources),
         ];
         overview::draw_header_badge(&mut c, state, p, None, Some(HeaderBadge::Tabs(&tabs)));
+        self.tab_hits = [(" TELEMETRY ", Tab::Telemetry), (" SOURCES ", Tab::Sources)]
+            .into_iter()
+            .filter_map(|(label, tab)| terminal::find_in_row(&c, 0, label).map(|(from, to)| (from, to, tab)))
+            .collect();
 
         // Row 1: Verdict strip (keep demo/checking status in header+footer to avoid repetition)
         c.fill(0, 1, ww, 1, p.panel);
@@ -1844,21 +1864,9 @@ fn build_help_body(cols: usize, is_demo: bool, p: &Palette) -> Canvas {
     let mut y = 0i32;
     terminal::section_with(&mut c, 1, y, ww - 2, "TELEMETRY HELP", p, "", p.dim);
     y += 1;
-    const HELP_LINES: &[(&str, &str)] = &[
-        ("tab / ⇧tab", "what T3 sends, or the files Loupe read"),
-        ("↑↓ / j k", "select a stream · scroll sources"),
-        ("PgUp PgDn", "a page · Home End: the ends"),
-        ("f", "start a T3 thread with fix instructions (asks first)"),
-        ("r", "check again now; also rechecks when a file changes"),
-        ("e / Esc", "dashboard · Esc closes help first"),
-        ("c C", "theme: next · back"),
-        ("q", "quit"),
-    ];
-    for (k, desc) in HELP_LINES {
-        c.text_bold(2, y, k, p.accent);
-        c.text(15, y, &fit(desc, ww - 16), p.fg);
-        y += 1;
-    }
+    let lines = crate::keymap::lines(crate::keymap::Screen::Telemetry, false);
+    let end = c.h as i32;
+    y = crate::keymap::draw(&mut c, y, end, &lines, p, p.fg);
     y += 1;
     let note = "Reads local files only: T3's settings and runtime note, the managed policy and the hosts file. Never opens T3's secrets, agent logins, /proc/*/environ, or the install ID itself. Sends nothing and changes nothing.";
     for line in wrap_lines(note, (ww - 4).max(20) as usize) {
@@ -1938,6 +1946,46 @@ mod tests {
         let g = restart_glyph();
         let mut buf = [0u8; 4];
         assert_eq!(terminal::width(g.encode_utf8(&mut buf)), 1);
+    }
+
+    /// A click on a tab's name in the header shows that view, from Sources too; help ignores clicks.
+    #[test]
+    fn clicking_a_tab_name_switches_views() {
+        let rep = demo::report(1_795_532_700_000.0);
+        let mut state = State::new(Snapshot::default());
+        state.demo = true;
+        state.now = 1_795_532_705_000.0;
+        let mut view = TelemetryView::new();
+        let canvas = view.render(&state, Some(&rep), 1, false, false, 120, 40);
+        let (sources, _) = terminal::find_in_row(&canvas, 0, " SOURCES ").unwrap();
+        let (telemetry, _) = terminal::find_in_row(&canvas, 0, " TELEMETRY ").unwrap();
+        assert!(view.press(sources + 2, 0));
+        assert_eq!(view.tab, Tab::Sources);
+        let canvas = view.render(&state, Some(&rep), 1, false, false, 120, 40);
+        assert!(canvas.to_text().contains("LOCAL SOURCES INSPECTED"));
+        assert!(!view.press(1, 0), "Loupe's name is not a tab");
+        assert_eq!(view.tab, Tab::Sources);
+        assert!(view.press(telemetry + 1, 0));
+        assert_eq!(view.tab, Tab::Telemetry);
+        view.help = true;
+        assert!(!view.press(sources + 2, 0));
+        assert_eq!(view.tab, Tab::Telemetry);
+    }
+
+    /// Help lists the shared keys in the key table's order and words.
+    #[test]
+    fn help_lists_the_shared_keys() {
+        let rep = demo::report(1_795_532_700_000.0);
+        let mut state = State::new(Snapshot::default());
+        state.demo = true;
+        let mut view = TelemetryView::new();
+        view.help = true;
+        let text = view.render(&state, Some(&rep), 1, false, false, 120, 40).to_text();
+        let at = |needle: &str| text.find(needle).unwrap_or_else(|| panic!("{needle} missing:\n{text}"));
+        assert!(at("J K / PgDn PgUp") < at("Tab / ⇧Tab"));
+        assert!(at("s i e w") < at("c C / m"));
+        assert!(at("? / h") < at("Esc / q"));
+        assert!(text.contains("s Storage · i Insights · w Trace · e dashboard"));
     }
 
     #[test]

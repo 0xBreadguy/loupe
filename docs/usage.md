@@ -13,67 +13,116 @@ it's already open with its app id, which foot always sets and
 
 ## Keys, marks and options
 
+One set of keys works on every screen: the dashboard, Insights, Storage,
+Telemetry and Trace.
+
+| Key | On every screen |
+| --- | --- |
+| `↑` `↓` / `j` `k`, click, wheel | move the selection (or scroll, where there's nothing to select) |
+| `g` `G` / `Home` `End` | first / last |
+| `J` `K` / `PgDn` `PgUp` | a page (on the dashboard: scroll the details) |
+| `Tab` / `Shift-Tab` | next / previous view in this screen: Storage's folders ↔ cleanup settings, Recap ↔ Tools, Telemetry ↔ Sources |
+| `s` `i` `e` `w` | go to [Storage](features.md), [Insights](features.md#insights), [Telemetry](features.md#telemetry-check) or [Trace](features.md#trace) from any screen; a screen's own key goes back to the dashboard |
+| `Enter` / `o` | open the selected thread in T3 Code |
+| `f` | hand this to a T3 Code agent: Loupe shows what it will send and asks first |
+| `r` | read it again: refresh, rescan, re-check, re-read |
+| `c` `C` / `m` | next / previous theme ([themes](themes.md)) / calm mode: nothing animates |
+| `?` / `h` | help; on Insights, Storage, Telemetry and Trace every key but the theme and calm keys goes to it while it's open |
+| `Esc` / `q` | back one level / quit |
+
+One exception: on the dashboard `f` means **follow**, and keeps the thread
+open in T3 selected. Everywhere else it hands work to a T3 agent.
+
+The dashboard also has these:
+
 | Key | Action |
 | --- | --- |
-| `↑` `↓` / `j` `k`, click, wheel | select an agent |
-| `g` `G` / `Home` `End` | first / last agent |
-| `Enter` / `o` | open the selected agent's thread in T3 Code |
-| `M` | send a quick reply or contextual nudge to the selected local thread (`t3 thread send`, asks first) |
-| `Space` / `←` `→` | fold or unfold subagents; `→` again lists the earlier ones too, `←` steps back (on a leaf it jumps to the parent) |
 | `n` | jump to the next agent waiting on you (or click the NEEDS YOU tile) |
+| `Space` / `←` `→` | fold or unfold subagents; `→` again lists the earlier ones too, `←` steps back (on a leaf it jumps to the parent) |
 | `a` | scope: all threads → active only → T3's sidebar (not settled or snoozed) → all |
-| `f` | follow the thread open in T3 (on by default) |
 | `t` | lane window: 15 min, 30 min, 1 h, 3 h |
-| `J` `K` / `PgDn` `PgUp`, wheel over details | scroll the details |
-| `p` / `r` | pause updates / refresh now |
-| `i` | open [Insights](features.md#insights) on Recap for this week |
-| `s` | Storage: disk use by project and thread |
-| `e` | [Telemetry](features.md#telemetry-check): check what T3 Code sends and whether opt-outs work |
-| `m` | calm mode: nothing animates (on by default when Omarchy's animations are off) |
+| `p` | pause updates |
 | `x` | CRT effects, purely for fun (off in calm mode) |
-| `c` / `C` | next / previous theme, saved for next time ([themes](themes.md)) |
-| `w` | [trace](features.md#trace) the selected agent's task: every step on one clock; `w` or `Esc` goes back |
-| `?` / `h` | help and legend (scroll it with `↑` `↓` / `j` `k` or the wheel) |
-| `Esc` | close help, return from Insights, Storage, Telemetry or Trace, or quit |
+| `M` | send a quick reply or a nudge to the selected local thread (`t3 thread send`, asks first) |
+
+On the dashboard `Esc` closes help, then quits; with help open, the arrows
+and the wheel scroll it. Calm mode is on by default when Omarchy's animations
+are off. The numpad works too: its Enter opens threads, and with Num Lock off
+its arrows, Home, End and Page Up/Down act like the main keys.
+
+**Insights** opens on Recap for this week. `←` `→` step through this week,
+last week, this month and last month, and a click on a period or on RECAP /
+TOOLS picks it. `f` starts a T3 Code thread to audit slow or failing tools
+(Tools) or turn the week's findings into workflow changes (Recap). `r` reads
+the report again and keeps the old one on screen until it's done.
+
+**Storage** lists disk use by project and thread. `Space` folds a project
+(so does `Enter` on its row), `f` has a T3 Code thread inspect and clean up
+the selected worktrees or build caches, and `r` measures again. The T3
+CLEANUP band above the list names T3's auto-delete settings that are off and
+what they would cover. When T3's settings could be read, `Tab` switches to
+the cleanup settings panel: select a setting to have it explained, `f` starts
+a T3 thread to set them up with you, `r` reads them again, and `Tab` or `Esc`
+goes back to the folders. Change settings in T3 Settings › Worktrees; Loupe
+only reads them. Disk measurements need the live dashboard on Linux. The demo
+uses sample sizes, and an explicit `--db` leaves them unavailable.
+
+**Trace** shows the selected agent's task on one clock. `←` `→` step to the
+thread's previous or next task, `Enter` on a delegate opens its own trace
+(on anything else it opens the thread in T3), `f` starts a T3 Code thread to
+diagnose why the task was slow, stalled or failed (with only the timings,
+statuses and program names on screen), `r` reads the trace again and `p`
+pauses updates. `Esc` goes back one trace, then to the dashboard; `w` goes
+straight back.
+
+**Telemetry** checks what T3 Code sends and whether opt-outs work. On the
+Telemetry view the selection picks a stream and shows its decision ladder or
+notes; on Sources the arrows and wheel scroll, and a click on TELEMETRY or
+SOURCES in the header switches views. `f` starts a T3 Code thread with the
+findings and fix instructions when telemetry isn't already off, and `r`
+checks again (it also does when a file changes). It reads local files only
+(never secrets, agent logins or `/proc/*/environ`), sends nothing and changes
+nothing. The demo uses a made-up machine, and an explicit `--db` leaves it
+unavailable.
+
+### The confirmation bar
+
+`f` (and `M`) never start anything straight away. A bar at the bottom says
+what will happen, with a preview of exactly what goes to T3: the title,
+project, model, base folder and prompt.
+
+| Key | In the confirmation bar |
+| --- | --- |
+| `Enter` | start the T3 thread; for changes to files or settings, the first `Enter` arms and the second starts |
+| `←` `→` / `Tab` | pick the project |
+| `↑` `↓` | pick the model (`j` `k` too while the preview is hidden) |
+| `p` | show or hide the preview |
+| `j` `k` / `PgDn` `PgUp` | scroll the preview |
+| `Esc` | back: disarm, then cancel |
 | `q` | quit |
 
-In Insights, press `Tab` to switch between Recap and Tools. The left and right
-arrows step through this week, last week, this month and last month. Use the
-wheel, `↑` `↓` / `j` `k`, `PgUp` `PgDn` or `Home` `End` to scroll. Press `f` to
-start a T3 Code thread to audit slow/failing tools (Tools) or turn weekly
-findings into workflow optimizations (Recap) — Loupe shows a confirmation bar
-and project picker first. Press `r` to read the report again, `?` for help, and
-`i` or Esc to return to Live. Esc closes help first.
+The preview needs a terminal of at least 28 × 7, and `Enter` waits until it
+fits. Insights and Telemetry draw the bar from 52 × 14; below that `f` does
+nothing, and shrinking the window cancels a bar it can no longer show. After a
+start, `Esc` dismisses the result. While a thread is being started, `Esc` on
+the dashboard waits instead of quitting.
 
-In Storage, use the arrows or wheel to select a row, Space to fold a project,
-Enter to open an eligible thread in T3 Code, `f` to have a T3 Code thread
-inspect and clean up the selected worktrees or build caches (asks before
-starting), and `r` to measure again. Press `s` or Esc to return to the
-dashboard. The T3 CLEANUP band above the list names T3's auto-delete
-settings that are off and what they would cover. Press `Tab` to switch to the
-T3 cleanup settings panel when T3's settings could be read: `↑` `↓` / `j` `k`
-or a click selects a setting and explains it, `J` `K` / PgDn PgUp move a page,
-`g` `G` / Home End jump to the ends, `f` starts a T3 thread to set them up with
-you, and `Tab` or Esc goes back to the folders. Change settings in T3 Settings ›
-Worktrees; Loupe only reads them. Disk measurements are available with the live dashboard on Linux. The
-demo uses sample sizes, and an explicit `--db` leaves filesystem measurements
-unavailable.
+### The reply prompt
 
-In Trace, press `f` to start a T3 Code thread to diagnose why the task was slow,
-stalled or failed (with only the timings, statuses and listed program names
-shown on screen).
+`M` on the dashboard offers replies that fit the selected thread.
 
-In Telemetry, press `Tab` to switch between Telemetry and Sources. Use the
-arrows, `j`/`k`, click or wheel to select a row and inspect its decision ladder
-or notes, `f` to start a T3 Code thread with the findings and fix instructions
-when telemetry isn't already off, `r` to check again now, `?` for help, and `e`
-or Esc to return to Live. Telemetry reads local files only (never secrets, agent
-logins or `/proc/*/environ`), sends nothing and changes nothing. The demo uses a
-made-up machine, and an explicit `--db` leaves local telemetry inspection
-unavailable.
+| Key | In the reply prompt |
+| --- | --- |
+| `←` `→` | pick a reply |
+| `Enter` | send it (on "custom reply…", start typing) |
+| `Tab` | type your own |
+| `Esc` | cancel |
 
-The numpad works too: its Enter opens threads, and with Num Lock off its arrows,
-Home, End and Page Up/Down act like the main keys.
+While typing, `Enter` sends, `Backspace` deletes, `Ctrl-U` clears and `Esc`
+goes back to the replies. Pasting works; line breaks become spaces, and a
+reply holds up to 400 characters.
+
+### Marks and options
 
 | Mark | Meaning |
 | --- | --- |

@@ -160,6 +160,10 @@ impl StorageScreen {
         self.view.is_some()
     }
 
+    pub(super) fn help_open(&self) -> bool {
+        self.view.as_ref().is_some_and(StorageView::help_open)
+    }
+
     pub(super) fn open(&mut self, dashboard: &State) {
         self.view = Some(StorageView::default());
         self.now = dashboard.now;
@@ -168,7 +172,7 @@ impl StorageScreen {
         self.update_headroom(dashboard);
     }
 
-    fn close(&mut self) {
+    pub(super) fn close(&mut self) {
         // Stop the walk. The retained completion stays in the session.
         if let Some(worker) = &mut self.worker {
             worker.cancel();

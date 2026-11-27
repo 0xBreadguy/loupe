@@ -115,7 +115,8 @@ impl TelemetryScreen {
         ))
     }
 
-    /// Returns `true` when the user pressed `q` to quit Loupe.
+    /// Returns `true` when the user pressed `q` to quit Loupe. `e`, the screen's own key, is the
+    /// presenter's (it goes back to the dashboard unless help is open).
     pub(super) fn key(
         &mut self,
         name: &str,
@@ -143,17 +144,12 @@ impl TelemetryScreen {
                 }
                 return false;
             }
-            "e" => {
-                handoff.dismiss();
-                self.close();
-                return false;
-            }
             _ if view.help => {
                 match name {
                     "down" | "j" => view.scroll_motion(Motion::Rows(1)),
                     "up" | "k" => view.scroll_motion(Motion::Rows(-1)),
-                    "pagedown" => view.scroll_motion(Motion::Page(1)),
-                    "pageup" => view.scroll_motion(Motion::Page(-1)),
+                    "pagedown" | "J" => view.scroll_motion(Motion::Page(1)),
+                    "pageup" | "K" => view.scroll_motion(Motion::Page(-1)),
                     "home" | "g" => view.scroll_motion(Motion::Start),
                     "end" | "G" => view.scroll_motion(Motion::End),
                     _ => {}
@@ -213,8 +209,8 @@ impl TelemetryScreen {
                     v.move_selection(-1, total);
                 }
             }
-            "pagedown" => view.scroll_motion(Motion::Page(1)),
-            "pageup" => view.scroll_motion(Motion::Page(-1)),
+            "pagedown" | "J" => view.scroll_motion(Motion::Page(1)),
+            "pageup" | "K" => view.scroll_motion(Motion::Page(-1)),
             "home" | "g" => {
                 if view.tab == loupe_core::telemetry_view::Tab::Telemetry {
                     view.selected = 0;
@@ -239,10 +235,15 @@ impl TelemetryScreen {
         false
     }
 
-    pub(super) fn press(&mut self, y: i32) {
+    /// A click: a tab's name in the header shows that view; a row on Telemetry selects it.
+    pub(super) fn press(&mut self, x: i32, y: i32) {
         if let Some(view) = self.view.as_mut() {
-            view.press(y);
+            view.press(x, y);
         }
+    }
+
+    pub(super) fn help_open(&self) -> bool {
+        self.view.as_ref().is_some_and(|view| view.help)
     }
 
     pub(super) fn wheel(

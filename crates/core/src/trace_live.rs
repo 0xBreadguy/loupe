@@ -215,10 +215,11 @@ impl Screen {
         Outcome::Read
     }
 
-    /// Apply a key. `w` and Esc go back one trace, then close.
+    /// Apply a key. Esc goes back one trace, then closes; `w`, Trace's own key, closes.
     pub fn key(&mut self, name: &str) -> Outcome {
         match name {
-            "w" | "escape" => {
+            "w" => Outcome::Close,
+            "escape" => {
                 if self.stack.len() > 1 {
                     self.stack.pop();
                     self.data = None;
@@ -359,6 +360,11 @@ mod tests {
         assert_eq!((s.stack.len(), s.target().clone()), (2, Target::Thread(local.delegate.as_ref().unwrap().child_thread.clone().unwrap())));
         assert_eq!(s.key("escape"), Outcome::Read);
         assert_eq!(s.stack.len(), 1);
+        // `w` leaves Trace from a delegate's trace too, not one level at a time.
+        s.selected = Some(local.key.clone());
+        s.data = Some(trace::demo(1_795_000_000_000.).map(Some));
+        assert_eq!(s.key("enter"), Outcome::Read);
+        assert_eq!(s.key("w"), Outcome::Close);
         // A remote delegate cannot be opened here, and says so.
         let mut s = screen();
         let remote = t.spans.iter().find(|s| s.delegate.as_ref().is_some_and(|d| d.remote)).unwrap();

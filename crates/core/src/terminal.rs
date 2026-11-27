@@ -1873,6 +1873,19 @@ impl Canvas {
     }
 }
 
+/// Where `label` (one cell per character) is drawn on row `y`: its first column and the column
+/// after it. For clicks on words a frame drew, such as a header's tab names.
+pub fn find_in_row(c: &Canvas, y: i32, label: &str) -> Option<(i32, i32)> {
+    let want: Vec<char> = label.chars().collect();
+    if y < 0 || y as usize >= c.h || want.is_empty() || want.len() > c.w {
+        return None;
+    }
+    let row = &c.cells[y as usize * c.w..(y as usize + 1) * c.w];
+    (0..=c.w - want.len())
+        .find(|&x| row[x..x + want.len()].iter().zip(&want).all(|(cell, ch)| cell.ch == *ch))
+        .map(|x| (x as i32, (x + want.len()) as i32))
+}
+
 // ── Glyph primitives ────────────────────────────────────────────────────────
 
 const EIGHTHS: [char; 8] = [' ', '▏', '▎', '▍', '▌', '▋', '▊', '▉'];
