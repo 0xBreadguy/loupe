@@ -49,7 +49,13 @@ In Storage, use the arrows or wheel to select a row, Space to fold a project,
 Enter to open an eligible thread in T3 Code, `f` to start a T3 Code thread to
 inspect and clean up the selected worktrees or build caches (asks first, with
 two-step confirmation), and `r` to measure again. Press `s` or Esc to return to
-the dashboard. Disk measurements are available with the live dashboard on Linux. The
+the dashboard. The T3 CLEANUP band above the list names T3's auto-delete
+settings that are off and what they would cover. Press `Tab` to switch to the
+T3 cleanup settings panel when T3's settings could be read: `↑` `↓` / `j` `k`
+or a click selects a setting and explains it, `J` `K` / PgDn PgUp move a page,
+`g` `G` / Home End jump to the ends, `f` starts a T3 thread to set them up with
+you, and `Tab` or Esc goes back to the folders. Change settings in T3 Settings ›
+Worktrees; Loupe only reads them. Disk measurements are available with the live dashboard on Linux. The
 demo uses sample sizes, and an explicit `--db` leaves filesystem measurements
 unavailable.
 

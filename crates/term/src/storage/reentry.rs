@@ -19,10 +19,10 @@
 
 use std::time::{Duration, Instant};
 
-use loupe_core::storage::{Coverage, Inventory};
+use loupe_core::storage::Coverage;
 use loupe_core::storage_view::data::Shown;
 
-use super::{OwnedInput, StorageSource};
+use super::{OwnedInput, Scanned, StorageSource};
 
 /// How long a completed measurement may be shown again without walking.
 pub const FRESH_FOR: Duration = Duration::from_secs(15);
@@ -83,12 +83,12 @@ pub fn walk_key(input: &OwnedInput) -> WalkKey {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Decision {
     /// Paint the retained rows. Do not walk.
-    Keep { inventory: Inventory, shown: Shown },
+    Keep { inventory: Scanned, shown: Shown },
     /// Paint the retained rows as a previous measurement and walk.
-    Refresh { inventory: Inventory, shown: Shown },
+    Refresh { inventory: Scanned, shown: Shown },
     /// Nothing retained matches this input.
     Scan,
 }
@@ -104,7 +104,7 @@ pub enum Commit {
 
 struct Slot {
     key: WalkKey,
-    inventory: Inventory,
+    inventory: Scanned,
     at: Instant,
     at_ms: u64,
 }
@@ -150,15 +150,16 @@ impl Session {
     pub fn commit(
         &mut self,
         input: &OwnedInput,
-        inventory: &Inventory,
+        inventory: impl Into<Scanned>,
         at: Instant,
         at_ms: u64,
     ) -> Commit {
         let key = walk_key(input);
+        let inventory = inventory.into();
         if inventory.worktrees == Coverage::Complete && inventory.claude == Coverage::Complete {
             self.slot = Some(Slot {
                 key,
-                inventory: inventory.clone(),
+                inventory,
                 at,
                 at_ms,
             });
@@ -174,7 +175,7 @@ impl Session {
     /// The last completion for this input, labeled as previous. Used when a walk
     /// dies without a result. A failure is not a new completion and does not
     /// erase the slot.
-    pub fn retained(&self, input: &OwnedInput) -> Option<(Inventory, Shown)> {
+    pub fn retained(&self, input: &OwnedInput) -> Option<(Scanned, Shown)> {
         let slot = self.slot.as_ref()?;
         (slot.key == walk_key(input))
             .then(|| (slot.inventory.clone(), Shown::Kept { at_ms: slot.at_ms }))

@@ -1,16 +1,16 @@
-use super::OwnedInput;
+use super::{OwnedInput, Scanned};
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use loupe_core::storage::{Cancelled, Inventory};
+use loupe_core::storage::Cancelled;
 
 #[derive(Debug)]
 pub enum ScanState {
     Idle,
     /// Indeterminate. Inventory only reports coverage after the walk returns.
     Scanning,
-    Ready(Inventory),
+    Ready(Scanned),
     /// The worker exited unexpectedly.
     Failed,
 }
@@ -23,7 +23,7 @@ struct Job {
 #[derive(Default)]
 struct Mailbox {
     pending: Option<Job>,
-    ready: Option<Inventory>,
+    ready: Option<Scanned>,
     closed: bool,
 }
 
@@ -40,12 +40,12 @@ impl StorageWorker {
     /// `notify` wakes the presenter when a result is ready. It runs on this worker and must
     /// return promptly. If it uses a wake channel, capture an owned handle: drop never joins.
     pub fn new(notify: impl Fn() + Send + 'static) -> io::Result<Self> {
-        Self::start(notify, |input, cancelled| input.scan(cancelled))
+        Self::start(notify, |input, cancelled| input.scan_all(cancelled))
     }
 
-    pub(super) fn start(
+    pub(super) fn start<S: Into<Scanned>>(
         notify: impl Fn() + Send + 'static,
-        scan: impl Fn(&OwnedInput, &dyn Fn() -> bool) -> Result<Inventory, Cancelled> + Send + 'static,
+        scan: impl Fn(&OwnedInput, &dyn Fn() -> bool) -> Result<S, Cancelled> + Send + 'static,
     ) -> io::Result<Self> {
         let mailbox = Arc::new(Mutex::new(Mailbox::default()));
         let shared = Arc::clone(&mailbox);
@@ -74,7 +74,7 @@ impl StorageWorker {
                         if cancelled() {
                             continue;
                         }
-                        mail.ready = Some(result);
+                        mail.ready = Some(result.into());
                     }
                     notify();
                 }

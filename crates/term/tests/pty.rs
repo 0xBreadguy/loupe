@@ -839,12 +839,23 @@ fn storage_demo_opens_rescans_and_returns_through_the_product_entry() {
     pty.wait_for(b"storage: disk use by project and thread", 1);
     pty.send(b"s");
     pty.wait_for(b"folders \xc2\xb7 scan", 1);
-    pty.send(b"r");
+    // Made-up settings: every auto-delete setting off, one project with its own rule.
+    pty.wait_for(b"T3 CLEANUP", 1);
+    pty.wait_for(b"off \xc2\xb7 no auto-delete on", 1);
+    // Tab switches to the cleanup settings panel and back.
+    pty.send(b"\t");
+    pty.wait_for(b"DELETE WORKTREES", 1);
+    pty.wait_for(b"oldest 12d", 1);
+    pty.send(b"j");
+    pty.wait_for(b"no activity.", 1);
+    pty.send(b"\t");
     pty.wait_for(b"folders \xc2\xb7 scan", 2);
+    pty.send(b"r");
+    pty.wait_for(b"folders \xc2\xb7 scan", 3);
     pty.send(b"h");
     pty.wait_for(b"STORAGE HELP", 1);
     pty.send(b"\x1b");
-    pty.wait_for(b"folders \xc2\xb7 scan", 3);
+    pty.wait_for(b"folders \xc2\xb7 scan", 4);
     pty.send(b"\x1b");
     pty.wait_for(b"AGENTS", 2);
     pty.send(b"sq");

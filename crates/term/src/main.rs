@@ -739,7 +739,9 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
                     painted = true;
                     continue;
                 }
-                Event::Key("i" | "tab" | "shift-tab") => continue,
+                // Tab switches Storage between its folder list and the cleanup settings panel.
+                Event::Key("i") => continue,
+                Event::Key("tab" | "shift-tab") if !storage.is_open() => continue,
                 Event::Key("s") if state.storage_key_in_help && tracing.is_none() && !storage.is_open() && !telemetry.is_open() => {
                     if state.help {
                         on_key(&mut state, &mut host, &mut clock, "escape", replay.is_some());

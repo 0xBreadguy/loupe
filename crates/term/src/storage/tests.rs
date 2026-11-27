@@ -196,6 +196,41 @@ fn explicit_db_needs_opt_in_to_scan_even_with_a_managed_looking_layout() {
         }
     );
     assert_eq!(result.threads["fallback"], Usage::default());
+    // The scratch folder has no database beside its worktrees: the facts read fails and the
+    // walk still completes.
+    assert_eq!(result.facts, Facts::Failed);
+}
+
+#[test]
+fn roots_name_t3s_data_folder_and_database() {
+    let roots = ScanRoots {
+        worktrees: PathBuf::from("/synthetic/t3/worktrees"),
+        temp: PathBuf::from("/synthetic/tmp"),
+        uid: 7,
+    };
+    assert_eq!(roots.data_folder(), Path::new("/synthetic/t3"));
+    assert_eq!(roots.database(), Path::new("/synthetic/t3/userdata/statev2.sqlite"));
+}
+
+#[test]
+fn demo_scan_carries_made_up_cleanup_folders_and_facts() {
+    let base = 1_794_484_800_000.;
+    let snapshot = loupe_core::demo::snapshot(base, base).unwrap();
+    let scanned = StorageSource::Demo.input(&snapshot).scan_all(|| false).unwrap();
+    assert_eq!(scanned.facts, Facts::Demo);
+    for (name, project, ..) in cleanup_rules::DEMO_FOLDERS {
+        let folder = scanned
+            .folders
+            .iter()
+            .find(|f| f.path.ends_with(name))
+            .unwrap_or_else(|| panic!("{name}"));
+        assert_eq!(folder.owner, Owner::Missing);
+        assert_eq!(folder.project_id.as_deref(), *project, "{name}");
+    }
+    assert_eq!(
+        scanned.total.total_bytes(),
+        scanned.projects.values().map(|u| u.total_bytes()).sum::<u64>() + scanned.other.total_bytes()
+    );
 }
 
 #[test]
@@ -351,7 +386,7 @@ fn dropping_worker_cancels_without_waiting_for_the_active_scan() {
             started.send(()).unwrap();
             unblocked.recv_timeout(WAIT).unwrap();
             cancelled.send(is_cancelled()).unwrap();
-            Err(Cancelled)
+            Err::<Inventory, _>(Cancelled)
         },
     )
     .unwrap();
