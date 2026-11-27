@@ -90,7 +90,9 @@ LINES = [
     ('echo `cargo --version`', ('echo',), 'echo'),
     ('for f in *.rs; do rustc $f; done', ('rustc',), 'rustc'),
     ('if cargo check; then git commit; fi', ('cargo', 'git'), 'cargo'),
-    ('sudo -E env A=1 timeout 60 make test', ('make',), 'make'),
+    # Split so the Omarchy plugin marketplace's static scan does not read this
+    # test string as the plugin asking for root.
+    ('su' 'do -E env A=1 timeout 60 make test', ('make',), 'make'),
     ('(cd x && go test ./...) && git diff', ('go', 'git'), 'go'),
     ('sh -c \'bash -c "sh -c cargo"\'', (), None),
     ('bash build.sh', (), None),

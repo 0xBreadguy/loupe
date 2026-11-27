@@ -76,8 +76,22 @@ The Omarchy bar widget:
 omarchy plugin add https://github.com/0xBreadguy/loupe --enable
 ```
 
-Building from source, keeping the Mac build on your `PATH`, updating and
-removing are all in [docs/install.md](docs/install.md).
+The widget runs the `loupe` command, so install that first with the Linux
+steps above. If you have Rust's `cargo`, the plugin folder can build it
+instead: `~/.config/omarchy/plugins/0xbreadguy.loupe/install.sh`. Until
+`loupe` is there, the widget shows an alert icon and says why. Either way it
+needs T3 Code's desktop app on the same machine, installs for your user only,
+and never touches your Omarchy config.
+
+To remove it all:
+
+```sh
+~/.config/omarchy/plugins/0xbreadguy.loupe/install.sh --uninstall
+omarchy plugin remove 0xbreadguy.loupe
+```
+
+Building from source, keeping the Mac build on your `PATH` and updating are
+in [docs/install.md](docs/install.md).
 
 ## What you get
 
@@ -130,7 +144,7 @@ removing are all in [docs/install.md](docs/install.md).
 - **A bar widget** on Omarchy: a count in the bar, and a card of who's doing
   what when you click it.
 
-![The Omarchy bar widget card, with demo data](docs/bar-widget.png)
+![The Omarchy bar widget card, with demo data](preview.png)
 
 ### More views
 

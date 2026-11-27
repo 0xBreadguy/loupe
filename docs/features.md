@@ -406,4 +406,4 @@ machine with a broken opt-out so you can inspect the layout first.
 - Right-click opens the dashboard straight away, middle-click restarts the
   watcher, and hovering gives a one-line summary.
 
-![The bar widget's card on stock Omarchy, with demo data](bar-widget.png)
+![The bar widget's card on stock Omarchy, with demo data](../preview.png)
