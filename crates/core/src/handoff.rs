@@ -24,6 +24,9 @@ use std::time::Duration;
 /// Minimum terminal dimensions required to render the exact payload preview before confirmation.
 pub const MIN_PREVIEW_COLS: usize = 28;
 pub const MIN_PREVIEW_ROWS: usize = 7;
+/// Below this size (columns, rows) Insights draws neither its `f` hint nor the handoff bar, so
+/// the presenter must not keep a confirmation it cannot show.
+pub const INSIGHTS_BAR_MIN: (usize, usize) = (52, 14);
 
 /// Sanitize a handoff thread title so the title displayed in preview and passed to `--title=`
 /// are byte-for-byte identical (single-line, no controls/BiDi, never starts with `-`).
@@ -1867,8 +1870,10 @@ pub fn draw_handoff_bar(c: &mut Canvas, y: i32, state: &HandoffState, p: &Palett
             let mut x = 1;
             if !can_preview {
                 x += c.text_bg(x, y, "!", p.hot, p.sel, true) + 1;
+                // Armed, Esc disarms; otherwise it cancels.
+                let esc = if *armed { "Esc disarm" } else { "Esc cancel" };
                 let msg = format!(
-                    "Terminal too small to preview payload (need {MIN_PREVIEW_COLS}x{MIN_PREVIEW_ROWS}) · Esc cancel"
+                    "Terminal too small to preview payload (need {MIN_PREVIEW_COLS}x{MIN_PREVIEW_ROWS}) · {esc}"
                 );
                 c.text_bg(x, y, &fit(&msg, w - 1 - x), p.fg, p.sel, true);
                 return;
@@ -2097,6 +2102,22 @@ pub fn clamp_preview_scroll(state: &HandoffState, cols: usize, rows: usize) -> u
     (*preview_scroll).min(max_scroll)
 }
 
+/// How far the payload preview can scroll on a `cols` × `rows` screen whose bar is at
+/// `rows - 2`, as every screen draws it: 0 when it is hidden, cannot be drawn, or fits.
+pub fn preview_max_scroll(state: &HandoffState, cols: usize, rows: usize) -> usize {
+    let HandoffState::ConfirmStart { preview: true, .. } = state else {
+        return 0;
+    };
+    if cols < MIN_PREVIEW_COLS || rows < MIN_PREVIEW_ROWS {
+        return 0;
+    }
+    let mut unbounded = state.clone();
+    if let HandoffState::ConfirmStart { preview_scroll, .. } = &mut unbounded {
+        *preview_scroll = usize::MAX;
+    }
+    clamp_preview_scroll(&unbounded, cols, rows)
+}
+
 fn preview_box_geom(w: i32, bar_y: i32) -> Option<(i32, i32, i32, i32, usize)> {
     let margin_x = if w >= 96 {
         3
@@ -2243,8 +2264,10 @@ fn draw_preview_modal(
     let start = scroll.min(max_scroll);
     let end = (start + visible).min(lines.len());
 
+    // `j/k scroll` only when there is more than the box shows.
+    let scroll_hint = if max_scroll > 0 { " · j/k scroll" } else { "" };
     let header = format!(
-        " T3 PAYLOAD PREVIEW ({}-{} / {}) · j/k scroll · p hide ",
+        " T3 PAYLOAD PREVIEW ({}-{} / {}){scroll_hint} · p hide ",
         start + 1,
         end.max(1),
         lines.len().max(1)
@@ -2319,53 +2342,14 @@ pub fn decorate_insights_canvas(
     handoff: &HandoffState,
     p: &Palette,
 ) {
-    let w = c.w as i32;
     let h = c.h as i32;
-    if w < 52 || h < 14 {
+    if c.w < INSIGHTS_BAR_MIN.0 || c.h < INSIGHTS_BAR_MIN.1 {
         return;
     }
 
-    if help {
-        // Place the `f` key note cleanly into the first blank row in the help body;
-        // if short terminals (h <= 16) fill through h-2, place it on row h-2 above the footer.
-        let mut placed = false;
-        for y in 10..h.saturating_sub(1) {
-            let blank = (0..c.w).all(|x| {
-                c.get(x as i32, y)
-                    .is_none_or(|cell| cell.ch == ' ' || cell.ch == '\0')
-            });
-            if blank {
-                c.text_bold(2, y, "f", p.accent);
-                c.text(
-                    15,
-                    y,
-                    &terminal::fit(
-                        "start a T3 thread to optimize this report (asks first)",
-                        c.w.saturating_sub(16),
-                    ),
-                    p.text2,
-                );
-                placed = true;
-                break;
-            }
-        }
-        if !placed && h >= 14 {
-            let y = h - 2;
-            c.fill(0, y, w, 1, p.bg);
-            c.text_bold(2, y, "f", p.accent);
-            c.text(
-                15,
-                y,
-                &terminal::fit(
-                    "start a T3 thread to optimize this report (asks first)",
-                    c.w.saturating_sub(16),
-                ),
-                p.text2,
-            );
-        }
-    } else if actionable {
-        // Insert `f optimize in T3` into the footer right after the existing keys if space permits,
-        // falling back to the shorter label on tighter widths.
+    // Help lists `f` itself (keymap); the footer offers it when the report has something to act on.
+    if actionable && !help {
+        // Insert `f optimize in T3` into the footer right after the existing keys if space permits.
         let fy = h - 1;
         let row_text = c.row_text(fy as usize);
         let candidates: &[&str] = match tab {

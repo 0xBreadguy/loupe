@@ -703,8 +703,9 @@ fn panel_keys_move_the_selection_and_close_it() {
             .to_text()
             .contains("STORAGE HELP")
     );
-    // Keys pressed over help do not reach the hidden panel.
-    for key in ["f", "j", "k", "g", "tab", "enter"] {
+    // Keys pressed over help do not reach the hidden panel, and `s` does not leave.
+    assert!(view.help_open());
+    for key in ["f", "j", "k", "g", "tab", "enter", "s", "r"] {
         assert_eq!(view.key(key, &data, 120, 40), None, "{key}");
     }
     assert_eq!(view.panel_selection(&data), Some("project-rule"));
@@ -725,6 +726,9 @@ fn panel_keys_move_the_selection_and_close_it() {
     assert_eq!(view.key("c", &data, 120, 40), None);
     assert!(!view.panel_open());
     view.key("tab", &data, 120, 40);
+    // `r` reads it again from the panel too: the settings and the folders.
+    assert_eq!(view.key("r", &data, 120, 40), Some(Effect::Rescan));
+    assert!(view.panel_open());
     assert_eq!(view.key("q", &data, 120, 40), Some(Effect::Quit));
     assert_eq!(view.key("s", &data, 120, 40), Some(Effect::Back));
 

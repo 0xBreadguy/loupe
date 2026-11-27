@@ -52,15 +52,6 @@ const INSIGHTS_KEYS: &[(&str, &str)] = &[
     ("q", "quit"),
 ];
 const HELP_KEYS: &[(&str, &str)] = &[("?", "close help"), ("i", "back"), ("q", "quit")];
-const HELP_LINES: &[(&str, &str)] = &[
-    ("tab / ⇧tab", "Recap or Tools"),
-    ("← →", "previous or next period"),
-    ("↑↓ / j k", "scroll a row"),
-    ("PgUp PgDn", "a page · Home End: the ends"),
-    ("r", "read again; the result stays till then"),
-    ("i / Esc", "dashboard · Esc closes help first"),
-    ("q", "quit"),
-];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
@@ -307,6 +298,44 @@ impl InsightsView {
         self.render(input);
         &self.frame
     }
+
+    /// What a click at `(x, y)` on the last frame asks for: a report by its tab name in the
+    /// header, or a period on the line below it (a name when all four are shown, else an arrow).
+    pub fn click(&self, x: i32, y: i32) -> Option<Click> {
+        let frame = &self.frame;
+        let at = |label: &str, row: i32| terminal::find_in_row(frame, row, label).is_some_and(|(from, to)| (from..to).contains(&x));
+        match y {
+            0 => [(" RECAP ", Tab::Recap), (" TOOLS ", Tab::Tools)]
+                .into_iter()
+                .find(|(label, _)| at(label, 0))
+                .map(|(_, tab)| Click::Tab(tab)),
+            1 if frame.w >= 120 => PERIODS
+                .into_iter()
+                .find(|period| at(&format!(" {} ", period_word(*period)), 1))
+                .map(Click::Period),
+            1 => {
+                let arrow = |col: i32, ch: char| (col - 1..=col + 1).contains(&x) && frame.get(col, 1).is_some_and(|cell| cell.ch == ch);
+                let right = compact_selector_width() as i32;
+                if arrow(1, '◂') {
+                    Some(Click::Step(-1))
+                } else if arrow(right, '▸') {
+                    Some(Click::Step(1))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+/// A click on Insights' own controls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Click {
+    Tab(Tab),
+    Period(Which),
+    /// The previous (-1) or next (1) period.
+    Step(i32),
 }
 
 impl InsightsView {
@@ -1038,18 +1067,10 @@ fn draw_help(canvas: &mut Canvas, p: &Palette, demo: bool) {
     let rules = (width as i32 - 1 - x).max(0) as usize;
     canvas.text(x, 2, &"─".repeat(rules), p.rule);
     let mut y = 2;
-    for (key, label) in HELP_LINES {
-        y += 1;
-        if y > last {
-            return;
-        }
-        canvas.text_bold(2, y, key, p.accent);
-        canvas.text(
-            15,
-            y,
-            &terminal::fit(label, width.saturating_sub(16)),
-            p.text2,
-        );
+    let lines = crate::keymap::lines(crate::keymap::Screen::Insights, false);
+    y = crate::keymap::draw(canvas, y + 1, last + 1, &lines, p, p.text2) - 1;
+    if y >= last {
+        return;
     }
     let mut notes = vec![
         "Opens on Recap for this week, read again each time.",
@@ -1738,6 +1759,39 @@ mod tests {
             "Nov 16 – 22",
             "Nov 9 – 15"
         ));
+    }
+
+    /// Clicks reach the tabs and the periods where the frame drew them.
+    #[test]
+    fn clicks_name_a_report_or_a_period() {
+        let sample = |cols, rows| Sample {
+            name: "",
+            tab: Tab::Recap,
+            which: Which::ThisWeek,
+            cols,
+            rows,
+            theme: "frontier",
+            calm: true,
+            help: false,
+            scroll: None,
+            end: false,
+        };
+        let view = paint_sample(&sample(80, 24));
+        let (tools, _) = terminal::find_in_row(&view.frame, 0, " TOOLS ").unwrap();
+        let (recap, _) = terminal::find_in_row(&view.frame, 0, " RECAP ").unwrap();
+        assert_eq!(view.click(tools + 3, 0), Some(Click::Tab(Tab::Tools)));
+        assert_eq!(view.click(recap, 0), Some(Click::Tab(Tab::Recap)));
+        assert_eq!(view.click(2, 0), None, "Loupe's name");
+        assert_eq!(view.click(1, 1), Some(Click::Step(-1)));
+        let right = compact_selector_width() as i32;
+        assert_eq!(view.click(right, 1), Some(Click::Step(1)));
+        assert_eq!(view.click(7, 1), None, "the period's name between the arrows");
+        assert_eq!(view.click(10, 8), None, "the report body");
+        // Wide, all four periods are named and each is a target.
+        let view = paint_sample(&sample(120, 40));
+        let (last_month, _) = terminal::find_in_row(&view.frame, 1, " last month ").unwrap();
+        assert_eq!(view.click(last_month + 2, 1), Some(Click::Period(Which::LastMonth)));
+        assert_eq!(view.click(2, 1), Some(Click::Period(Which::ThisWeek)));
     }
 
     #[test]

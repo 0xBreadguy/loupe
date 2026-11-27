@@ -5,7 +5,7 @@ use std::{io, path::Path, sync::Arc};
 use loupe_core::{
     clock,
     handoff::{self, HandoffState},
-    insights_view::{self as view, Body, InsightsView, Motion, Tab},
+    insights_view::{self as view, Body, Click, InsightsView, Motion, Tab},
     model::State,
     platform::local_time,
     product::{self, Database, Origin},
@@ -74,51 +74,91 @@ impl InsightsScreen {
         self.notice = None;
     }
 
+    pub(super) fn help_open(&self) -> bool {
+        self.help
+    }
+
+    /// A key on Insights. `i`, the screen's own key, and the theme and calm keys are the
+    /// presenter's.
     pub(super) fn key(&mut self, name: &str, source: InsightsSource) -> Effect {
-        let Some(selected) = self.data.selection() else {
-            return Effect::Stay;
-        };
         match name {
             "q" => return Effect::Quit,
-            "i" => return Effect::Back,
-            "escape" if !self.help => return Effect::Back,
-            "?" | "escape" => {
+            "escape" if self.help => {
+                self.help = false;
+                return Effect::Paint;
+            }
+            "escape" => return Effect::Back,
+            "?" | "h" => {
                 self.help = !self.help;
                 return Effect::Paint;
             }
+            // While help is open every other key goes to it, and it has none.
             _ if self.help => return Effect::Stay,
+            "r" => {
+                if self
+                    .data
+                    .outcome()
+                    .is_some_and(|snapshot| snapshot.outcome.is_ok())
+                {
+                    self.kept_revision = self.revision;
+                }
+                self.data.refresh(clock::wall_now());
+                self.staged = true;
+                self.notice = None;
+                return Effect::Paint;
+            }
+            "f" => {
+                return if self.active_handoff_prompt().is_some() { Effect::OptimizeInT3 } else { Effect::Stay };
+            }
             _ => {}
         }
-        if let Some(next) = next_selection(selected, name) {
-            if next == selected || !self.data.select(next, clock::wall_now()) {
-                return Effect::Stay;
-            }
-            if next.period != selected.period {
-                self.view.as_mut().unwrap().scroll(Motion::Start);
-            }
-            self.staged = self.data.loading_since().is_some();
-            self.completed(source);
-        } else if name == "r" {
-            if self
-                .data
-                .outcome()
-                .is_some_and(|snapshot| snapshot.outcome.is_ok())
-            {
-                self.kept_revision = self.revision;
-            }
-            self.data.refresh(clock::wall_now());
-            self.staged = true;
-            self.notice = None;
-        } else if name == "f" {
-            if self.active_handoff_prompt().is_some() {
-                return Effect::OptimizeInT3;
-            }
+        if let Some(motion) = motion(name) {
+            let Some(view) = self.view.as_mut() else { return Effect::Stay };
+            view.scroll(motion);
+            return Effect::Paint;
+        }
+        // Tab and the arrows change what is read; they need a selection to change.
+        let Some(selected) = self.data.selection() else {
             return Effect::Stay;
-        } else if let Some(motion) = motion(name) {
-            self.view.as_mut().unwrap().scroll(motion);
-        } else {
+        };
+        match next_selection(selected, name) {
+            Some(next) => self.select(selected, next, source),
+            None => Effect::Stay,
+        }
+    }
+
+    /// A click: a report's tab name, or a period, on the last frame. Nothing while help is open.
+    pub(super) fn press(&mut self, x: i32, y: i32, source: InsightsSource) -> Effect {
+        if self.help {
             return Effect::Stay;
         }
+        let (Some(view), Some(selected)) = (self.view.as_ref(), self.data.selection()) else {
+            return Effect::Stay;
+        };
+        let mut next = selected;
+        match view.click(x, y) {
+            Some(Click::Tab(tab)) => {
+                next.report = match tab {
+                    Tab::Recap => Report::Recap,
+                    Tab::Tools => Report::Tools,
+                };
+            }
+            Some(Click::Period(period)) => next.period = period,
+            Some(Click::Step(delta)) => next.period = view::step_period(selected.period, delta),
+            None => return Effect::Stay,
+        }
+        self.select(selected, next, source)
+    }
+
+    fn select(&mut self, selected: Selection, next: Selection, source: InsightsSource) -> Effect {
+        if next == selected || !self.data.select(next, clock::wall_now()) {
+            return Effect::Stay;
+        }
+        if next.period != selected.period {
+            self.view.as_mut().unwrap().scroll(Motion::Start);
+        }
+        self.staged = self.data.loading_since().is_some();
+        self.completed(source);
         Effect::Paint
     }
 
@@ -382,10 +422,10 @@ fn motion(key: &str) -> Option<Motion> {
     Some(match key {
         "up" | "k" => Motion::Rows(-1),
         "down" | "j" => Motion::Rows(1),
-        "pageup" => Motion::Page(-1),
-        "pagedown" => Motion::Page(1),
-        "home" => Motion::Start,
-        "end" => Motion::End,
+        "pageup" | "K" => Motion::Page(-1),
+        "pagedown" | "J" => Motion::Page(1),
+        "home" | "g" => Motion::Start,
+        "end" | "G" => Motion::End,
         _ => return None,
     })
 }

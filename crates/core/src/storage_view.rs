@@ -229,6 +229,11 @@ impl StorageView {
         !self.help && draw::Layout::fits_size(w, h) && Self::band(inventory).is_some()
     }
 
+    /// Whether help is open over the list or the panel: every key but the theme keys goes to it.
+    pub fn help_open(&self) -> bool {
+        self.help
+    }
+
     /// The panel is open, for the host's footer and tests.
     pub fn panel_open(&self) -> bool {
         self.panel.is_some()
@@ -285,6 +290,8 @@ impl StorageView {
             "home" | "g" => panel.index = 0,
             "end" | "G" => panel.index = count - 1,
             "f" if draw::Layout::fits_size(w, h) => return Some(Effect::CleanupSettingsInT3),
+            // Read it again: the settings and the folders, as on the list.
+            "r" if !inventory.scan.scanning() => return Some(Effect::Rescan),
             _ => {}
         }
         self.reconcile_panel(inventory, w, h);
@@ -296,7 +303,6 @@ impl StorageView {
     pub fn key(&mut self, key: &str, inventory: &Inventory, w: usize, h: usize) -> Option<Effect> {
         match key {
             "q" => return Some(Effect::Quit),
-            "s" => return Some(Effect::Back),
             "?" | "h" => {
                 if draw::Layout::fits_size(w, h) {
                     self.help = !self.help;
@@ -309,6 +315,8 @@ impl StorageView {
             }
             // Help covers the panel and the list; nothing else reaches what it hides.
             _ if self.help => return None,
+            // Storage's own key: back to the dashboard, from the panel too.
+            "s" => return Some(Effect::Back),
             _ if self.panel.is_some() && Self::band(inventory).is_none() => self.panel = None,
             _ if self.panel.is_some() => return self.panel_key(key, inventory, w, h),
             "escape" => return Some(Effect::Back),

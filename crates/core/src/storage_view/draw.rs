@@ -340,29 +340,8 @@ fn draw_footer(c: &mut Canvas, p: &Palette, keys: &[(&str, &str)]) {
 
 fn help(c: &mut Canvas, p: &Palette, cleanup: bool) {
     terminal::section(c, 1, 1, c.w as i32 - 2, "STORAGE HELP", p, "");
-    let mut keys = vec![
-        ("↑↓ / j k", "select a row · mouse wheel moves selection"),
-        ("PgUp / PgDn", "move a page · Home / End jump to an end"),
-        ("␣ / ⏎", "fold or unfold the selected group"),
-        ("⏎ / o", "open in T3 when the thread is available"),
-        ("f", "start a T3 thread to inspect & clean up (asks first)"),
-    ];
-    if cleanup {
-        keys.push((
-            "Tab",
-            "T3 cleanup settings: each auto-delete setting and what it would cover",
-        ));
-    }
-    keys.extend([
-        ("r", "measure again when no scan is running"),
-        ("s / Esc", "dashboard · Esc closes this help first"),
-    ]);
-    let notes_y = 2 + keys.len() as i32;
-    for (i, (key, label)) in keys.into_iter().enumerate() {
-        let y = 2 + i as i32;
-        c.text_bold(2, y, key, p.accent);
-        c.text(15, y, &fit(label, c.w as i32 - 16), p.text2);
-    }
+    let keys = crate::keymap::lines(crate::keymap::Screen::Storage, cleanup);
+    let notes_y = crate::keymap::draw(c, 2, c.h as i32 - 1, &keys, p, p.text2);
     let mut notes = vec![
         "WORKTREE is allocated space. BUILD is its build subset.",
         "SCRATCH is owned temp space. Other has no thread owner.",

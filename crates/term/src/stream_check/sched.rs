@@ -541,11 +541,32 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
             if insights.is_open() {
                 let source = insights_source.expect("open only with a source");
                 let effect = match *input {
-                    Input::Key(name) => insights.key(name, source),
+                    Input::Key(name) => {
+                        // Jumps and the theme and calm keys, as `present` takes them first.
+                        let help = insights.help_open();
+                        let trace_key = host.themes.is_some();
+                        if let Some(to) = jump(name, View::Insights, help, state.storage_key_in_help, trace_key, true) {
+                            handoff.dismiss();
+                            switch(to, &mut state, &mut host, &mut storage, &mut telemetry, &mut insights, &mut tracing, &mut handoff, &mut |t, s, h| trace_read_now(t, s, h));
+                            paint_with(&mut state, &host, &mut storage, &mut telemetry, &handoff, size.0, size.1, &mut primary, &mut full, &mut tracing, &mut |c, b, f| tally.take(c, b, f))?;
+                            continue;
+                        }
+                        if matches!(name, "c" | "C" | "m") {
+                            on_key(&mut state, &mut host, &mut clock, name, false);
+                            insights.paint_with(&state, source, size, handoff.state(), &mut primary, &mut full, &mut |c, b, f| tally.take(c, b, f))?;
+                            insights_frames += 1;
+                            insights_dirty = false;
+                            continue;
+                        }
+                        insights.key(name, source)
+                    }
                     Input::WheelAt(_, _, down) | Input::WheelDetail(down) | Input::WheelList(down) => {
                         insights.key(if down { "down" } else { "up" }, source)
                     }
-                    _ => InsightsEffect::Stay,
+                    Input::PressAt(..) | Input::PressRow(_) | Input::PressNeedsYou => {
+                        let (x, y) = point(input, &state, size);
+                        insights.press(x, y, source)
+                    }
                 };
                 match effect {
                     InsightsEffect::Back => {
@@ -563,28 +584,22 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
                 continue;
             }
             match *input {
-                Input::Key("i") => {
-                    let Some(source) = insights_source else { continue };
-                    if !state.storage_key_in_help || tracing.is_some() || storage.is_open() || telemetry.is_open() {
+                Input::Key(name) => {
+                    let shown = dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut telemetry, &mut insights, insights_source.is_some(), &mut handoff, &mut tracing, name, size);
+                    if shown == Some(View::Insights) {
+                        let source = insights_source.expect("open only with a source");
+                        insights.present_key_with(&state, source, host.db.as_deref(), size, handoff.state(), &mut primary, &mut full, &wake, &mut |c, b, f| tally.take(c, b, f))?;
+                        insights_frames += 1;
+                        settle(&mut insights, &state, source, size, handoff.state(), &mut primary, &mut full, &mut tally)?;
+                        insights_dirty = false;
                         continue;
                     }
-                    if state.help {
-                        on_key(&mut state, &mut host, &mut clock, "escape", false);
-                    }
-                    insights.open();
-                    insights.present_key_with(&state, source, host.db.as_deref(), size, handoff.state(), &mut primary, &mut full, &wake, &mut |c, b, f| tally.take(c, b, f))?;
-                    insights_frames += 1;
-                    settle(&mut insights, &state, source, size, handoff.state(), &mut primary, &mut full, &mut tally)?;
-                    insights_dirty = false;
-                    continue;
                 }
-                Input::Key("tab" | "shift-tab") if !telemetry.is_open() && !storage.is_open() => continue,
-                Input::Key(name) => dispatch_key(&mut state, &mut host, &mut clock, &mut storage, &mut telemetry, &mut handoff, &mut tracing, name, size),
                 Input::PressAt(..) | Input::PressRow(_) | Input::PressNeedsYou => {
                     let (x, y) = point(input, &state, size);
                     match tracing.as_mut() {
                         Some(t) if !state.help => t.press(y),
-                        _ if telemetry.is_open() => telemetry.press(y),
+                        _ if telemetry.is_open() => telemetry.press(x, y),
                         _ if storage.is_open() => storage.press(y, size),
                         _ => on_press(&mut state, &mut host, &mut clock, x, y, false),
                     }
@@ -592,7 +607,8 @@ pub(super) fn run(args: &[String], name: &str) -> Result<(), Box<dyn std::error:
                 Input::WheelAt(_, _, down) | Input::WheelDetail(down) | Input::WheelList(down) => {
                     let (x, y) = point(input, &state, size);
                     match tracing.as_mut() {
-                        Some(t) if !state.help => {
+                        Some(_) if state.help => {}
+                        Some(t) => {
                             t.key(if down { "down" } else { "up" });
                         }
                         _ if telemetry.is_open() => telemetry.wheel(down, &state, &mut host, &mut handoff),

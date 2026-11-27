@@ -21,6 +21,7 @@ pub mod fanout;
 pub mod host;
 pub mod headroom;
 pub mod integration;
+pub mod keymap;
 pub mod model;
 pub mod overview;
 pub mod platform;

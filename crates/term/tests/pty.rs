@@ -837,6 +837,10 @@ fn storage_demo_opens_rescans_and_returns_through_the_product_entry() {
     pty.wait_syncs(1);
     pty.send(b"?");
     pty.wait_for(b"storage: disk use by project and thread", 1);
+    // While help is open every key goes to it: close it, then `s` opens Storage.
+    pty.send(b"\x1b");
+    // Apart, or the parser reads Alt-s.
+    std::thread::sleep(Duration::from_millis(150));
     pty.send(b"s");
     pty.wait_for(b"folders \xc2\xb7 scan", 1);
     // Made-up settings: every auto-delete setting off, one project with its own rule.
@@ -1067,7 +1071,7 @@ fn on_storage_help(rows: &[String]) -> bool {
 fn on_trace_help(rows: &[String]) -> bool {
     header(rows).contains("TRACE") && rows.iter().any(|r| r.contains("TRACE HELP"))
         && rows.iter().any(|r| r.contains("task")) && rows.iter().any(|r| r.contains("delegate"))
-        && footer(rows).split_whitespace().eq(["q", "quit"])
+        && footer(rows).contains("Esc / q") && footer(rows).trim_end().ends_with("quit")
 }
 fn on_trace(rows: &[String]) -> bool {
     header(rows).contains("TRACE") && header(rows).contains("made up")
@@ -1167,7 +1171,11 @@ fn combined_navigation_returns_to_each_view_at_every_size() {
         v.key(b"\x1b", "Esc closing Storage's help", on_storage);
         v.key(b"\x1b", "Esc back to the dashboard", on_dashboard);
         v.key(b"?", "help", on_help);
-        v.key(b"s", "s from help opening Storage with help closed", on_storage);
+        // While help is open every key goes to it: `s` does not leave.
+        v.pty.send(b"s");
+        v.still("help: s goes to help", on_help);
+        v.key(b"\x1b", "Esc closing help", on_dashboard);
+        v.key(b"s", "Storage again", on_storage);
         v.key(b"s", "s back to the dashboard", on_dashboard);
 
         v.key(b"w", "Trace", traced);
@@ -1180,8 +1188,8 @@ fn combined_navigation_returns_to_each_view_at_every_size() {
             }
         });
         v.key(b"\x1b", "Esc closing help back to Trace", traced);
-        v.pty.send(b"s");
-        v.still("Trace: s is not a key there", traced);
+        v.key(b"s", "s from Trace opening Storage", on_storage);
+        v.key(b"w", "w from Storage opening Trace", traced);
         v.key(b"w", "w back to the dashboard (not Storage)", on_dashboard);
         v.key(b"w", "Trace again", traced);
         v.key(b"\x1b", "Esc back to the dashboard", on_dashboard);
@@ -1189,6 +1197,138 @@ fn combined_navigation_returns_to_each_view_at_every_size() {
         v.key(b"w", "Trace before quitting", traced);
         v.quit(b"q");
     }
+}
+
+fn on_telemetry(rows: &[String]) -> bool {
+    header(rows).contains("TELEMETRY")
+        && header(rows).contains("SOURCES")
+        && rows.iter().any(|r| r.contains("TELEMETRY STREAMS") || r.contains("WHAT T3 CODE SENDS"))
+        && footer(rows).contains("e back")
+}
+
+/// `s` `i` `e` `w` reach each screen from every other one; a screen's own key and Esc go back
+/// to the dashboard; with a screen's help open the keys go to help.
+#[test]
+fn screen_keys_jump_between_screens_and_back() {
+    let mut v = Shown::open("jumps", 120, 40);
+    v.until("the dashboard", on_dashboard);
+    v.key(b"s", "Storage", on_storage);
+    v.key(b"i", "Insights from Storage", insights_ready);
+    v.key(b"e", "Telemetry from Insights", on_telemetry);
+    v.key(b"w", "Trace from Telemetry", on_trace);
+    v.key(b"i", "Insights from Trace", insights_ready);
+    v.key(b"s", "Storage from Insights", on_storage);
+    v.key(b"e", "Telemetry from Storage", on_telemetry);
+    v.key(b"s", "Storage from Telemetry", on_storage);
+    v.key(b"w", "Trace from Storage", on_trace);
+    v.key(b"e", "Telemetry from Trace", on_telemetry);
+    v.key(b"i", "Insights from Telemetry", insights_ready);
+    v.key(b"w", "Trace from Insights", on_trace);
+    v.key(b"s", "Storage from Trace", on_storage);
+    // Esc from a screen opened from another goes to the dashboard, not the screen before.
+    v.key(b"\x1b", "Esc to the dashboard", on_dashboard);
+    // Each screen's own key goes back.
+    v.key(b"e", "Telemetry", on_telemetry);
+    v.key(b"e", "e back", on_dashboard);
+    v.key(b"i", "Insights", insights_ready);
+    v.key(b"i", "i back", on_dashboard);
+    // Over a screen's help the jump keys go to help.
+    v.key(b"s", "Storage", on_storage);
+    v.key(b"?", "Storage's help", on_storage_help);
+    v.pty.send(b"iew");
+    v.still("Storage's help keeps i e w", on_storage_help);
+    v.key(b"\x1b", "Esc closing Storage's help", on_storage);
+    v.key(b"e", "Telemetry", on_telemetry);
+    v.key(b"h", "Telemetry's help", |r| r.iter().any(|l| l.contains("TELEMETRY HELP")));
+    v.pty.send(b"sie");
+    v.still("Telemetry's help keeps s i e", |r| r.iter().any(|l| l.contains("TELEMETRY HELP")));
+    v.key(b"\x1b", "Esc closing Telemetry's help", on_telemetry);
+    v.key(b"i", "Insights", insights_ready);
+    v.key(b"h", "Insights help with h", |r| r.iter().any(|l| l.contains("INSIGHTS HELP")));
+    v.pty.send(b"swe");
+    v.still("Insights help keeps s w e", |r| r.iter().any(|l| l.contains("INSIGHTS HELP")));
+    v.key(b"h", "h closing Insights help", insights_ready);
+    v.quit(b"q");
+}
+
+/// Help over Trace takes every key: nothing reaches the trace or the dashboard behind it.
+#[test]
+fn help_over_trace_keeps_keys_from_the_dashboard() {
+    let mut v = Shown::open("trace-help-keys", 120, 40);
+    v.until("the dashboard", on_dashboard);
+    v.still("the dashboard settled", on_dashboard);
+    let board = v.rows();
+    v.key(b"w", "Trace", on_trace);
+    v.key(b"?", "Trace help", on_trace_help);
+    v.pty.send(b"\rofant\x1b[B\x1b[A pxr");
+    v.still("Trace help, with nothing started or opened", |r| {
+        on_trace_help(r) && !r.iter().any(|l| l.contains("Demo: would"))
+    });
+    v.key(b"\x1b", "Esc closing help back to Trace", on_trace);
+    v.key(b"w", "the dashboard as it was", |r| r == board);
+    v.quit(b"q");
+}
+
+/// The calm key works on every screen with a header that shows it (Trace passed it to the
+/// dashboard already, and its header has no calm tag).
+#[test]
+fn calm_mode_toggles_on_every_screen() {
+    let calm = |r: &[String]| header(r).contains("calm");
+    let mut v = Shown::open("calm-everywhere", 120, 40);
+    v.until("the dashboard", on_dashboard);
+    for (key, what, on) in [
+        (&b"s"[..], "Storage", on_storage as fn(&[String]) -> bool),
+        (b"e", "Telemetry", on_telemetry),
+        (b"i", "Insights", insights_ready),
+    ] {
+        v.key(key, what, on);
+        assert!(calm(&v.rows()), "{what} starts calm");
+        v.key(b"m", &format!("{what} leaving calm mode"), |r| on(r) && !calm(r));
+        v.key(b"m", &format!("{what} back in calm mode"), |r| on(r) && calm(r));
+        // The dashboard's footer says calm mode changed, so it is told by its list here.
+        v.key(b"\x1b", "the dashboard", |r| {
+            r.iter().any(|l| l.starts_with(" AGENTS"))
+                && !["STORAGE", "RECAP", "TELEMETRY"].iter().any(|tag| header(r).contains(tag))
+        });
+    }
+    v.quit(b"q");
+}
+
+/// A click on a tab's name switches Telemetry's views, Sources included.
+#[test]
+fn telemetry_tab_names_take_clicks() {
+    let mut v = Shown::open("telemetry-clicks", 120, 40);
+    v.until("the dashboard", on_dashboard);
+    v.key(b"e", "Telemetry", on_telemetry);
+    let column = |r: &[String], label: &str| header(r).chars().collect::<Vec<_>>().windows(label.len())
+        .position(|w| w.iter().collect::<String>() == label).unwrap() as i32;
+    let sources = column(&v.rows(), " SOURCES ");
+    v.key(&sgr_press(sources + 2, 0), "Sources by a click", |r| r.iter().any(|l| l.contains("LOCAL SOURCES INSPECTED")));
+    let telemetry = column(&v.rows(), " TELEMETRY ");
+    v.key(&sgr_press(telemetry + 2, 0), "Telemetry by a click", on_telemetry);
+    v.quit(b"q");
+}
+
+/// Below Insights' floor the confirmation bar cannot be drawn, so `f` keeps nothing to confirm.
+#[test]
+fn insights_keeps_no_confirmation_it_cannot_draw() {
+    let mut v = Shown::open("insights-hidden-bar", 120, 40);
+    v.until("the dashboard", on_dashboard);
+    v.key(b"i", "Insights", insights_ready);
+    v.resize(50, 13, "Insights below its floor", |r| r.iter().any(|l| l.contains("Loupe · Insights")));
+    v.pty.send(b"f");
+    v.still("Insights below its floor", |r| r.iter().any(|l| l.contains("Loupe · Insights")));
+    v.resize(120, 40, "Insights at full size, with no banner from f", |r| {
+        insights_ready(r) && !r.iter().any(|l| l.contains("Demo: would start"))
+    });
+    // At full size `f` shows it.
+    v.key(b"f", "the banner at full size", |r| r.iter().any(|l| l.contains("Demo: would start")));
+    // Shrinking drops it rather than keep it unseen.
+    v.resize(50, 13, "shrunk", |r| r.iter().any(|l| l.contains("Loupe · Insights")));
+    v.resize(120, 40, "grown again, without the banner", |r| {
+        insights_ready(r) && !r.iter().any(|l| l.contains("Demo: would start"))
+    });
+    v.quit(b"q");
 }
 
 /// The size floors, crossed in place: the dashboard and Storage need 48 × 14, Trace 60 × 16.
@@ -1251,6 +1391,8 @@ fn insights_demo_loads_refreshes_and_returns_to_the_same_board() {
     v.key(b"?", "Insights in 55-column Live help", |rows| {
         on_help(rows) && rows.iter().any(|row| row.contains("insights: Recap and Tools"))
     });
+    // While help is open `i` goes to it; Esc closes it first.
+    v.key(b"\x1b", "Live again", on_dashboard);
     let entry = v.key_frames(b"i", 2);
     assert!(entry[0].iter().any(|row| row.contains("Making up Recap for this week, started")));
     assert!(insights_ready(&entry[1]));
@@ -1278,7 +1420,7 @@ fn insights_demo_loads_refreshes_and_returns_to_the_same_board() {
     });
     v.key(b"?", "Insights help at 55 columns", |rows| {
         rows.iter().any(|row| row.contains("INSIGHTS HELP"))
-            && rows.iter().any(|row| row.contains("Esc closes help first"))
+            && rows.iter().any(|row| row.contains("? / h") && row.contains("close help"))
     });
     v.key(b"\x1b", "Esc closing Insights help", insights_ready);
     v.key(b"\x1b", "Esc returning to the same Live selection", |rows| rows == live);

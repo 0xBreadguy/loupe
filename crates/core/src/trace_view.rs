@@ -778,7 +778,7 @@ mod tests {
     fn help_keeps_a_gap_after_page_keys_at_the_minimum_width() {
         let mut canvas = Canvas::new(60, 16);
         help(&mut canvas, &Palette::default());
-        assert!(row(&canvas, 3).contains("PgUp PgDn scroll steps"));
+        assert!(row(&canvas, 4).contains("J K / PgDn PgUp scroll steps"));
     }
     #[test]
     fn split_failed_band_and_words_cell_by_cell() {
@@ -1063,29 +1063,17 @@ pub fn small(p: &Palette, cols: usize, rows: usize) -> Canvas {
     c
 }
 
-/// Contextual help over the current Trace, keeping its header visible.
+/// Contextual help over the current Trace, keeping its header visible. Its keys are the shared
+/// ones (`keymap`), in the key table's order.
 pub fn help(c: &mut Canvas, p: &Palette) {
     c.fill(0, 1, c.w as i32, c.h as i32 - 1, p.bg);
     terminal::section(c, 1, 1, c.w as i32 - 2, "TRACE HELP", p, "");
     if c.w < 60 || c.h < 16 {
-        c.text(1, 2, "Esc / ?  close help", p.accent);
-        c.text(1, 3, "w / Esc  back from Trace", p.text2);
+        c.text(1, 2, "? h Esc  close help", p.accent);
+        c.text(1, 3, "w        back to the dashboard", p.text2);
         c.text(1, 4, "q        quit", p.text2);
         return;
     }
-    for (i, (key, label)) in [
-        ("↑↓ / j k", "select a step · mouse wheel selects"),
-        ("J K / PgUp PgDn", "scroll steps"),
-        ("g G / Home End", "select first / last step"),
-        ("←→", "previous / next task"),
-        ("⏎ / o", "open a delegate trace or its thread in T3"),
-        ("f", "start a T3 thread to diagnose (asks first)"),
-        ("w / Esc", "back · Esc closes help first"),
-        ("? / h", "close help"),
-        ("m p r c C", "calm · pause · refresh · themes"),
-        ("q", "quit"),
-    ].into_iter().enumerate() {
-        c.text_bold(2, 2 + i as i32, key, p.accent);
-        c.text(18, 2 + i as i32, label, p.text2);
-    }
+    let lines = crate::keymap::lines(crate::keymap::Screen::Trace, false);
+    crate::keymap::draw(c, 2, c.h as i32, &lines, p, p.text2);
 }
