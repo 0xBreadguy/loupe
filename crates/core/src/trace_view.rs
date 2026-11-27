@@ -1079,7 +1079,7 @@ pub fn help(c: &mut Canvas, p: &Palette) {
         ("g G / Home End", "select first / last step"),
         ("←→", "previous / next task"),
         ("⏎ / o", "open a delegate trace or its thread in T3"),
-        ("f", "start a T3 thread to diagnose this task"),
+        ("f", "start a T3 thread to diagnose (asks first)"),
         ("w / Esc", "back · Esc closes help first"),
         ("? / h", "close help"),
         ("m p r c C", "calm · pause · refresh · themes"),

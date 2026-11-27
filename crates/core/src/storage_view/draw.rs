@@ -345,7 +345,7 @@ fn help(c: &mut Canvas, p: &Palette, cleanup: bool) {
         ("PgUp / PgDn", "move a page · Home / End jump to an end"),
         ("␣ / ⏎", "fold or unfold the selected group"),
         ("⏎ / o", "open in T3 when the thread is available"),
-        ("f", "start a T3 thread to inspect & clean up this selection"),
+        ("f", "start a T3 thread to inspect & clean up (asks first)"),
     ];
     if cleanup {
         keys.push((

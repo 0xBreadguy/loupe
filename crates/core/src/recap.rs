@@ -1430,6 +1430,19 @@ impl<T: Serialize> Serialize for PerDay<T> {
     }
 }
 
+/// Version of the `--recap --json` object.
+///
+/// Bump this when a field is removed, renamed, or changes meaning or unit.
+/// Adding a field does not bump it. This is not the cache entry version: the
+/// Insights screen and the opt-in cache use [`Recap`] itself, and the number
+/// is added only when the object is printed.
+pub const JSON_SCHEMA: u32 = 1;
+
+/// `--recap --json`, with [`JSON_SCHEMA`] as the first key.
+pub fn printed_json(report: &Recap) -> Result<String, serde_json::Error> {
+    crate::report_json::with_schema(report, JSON_SCHEMA)
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Recap {
     /// `week` or `month`.

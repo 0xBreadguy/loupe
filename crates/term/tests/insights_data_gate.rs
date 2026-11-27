@@ -3,7 +3,8 @@
 //! The gate drives only the public `insights_data` API: `open`, `select`, `dispatch`,
 //! `poll`, then the borrowed `visible()` snapshot the renderer receives. It reads the
 //! typed `Recap` or `Tools` value and `Loaded::returned`, serializes that value with the
-//! CLI's own serializer, and compares it field for field with a separately spawned
+//! CLI's own serializer (`printed_json`, which adds the print-only `schema` key), and
+//! compares it field for field with a separately spawned
 //! `loupe-term --recap/--tools --json` on the same synthetic database and the same
 //! pinned clock. There is no product diagnostic switch: both arms are the shipped paths.
 //!
@@ -41,6 +42,7 @@ use loupe_core::{
     product::{self, Database, Origin},
     recap::{self, Span, Which},
     recap_view,
+    tools,
 };
 use loupe_term::insights_data::{
     InsightsData, Loaded, ReadError, Report, Selection, Value,
@@ -469,10 +471,11 @@ fn run_case(scratch: &Scratch, database: &Database, case: Case) -> String {
 
     // Print with the CLI's serializer, then read that text back, so the field-by-field
     // comparison sees the same shortest float spelling the CLI wrote (a value can hold
-    // `f32`, whose JSON number is not the exact `f64` expansion).
+    // `f32`, whose JSON number is not the exact `f64` expansion). `printed_json` adds
+    // the print-only schema key; the typed value the view holds does not have one.
     let pretty = match &loaded.value {
-        Value::Recap(value) => serde_json::to_string_pretty(value).expect("Recap prints"),
-        Value::Tools(value) => serde_json::to_string_pretty(value).expect("Tools prints"),
+        Value::Recap(value) => recap::printed_json(value).expect("Recap prints"),
+        Value::Tools(value) => tools::printed_json(value).expect("Tools prints"),
     };
     let view: Json = serde_json::from_str(&pretty).expect("the view's own JSON reads back");
     let output = cli(scratch, database, case.report, case.requested);

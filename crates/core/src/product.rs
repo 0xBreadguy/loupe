@@ -39,6 +39,7 @@ pub const USAGE: &str = "Usage: loupe [--window] [--once | --status [--watch]] [
 pub const THEME_USAGE: &str = "  --theme NAME      color theme: a built-in, a theme file, omarchy (follow
                     Omarchy's live theme), or dark:NAME,light:NAME to follow
                     light and dark mode; c and C step through them while it runs
+  --version         show the installed version
   --themes          list the themes and say which one is in use
   --theme-check NAME
                     a theme's colors, contrast and colorblind separation
@@ -116,6 +117,7 @@ pub enum Database {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Command {
     Help,
+    Version,
     /// `--trace [ID]`: one task on a time axis. `target` is a thread or a run id.
     Trace { database: Database, now: Option<f64>, target: Option<String>, json: bool, theme: Option<String> },
     Status { database: Database, watch: bool, now: Option<f64> },
@@ -312,6 +314,7 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
         (false, false, false, false, false, false);
     let (mut theme, mut check, mut themes) = (None::<String>, None::<String>, false);
     let (mut recap, mut this_week, mut month, mut this_month) = (false, false, false, false);
+    let mut version = false;
     let mut tools_flag = false;
     let mut telemetry_flag = false;
     let (mut json, mut wide, mut compact, mut narrow) = (false, false, false, false);
@@ -343,6 +346,7 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
                 "--theme" if env.themes => theme = Some(string_value(args, &mut i, flag, value)?),
                 "--theme-check" if env.themes => check = Some(string_value(args, &mut i, flag, value)?),
                 "--themes" if env.themes => boolean(&mut themes)?,
+                "--version" if env.themes => boolean(&mut version)?,
                 // Recap is the product's own, like the themes: the original rejects it.
                 "--recap" if env.themes => boolean(&mut recap)?,
                 // So is Tools.
@@ -392,6 +396,12 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
         i += 1;
     }
 
+    if version {
+        if args.len() != 1 {
+            return Err(UsageError("--version cannot be used with other options".into()));
+        }
+        return Ok(Command::Version);
+    }
     let explicit = db.as_deref().is_some_and(|value| !value.is_empty());
     if demo && explicit {
         return Err(UsageError("--demo and --db cannot be used together".into()));
@@ -619,6 +629,15 @@ pub fn ensure_terminal() {
     }
 }
 
+/// A downstream reader can stop early without changing the command's exit code.
+fn write_stdout(text: &str) -> io::Result<()> {
+    let mut out = io::stdout().lock();
+    match out.write_all(text.as_bytes()).and_then(|()| out.flush()) {
+        Err(error) if error.kind() == io::ErrorKind::BrokenPipe => Ok(()),
+        result => result,
+    }
+}
+
 /// Handle the product command line when it applies. Returns `Ok(false)` only for an interactive
 /// run on a terminal, which the caller presents.
 pub fn headless() -> Result<bool, Box<dyn std::error::Error>> {
@@ -636,6 +655,12 @@ pub fn headless() -> Result<bool, Box<dyn std::error::Error>> {
         }
     };
     match command {
+        Command::Version => {
+            let mut out = io::stdout().lock();
+            writeln!(out, "loupe {}", env!("CARGO_PKG_VERSION"))?;
+            out.flush()?;
+            Ok(true)
+        }
         Command::Help => {
             let mut out = io::stdout().lock();
             out.write_all(usage(env.themes).as_bytes())?;
@@ -656,16 +681,12 @@ pub fn headless() -> Result<bool, Box<dyn std::error::Error>> {
                 let _ = io::stderr().write_all(format!("skipped {line}\n").as_bytes());
             }
             let themes = theme::Themes::new(setting, paths.clone());
-            let mut out = io::stdout().lock();
-            out.write_all(theme::list(Some(&themes), &paths).as_bytes())?;
-            out.flush()?;
+            write_stdout(&theme::list(Some(&themes), &paths))?;
             Ok(true)
         }
         Command::ThemeCheck { name } => match theme::check(&name, &theme::Paths::current()) {
             Ok(report) => {
-                let mut out = io::stdout().lock();
-                out.write_all(report.as_bytes())?;
-                out.flush()?;
+                write_stdout(&report)?;
                 Ok(true)
             }
             Err(e) => {
@@ -937,7 +958,7 @@ fn tools_command(database: &Database, now: f64, which: recap::Which, json: bool,
     };
     let mono = color == recap_view::Color::None;
     let (text, code) = match read {
-        Ok(week) if json => (serde_json::to_string_pretty(&week)?, 0),
+        Ok(week) if json => (tools::printed_json(&week)?, 0),
         Ok(week) if week.is_empty() => {
             let period = recap_view::period_text(week.period, &week.from, &week.to);
             let within = if month { format!("in {period}") } else { period.clone() };
@@ -1018,7 +1039,7 @@ fn recap_command(database: &Database, now: f64, which: recap::Which, json: bool,
     };
     let mono = color == recap_view::Color::None;
     let (text, code, drawn) = match read {
-        Ok(week) if json => (serde_json::to_string_pretty(&week)?, 0, None),
+        Ok(week) if json => (recap::printed_json(&week)?, 0, None),
         Ok(week) if week.is_empty() => {
             let period = recap_view::period_text(week.period, &week.from, &week.to);
             // "recorded Nov 9 – 15", and for a month, "recorded in October 2026".
@@ -1381,9 +1402,9 @@ fn trace_command(database: &Database, now: f64, target: Option<&str>, json: bool
     };
     match read {
         Ok(Some(found)) if json => {
-            let mut out = io::stdout().lock();
-            out.write_all(serde_json::to_string_pretty(&found)?.as_bytes())?;
-            out.write_all(b"\n")?;
+            let mut text = trace::printed_json(&found)?;
+            text.push('\n');
+            write_stdout(&text)?;
             Ok(0)
         }
         Ok(Some(found)) => {
@@ -1411,9 +1432,9 @@ fn trace_command(database: &Database, now: f64, target: Option<&str>, json: bool
                 now,
             };
             let drawn = trace_view::draw(&found, &themes.palette(), columns, rows, &view, &crate::platform::local_time);
-            let mut out = io::stdout().lock();
-            out.write_all(recap_view::paint(&drawn.canvas, color).as_bytes())?;
-            out.write_all(b"\n")?;
+            let mut text = recap_view::paint(&drawn.canvas, color);
+            text.push('\n');
+            write_stdout(&text)?;
             Ok(0)
         }
         Ok(None) => {
@@ -1495,6 +1516,15 @@ mod tests {
             Command::Interactive { interval, .. } => interval,
             other => panic!("expected interactive, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn version_is_product_only_and_stands_alone() {
+        let on = Environment { themes: true, ..env("/tmp/home", None) };
+        let off = env("/tmp/home", None);
+        assert_eq!(parse_in(&args(&["--version"]), &on), Ok(Command::Version));
+        assert_eq!(parse_in(&args(&["--version", "--demo"]), &on), Err(UsageError("--version cannot be used with other options".into())));
+        assert_eq!(parse_in(&args(&["--version"]), &off), Err(UsageError("Unknown option '--version'".into())));
     }
 
     #[test]

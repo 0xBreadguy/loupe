@@ -25,16 +25,16 @@ fn telemetry_alert_shows_only_for_broken_opt_out_and_yields_to_low_space() {
     let base = synth_state();
     let (base_canvas, _) = ui::draw_grid(&base, 100, 30, &base.palette);
 
-    // 1. Misconfigured telemetry report -> shows warning row with `e telemetry` hint
+    // 1. Misconfigured telemetry report -> shows warning row (h - 2) with `e telemetry` hint
     let mut mis = synth_state();
     mis.telemetry = Some(Arc::new(demo::report(1_795_532_700_000.0)));
     let (mis_canvas, _) = ui::draw_grid(&mis, 100, 30, &mis.palette);
-    let mis_text = mis_canvas.to_text();
+    let mis_warn = mis_canvas.row_text(28);
     assert!(
-        mis_text.contains("Telemetry opt-out not working") || mis_text.contains("Opt-out not working"),
-        "expected telemetry warning line:\n{mis_text}"
+        mis_warn.contains("Telemetry opt-out not working") || mis_warn.contains("Opt-out not working"),
+        "expected telemetry warning line:\n{mis_warn}"
     );
-    assert!(mis_text.contains("e telemetry"), "expected e telemetry hint:\n{mis_text}");
+    assert!(mis_warn.contains("e telemetry"), "expected e telemetry hint on warning row:\n{mis_warn}");
 
     // 2. Under LOUPE_NO_THEMES (themes=false) -> byte-identical to baseline, no alert
     let mut no_themes = synth_state();
@@ -46,14 +46,15 @@ fn telemetry_alert_shows_only_for_broken_opt_out_and_yields_to_low_space() {
     let (base_nt_canvas, _) = ui::draw_grid(&base_nt, 100, 30, &base_nt.palette);
     assert_eq!(nt_canvas.to_text(), base_nt_canvas.to_text());
 
-    // 3. In --demo mode -> alert stays silent on Live (so demo frames/screenshots stay clean)
+    // 3. In --demo mode -> alert stays silent on Live warning row (so demo frames/screenshots stay clean)
     let mut in_demo = synth_state();
     in_demo.demo = true;
     in_demo.telemetry = mis.telemetry.clone();
     let (demo_canvas, _) = ui::draw_grid(&in_demo, 100, 30, &in_demo.palette);
-    assert!(!demo_canvas.to_text().contains("e telemetry"));
+    let demo_warn = demo_canvas.row_text(28);
+    assert!(!demo_warn.contains("e telemetry"), "demo warning row should stay silent:\n{demo_warn}");
 
-    // 4. Low disk space WINS over telemetry alert
+    // 4. Low disk space WINS over telemetry alert on the warning row
     let mut both = mis.clone();
     let gib = 1024 * 1024 * 1024u64;
     both.headroom = warning_volumes(
@@ -69,9 +70,9 @@ fn telemetry_alert_shows_only_for_broken_opt_out_and_yields_to_low_space() {
         None,
     );
     let (both_canvas, _) = ui::draw_grid(&both, 100, 30, &both.palette);
-    let both_text = both_canvas.to_text();
-    assert!(both_text.contains("s storage"), "low space must win:\n{both_text}");
-    assert!(!both_text.contains("e telemetry"));
+    let both_warn = both_canvas.row_text(28);
+    assert!(both_warn.contains("s storage"), "low space must win on warning row:\n{both_warn}");
+    assert!(!both_warn.contains("e telemetry"), "telemetry alert must yield to low space:\n{both_warn}");
 
     // 5. Plain default-on telemetry -> NO alert, matches baseline
     let mut on_inputs = demo::inputs(1_795_532_700_000.0);

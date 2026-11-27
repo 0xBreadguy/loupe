@@ -135,7 +135,7 @@ dependencies = [
 
 [[package]]
 name = "loupe-core"
-version = "1.7.0"
+version = "1.8.0"
 dependencies = [
  "flate2",
  "indexmap",
@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "loupe-term"
-version = "1.7.0"
+version = "1.8.0"
 dependencies = [
  "flate2",
  "libc",

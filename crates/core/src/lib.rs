@@ -26,6 +26,7 @@ pub mod overview;
 pub mod platform;
 pub mod product;
 pub mod program;
+mod report_json;
 pub mod recap;
 pub(crate) mod safe_file;
 pub mod cleanup_rules;
