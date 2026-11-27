@@ -229,12 +229,12 @@ impl StorageView {
         !self.help && draw::Layout::fits_size(w, h) && Self::band(inventory).is_some()
     }
 
-    /// The panel is open, for the host's footer and tests.
     /// Whether help is open over the list or the panel: every key but the theme keys goes to it.
     pub fn help_open(&self) -> bool {
         self.help
     }
 
+    /// The panel is open, for the host's footer and tests.
     pub fn panel_open(&self) -> bool {
         self.panel.is_some()
     }
