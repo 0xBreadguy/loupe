@@ -361,11 +361,13 @@ struct TopKey {
     error: Option<String>,
     interval: u64,
     demo: bool,
+    themes: bool,
     linked: Option<String>,
     follow: bool,
     scope: String,
     window_index: usize,
     usage: Vec<overview::Provider>,
+    usage_source: &'static str,
     acked: std::collections::HashSet<String>,
     /// The waiting-request label shortens paths under the home folder.
     home: String,
@@ -383,16 +385,19 @@ impl TopKey {
             error: s.error.clone(),
             interval: s.interval.to_bits(),
             demo: s.demo,
+            themes: s.themes,
             linked: s.linked.clone(),
             follow: s.follow,
             scope: s.scope.clone(),
             window_index: s.window_index,
-            usage: s.usage.clone(),
+            usage: s.usage_providers().to_vec(),
+            usage_source: s.usage_source(),
             acked: s.acked.clone(),
             home: s.home.clone(),
         }
     }
     fn matches(&self, s: &State, w: usize, h: usize, p: &Palette) -> bool {
+        let usage = s.usage_providers();
         self.generation == s.generation
             && self.now == s.now.to_bits()
             && self.w == w
@@ -403,12 +408,14 @@ impl TopKey {
             && self.error == s.error
             && self.interval == s.interval.to_bits()
             && self.demo == s.demo
+            && self.themes == s.themes
             && self.linked == s.linked
             && self.follow == s.follow
             && self.scope == s.scope
             && self.window_index == s.window_index
-            && self.usage.len() == s.usage.len()
-            && self.usage.iter().zip(&s.usage).all(|(a, b)| a.bit_eq(b))
+            && self.usage_source == s.usage_source()
+            && self.usage.len() == usage.len()
+            && self.usage.iter().zip(usage).all(|(a, b)| a.bit_eq(b))
             && self.acked == s.acked
             && self.home == s.home
     }

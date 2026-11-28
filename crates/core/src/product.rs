@@ -5,7 +5,7 @@
 //! recognised unless one of the experiment-only flags (used by the parity gates) is present, so
 //! `cli::headless` can keep serving both front doors from the same binary.
 use crate::{
-    clock, demo, integration,
+    clock, comparison, demo, integration,
     model::{self, Agent, Snapshot, State},
     recap, recap_view, tools, tools_view,
     source::{self, SourceError},
@@ -86,10 +86,20 @@ pub const TELEMETRY_USAGE: &str = "  --telemetry-check what T3 Code sends about 
                     (--json, --demo, --wide, --compact, --narrow, --theme)
 ";
 
+const COMPARE_USAGE: &str = "  --compare         compare models and projects with the preceding week
+                    (--last-7-days, --this-week, --month, --this-month, --back N, --json)
+";
+
+const TRAY_USAGE: &str = if cfg!(windows) {
+    "  --tray            watch for T3 input and run completion from the Windows tray\n"
+} else {
+    ""
+};
+
 /// `--help`: the original's text, and the theme and report options where they are on.
 pub fn usage(themes: bool) -> String {
     if themes {
-        format!("{USAGE}{THEME_USAGE}{RECAP_USAGE}{TOOLS_USAGE}{TRACE_USAGE}{TELEMETRY_USAGE}")
+        format!("{USAGE}{THEME_USAGE}{RECAP_USAGE}{TOOLS_USAGE}{TRACE_USAGE}{TELEMETRY_USAGE}{COMPARE_USAGE}{TRAY_USAGE}")
     } else {
         USAGE.to_owned()
     }
@@ -131,6 +141,7 @@ pub enum Command {
     Tools { database: Database, now: Option<f64>, period: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<String> },
     /// `--recap`: a week or a month of agent work on one card.
     Recap { database: Database, now: Option<f64>, period: recap::Which, json: bool, size: Option<recap_view::Size>, theme: Option<String> },
+    Compare { database: Database, now: Option<f64>, period: recap::Which, older: u8, json: bool },
     /// `--telemetry-check`: read-only check of T3 Code telemetry config and opt-outs.
     TelemetryCheck { demo: bool, now: Option<f64>, json: bool, size: Option<recap_view::Size>, theme: Option<String> },
 }
@@ -317,6 +328,8 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
     let mut version = false;
     let mut tools_flag = false;
     let mut telemetry_flag = false;
+    let (mut compare, mut older) = (false, None);
+    let mut last_7_days = false;
     let (mut json, mut wide, mut compact, mut narrow) = (false, false, false, false);
     let mut i = 0;
     let (mut trace, mut trace_target) = (false, None::<String>);
@@ -351,6 +364,12 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
                 "--recap" if env.themes => boolean(&mut recap)?,
                 // So is Tools.
                 "--tools" if env.themes => boolean(&mut tools_flag)?,
+                "--compare" if env.themes => boolean(&mut compare)?,
+                "--last-7-days" if env.themes => boolean(&mut last_7_days)?,
+                "--back" if env.themes => {
+                    let raw = string_value(args, &mut i, flag, value)?;
+                    older = Some(raw.parse::<u8>().map_err(|_| UsageError("--back needs a period count from 0 to 255".into()))?);
+                }
                 // And Telemetry Check.
                 "--telemetry-check" if env.themes => boolean(&mut telemetry_flag)?,
                 "--this-week" if env.themes => boolean(&mut this_week)?,
@@ -433,6 +452,30 @@ pub fn parse_in(args: &[String], env: &Environment) -> Result<Command, UsageErro
             origin,
         }
     };
+    if older.is_some() && !compare {
+        return Err(UsageError("--back goes with --compare".into()));
+    }
+    if last_7_days && !compare {
+        return Err(UsageError("--last-7-days goes with --compare".into()));
+    }
+    if compare {
+        if recap || tools_flag || trace || telemetry_flag || once || watch || status
+            || wide || compact || narrow || theme.is_some()
+        {
+            return Err(UsageError("--compare goes with a period, --back, --json, --demo or --db".into()));
+        }
+        if u8::from(last_7_days) + u8::from(this_week) + u8::from(month) + u8::from(this_month) > 1 {
+            return Err(UsageError("Choose one comparison period".into()));
+        }
+        let period = match (this_week, month, this_month) {
+            _ if last_7_days => recap::Which::Last7Days,
+            (true, ..) => recap::Which::ThisWeek,
+            (_, true, _) => recap::Which::LastMonth,
+            (_, _, true) => recap::Which::ThisMonth,
+            _ => recap::Which::LastWeek,
+        };
+        return Ok(Command::Compare { database, now: now_ms, period, older: older.unwrap_or_default(), json });
+    }
     if telemetry_flag {
         if explicit {
             return Err(UsageError(
@@ -767,6 +810,23 @@ pub fn headless() -> Result<bool, Box<dyn std::error::Error>> {
             Ok(true)
         }
 
+        Command::Compare { database, now, period, older, json } => {
+            let origin = match &database {
+                Database::Path { origin, .. } => *origin,
+                Database::Demo => Origin::Default,
+            };
+            let report = match load_comparison(&database, now.unwrap_or_else(clock::wall_now), period, older, &crate::platform::local_time) {
+                Ok(report) => report,
+                Err(error) => {
+                    let _ = io::stderr().write_all(advice(&error, origin).as_bytes());
+                    std::process::exit(1);
+                }
+            };
+            let text = if json { comparison::printed_json(&report)? + "\n" } else { report.text() };
+            write_stdout(&text)?;
+            Ok(true)
+        }
+
         Command::Trace { database, now, target, json, theme } => {
             let code = trace_command(&database, now.unwrap_or_else(clock::wall_now), target.as_deref(), json, theme.as_deref())?;
             if code != 0 {
@@ -848,13 +908,67 @@ pub fn load_recap(
     selected: recap::Which,
     local: recap::Local<'_>,
 ) -> Result<ReportRead<recap::Recap>, SourceError> {
-    load_report(selected, |which| {
-        let period = recap::Period::new(now, which, local);
-        match database {
-            Database::Demo => recap::demo(&period, local),
-            Database::Path { path, .. } => recap::load(path, &period, local),
-        }
-    }, recap::Recap::is_empty)
+    load_report(selected, |which| load_recap_period(database, now, which, local), recap::Recap::is_empty)
+}
+
+pub fn load_insights_recap(
+    database: &Database,
+    now: f64,
+    selected: recap::Which,
+    local: recap::Local<'_>,
+) -> Result<ReportRead<recap::Recap>, SourceError> {
+    if crate::theme::disabled() {
+        return load_recap(database, now, selected, local);
+    }
+    // A period can have provider Usage records without any saved runs.
+    let mut value = load_recap_period(database, now, selected, local)?;
+    value.insights_usage = Some(match database {
+        Database::Demo => recap::InsightsUsage::Turns,
+        Database::Path { .. } => recap::InsightsUsage::Pending,
+    });
+    Ok(ReportRead { returned: selected, value })
+}
+
+fn load_recap_period(
+    database: &Database,
+    now: f64,
+    which: recap::Which,
+    local: recap::Local<'_>,
+) -> Result<recap::Recap, SourceError> {
+    let period = recap::Period::new(now, which, local);
+    match database {
+        Database::Demo => recap::demo(&period, local),
+        Database::Path { path, .. } => recap::load(path, &period, local),
+    }
+}
+
+/// Finish the period's Usage total after the base Recap has been published.
+pub fn finish_insights_recap(
+    database: &Database,
+    now: f64,
+    local: recap::Local<'_>,
+    mut report: ReportRead<recap::Recap>,
+    keep_reading: &dyn Fn() -> bool,
+) -> Option<ReportRead<recap::Recap>> {
+    let Database::Path { path, .. } = database else { return Some(report) };
+    let period = recap::Period::new(now, report.returned, local);
+    let history = crate::source::usage_history::read_cancellable(path, period.start(), period.until(), keep_reading)?;
+    report.value.insights_usage = Some(comparison::UsageWindow::summarize(&history, &period, local)
+        .map_or(recap::InsightsUsage::Turns, |usage| recap::InsightsUsage::History(Box::new(usage))));
+    Some(report)
+}
+
+pub fn load_comparison(
+    database: &Database,
+    now: f64,
+    period: recap::Which,
+    older: u8,
+    local: recap::Local<'_>,
+) -> Result<comparison::Comparison, SourceError> {
+    match database {
+        Database::Demo => comparison::demo(now, period, older, local),
+        Database::Path { path, .. } => comparison::load(path, now, period, older, local),
+    }
 }
 
 /// `--telemetry-check`. Exits 0 for any finished check, whatever the verdict.
@@ -1548,7 +1662,7 @@ mod tests {
             assert_eq!(parse_in(&args(&[flag]), &env("/tmp/home", None)), Err(UsageError(format!("Unknown option '{flag}'"))));
         }
         assert_eq!(usage(false), USAGE);
-        assert_eq!(usage(true), format!("{USAGE}{THEME_USAGE}{RECAP_USAGE}{TOOLS_USAGE}{TRACE_USAGE}{TELEMETRY_USAGE}"));
+        assert_eq!(usage(true), format!("{USAGE}{THEME_USAGE}{RECAP_USAGE}{TOOLS_USAGE}{TRACE_USAGE}{TELEMETRY_USAGE}{COMPARE_USAGE}{TRAY_USAGE}"));
         assert!(THEME_USAGE.lines().chain(RECAP_USAGE.lines()).chain(TRACE_USAGE.lines()).chain(TELEMETRY_USAGE.lines()).all(|l| l.chars().count() <= 80));
     }
 

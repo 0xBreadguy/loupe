@@ -53,6 +53,7 @@ pub struct Host {
     /// Run background read-only telemetry checks on the dashboard interval.
     /// Off for `--demo`, explicit `--db`, `LOUPE_NO_THEMES`, replays, and tests.
     pub watch_telemetry: bool,
+    watch_daily_usage: bool,
     /// Whether opening external `t3code://` links is allowed for this host.
     /// Disabled for explicit `--db` snapshots so untrusted databases cannot trigger desktop handlers.
     pub allow_open: bool,
@@ -101,6 +102,7 @@ impl Host {
             temporary: None,
             headroom_inject: None,
             watch_telemetry: false,
+            watch_daily_usage: false,
             allow_open: true,
             telemetry_worker: None,
             last_headroom: -1e9,
@@ -128,7 +130,9 @@ impl Host {
     }
     /// The product's live mode: T3's database, the user's usage files and theme.
     pub fn live(db: PathBuf, epoch: f64) -> Self {
-        Self::new(Some(db), Self::usage_dir(), Self::theme_file(), false, epoch)
+        let mut host = Self::new(Some(db), Self::usage_dir(), Self::theme_file(), false, epoch);
+        host.watch_daily_usage = !theme::disabled();
+        host
     }
     /// The product's demo: made-up agents and usage, reading nothing but the theme.
     pub fn demo(epoch: f64) -> Self {
@@ -177,18 +181,17 @@ pub fn start_live(h: &mut Host, interval: f64, wake: impl Fn() + Send + 'static)
     }
     if let Some(path) = &h.db {
         let interval = Duration::from_secs_f64(interval.max(0.5));
-        h.live = Some(match h.initial_reader.take() {
-            Some(reader) => live::spawn_with_reader(path, reader, interval, move || {
+        h.live = Some(live::spawn_dashboard(
+            path,
+            h.initial_reader.take(),
+            interval,
+            h.watch_daily_usage,
+            move || {
                 if let Ok(f) = wake.lock() {
                     f();
                 }
-            }),
-            None => live::spawn(path, interval, move || {
-                if let Ok(f) = wake.lock() {
-                    f();
-                }
-            }),
-        });
+            },
+        ));
     }
 }
 
@@ -333,21 +336,33 @@ fn same_agents(a: &[std::sync::Arc<model::Agent>], b: &[std::sync::Arc<model::Ag
 /// Takes what the background reader finished, if anything. Returns whether the state changed.
 fn accept(s: &mut State, result: Result<live::Update, source::SourceError>) -> bool {
     match result {
-        // Nothing changed since the reader's last poll. That is only nothing new for the
-        // state if it already shows that snapshot: an update that arrived while paused may
-        // have been replaced in the mailbox by a later skipped poll carrying the same data.
-        Ok(update)
+        Ok(update) => {
+            let usage_changed = match (&s.daily_usage, &update.daily_usage) {
+                (Some(old), Some(new)) => !std::sync::Arc::ptr_eq(old, new),
+                (None, None) => false,
+                _ => true,
+            };
+            s.daily_usage = update.daily_usage;
+            let compactions_changed = match (&s.compactions, &update.compactions) {
+                (Some(old), Some(new)) => !std::sync::Arc::ptr_eq(old, new),
+                (None, None) => false,
+                _ => true,
+            };
+            s.compactions = update.compactions;
+            // While paused, a later skipped poll may replace the update that first reported
+            // these agents. Daily usage can change even when the agent snapshot is reused.
             if update.served == live::Served::Skipped
                 && s.error.is_none()
-                && same_agents(&s.snap.agents, &update.snapshot.agents) =>
-        {
-            false
-        }
-        Ok(update) => {
+                && same_agents(&s.snap.agents, &update.snapshot.agents)
+            {
+                return usage_changed || compactions_changed;
+            }
             s.apply(update.snapshot, &update.changed);
             true
         }
         Err(e) => {
+            s.daily_usage = None;
+            s.compactions = None;
             s.error = Some(e.to_string());
             s.error_kind = Some(e.kind.into());
             s.error_detail = Some(e.detail);
@@ -711,6 +726,7 @@ mod tests {
             temporary: None,
             headroom_inject: None,
             watch_telemetry: false,
+            watch_daily_usage: false,
             allow_open: true,
             telemetry_worker: None,
             last_headroom: -1e9,

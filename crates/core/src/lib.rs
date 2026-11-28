@@ -14,6 +14,8 @@ pub mod cli;
 pub mod frame_bench;
 pub mod handoff;
 pub mod clock;
+pub mod comparison;
+pub mod compaction;
 pub mod cluster;
 pub mod demo;
 pub mod details;

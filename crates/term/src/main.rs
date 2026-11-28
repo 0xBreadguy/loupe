@@ -26,6 +26,7 @@ use loupe_term::{
 };
 
 mod insights_screen;
+mod comparison_screen;
 use insights_screen::{Effect as InsightsEffect, InsightsScreen, InsightsSource};
 mod storage_screen;
 use storage_screen::StorageScreen;
@@ -619,6 +620,16 @@ fn present(wake: Arc<Wake>, launch: Launch) -> Result<(), Box<dyn std::error::Er
     // The width method and cursor rules the original takes from this terminal's environment.
     let mut encoder = Encoder::for_terminal(loupe_core::cluster::TermEnv::from_process());
     encoder.process_color_environment();
+    #[cfg(windows)]
+    {
+        // Windows consoles can disagree on Unicode cluster widths; always re-sync the cursor after
+        // non-ASCII clusters, and on legacy conhost (outside Windows Terminal) avoid the bottom-
+        // right cell so older conhost builds cannot scroll the alternate buffer.
+        encoder.set_force_cursor_after_cluster(true);
+        if std::env::var_os("WT_SESSION").is_none() {
+            encoder.set_avoid_bottom_right(true);
+        }
+    }
     let mut palette_queried = false;
     // When the background was last asked for after a color scheme report (OpenTUI asks once per
     // 250 ms at most: `RendererThemeMode.QUERY_TIMEOUT_MS` in `src/renderer.ts`).
@@ -1106,14 +1117,19 @@ fn product_launch(
         }
         Database::Path { path, origin } => {
             let mut initial_reader = None;
+            let mut daily_usage = None;
+            let mut compactions = None;
             let result = if std::env::var_os("LOUPE_SYNC_READ").is_some() {
                 source::snapshot(&path, now)
             } else {
-                match live::Reader::open(&path).and_then(|mut reader| {
+                match live::Reader::open(&path).and_then(|reader| {
+                    let mut reader = reader.with_daily_usage(!theme::disabled());
                     let update = reader.poll(now)?;
                     if update.served == live::Served::Full {
                         clock::release_memory();
                     }
+                    daily_usage = update.daily_usage;
+                    compactions = update.compactions;
                     initial_reader = Some(reader);
                     Ok(update.snapshot)
                 }) {
@@ -1134,6 +1150,8 @@ fn product_launch(
             };
             state.demo = false;
             state.usage.clear();
+            state.daily_usage = daily_usage;
+            state.compactions = compactions;
             let mut host = Host::live(path, now);
             // Block external `t3code://` link activation when viewing an explicit `--db` in product mode;
             // keep `oracle/` parity when `LOUPE_NO_THEMES=1` is set by parity checks.
@@ -1177,6 +1195,12 @@ fn failed(snapshot: Snapshot, e: &source::SourceError) -> State {
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
+    if std::env::args_os().skip(1).eq([std::ffi::OsStr::new("--tray")]) {
+        #[cfg(windows)]
+        return Ok(platform::run_tray(&product::default_database())?);
+        #[cfg(not(windows))]
+        return Err("Loupe tray alerts are available on Windows".into());
+    }
     // Experiment flags (fixtures, replays, benchmarks) keep their own command line. Anything
     // else is the product's: --once, --status and --help are answered without a screen.
     let launch = if cli::experiment_requested() {

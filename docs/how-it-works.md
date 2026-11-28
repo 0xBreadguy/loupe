@@ -204,6 +204,25 @@ writes to it, and it makes no network connections.
   an explicit `--db`, and leave Loupe's database reader strictly read-only.
 - **Usage limits:** read from Omarchy's agent usage records in
   `~/.local/state/omarchy/agents/usage/`, if they exist.
+- The **Tokens Today** tile falls back to the input and output counts T3
+  reported for turns that finished since local midnight. The `T3` label marks
+  this source. **Models Today** uses the turn's reported model, its linked run's
+  model selection, or the provider name in that order. The reader uses turn
+  completion time, usage status, the token counts, and the model, provider
+  and routing fields needed to attribute them. Where local Usage history is
+  available, Loupe uses per-provider token counts from T3's saved scan cache,
+  Antigravity conversation usage metadata, and OpenCode message token fields.
+  It reads token amounts, times, model labels, and record identities needed
+  to deduplicate. When available, the local Usage totals cover the whole
+  window. When unavailable, the dashboard shows the recorded thread totals.
+  A linked T3 environment has its own history.
+- **Compare** adds run model selections, status and timing, thread project IDs
+  and creation dates, and project titles to the same reported turn counts.
+  It reads both periods in one read-only transaction. Project labels and
+  matching provider sessions let it attribute older runs after a model switch.
+- The **Windows tray** reads the same status projection as the status watcher.
+  It keeps attention and watch state in memory. Notification clicks use the
+  environment and thread IDs to open T3 Code.
 - **Themes:** it reads the theme it's told to use, once a second so edits
   show: its own files in `~/.config/loupe/themes/`, and on Omarchy the live
   theme in `~/.local/state/omarchy/current/theme/` (`colors.toml`,

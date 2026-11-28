@@ -620,6 +620,14 @@ fn data_version(db: &Connection) -> Option<i64> {
     db.query_row("PRAGMA data_version", [], |row| row.get(0))
         .ok()
 }
+#[cfg(unix)]
+fn handle_matches(db: &Connection, at: &Path) -> bool {
+    crate::cache::handle_matches(db, at)
+}
+#[cfg(not(unix))]
+fn handle_matches(_db: &Connection, _at: &Path) -> bool {
+    false
+}
 /// A worker's pin: a read transaction whose first statement has read the database
 /// (`BEGIN` alone reads nothing), on the file that is still at the path.
 fn pin(db: &Connection, at: &Path) -> bool {
@@ -627,7 +635,7 @@ fn pin(db: &Connection, at: &Path) -> bool {
         && db
             .query_row(crate::fanout::PIN_SNAPSHOT, [], |_| Ok(()))
             .is_ok()
-        && crate::cache::handle_matches(db, at)
+        && handle_matches(db, at)
 }
 
 enum Command {
@@ -793,7 +801,7 @@ pub(super) fn read(
             let after = data_version(&db)?;
             // Every connection has pinned: the same files as before the first one opened?
             let (last_files, last_written) = files(at)?;
-            if last_files != first_files || !crate::cache::handle_matches(&db, at) {
+            if last_files != first_files || !handle_matches(&db, at) {
                 trace.moved = true;
                 return None;
             }

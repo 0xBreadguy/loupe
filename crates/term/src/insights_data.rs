@@ -1,4 +1,4 @@
-//! Visit-scoped typed Insights snapshots and a single background reader.
+//! Visit-scoped typed Insights snapshots and bounded background reads.
 //!
 //! Call `open`, paint the initial loading frame if desired, then call `dispatch`.
 //! Selection and refresh also stage work until dispatch. The wake callback signals
@@ -9,15 +9,18 @@
 //! connections. A running read, including SQL, is allowed to finish.
 
 use std::{
+    cell::Cell,
     fmt, io,
     sync::{Arc, Condvar, Mutex},
     thread,
 };
 
 use loupe_core::{
-    clock, platform,
+    clock,
+    comparison::Comparison,
+    platform,
     product::{self, Database},
-    recap::{Recap, Which},
+    recap::{InsightsUsage, Recap, Which},
     source::SourceError,
     tools::Tools,
 };
@@ -26,6 +29,7 @@ use loupe_core::{
 pub enum Report {
     Recap,
     Tools,
+    Compare(u8),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -43,7 +47,8 @@ impl Selection {
     fn index(self) -> usize {
         let report = match self.report {
             Report::Recap => 0,
-            Report::Tools => 4,
+            Report::Tools => 5,
+            Report::Compare(_) => 10,
         };
         report
             + match self.period {
@@ -51,6 +56,7 @@ impl Selection {
                 Which::LastWeek => 1,
                 Which::ThisMonth => 2,
                 Which::LastMonth => 3,
+                Which::Last7Days => 4,
             }
     }
 }
@@ -59,6 +65,7 @@ impl Selection {
 pub enum Value {
     Recap(Recap),
     Tools(Tools),
+    Compare(Comparison),
 }
 
 #[derive(Debug)]
@@ -88,6 +95,7 @@ impl std::error::Error for ReadError {}
 
 #[derive(Debug)]
 pub struct Snapshot {
+    id: u64,
     pub selected: Selection,
     pub cutoff: f64,
     pub finished_at: f64,
@@ -107,7 +115,7 @@ fn read(database: &Database, request: Request) -> Result<Loaded, SourceError> {
     let period = request.selected.period;
     match request.selected.report {
         Report::Recap => {
-            product::load_recap(database, cutoff, period, local).map(|report| Loaded {
+            product::load_insights_recap(database, cutoff, period, local).map(|report| Loaded {
                 returned: report.returned,
                 value: Value::Recap(report.value),
             })
@@ -118,25 +126,54 @@ fn read(database: &Database, request: Request) -> Result<Loaded, SourceError> {
                 value: Value::Tools(report.value),
             })
         }
+        Report::Compare(older) => product::load_comparison(database, cutoff, period, older, local)
+            .map(|report| Loaded {
+                returned: period,
+                value: Value::Compare(report),
+            }),
     }
 }
 
-#[derive(Default)]
-struct Mailbox {
+struct Job<T> {
+    id: u64,
+    input: T,
+}
+
+struct Mailbox<T> {
     running: bool,
     retire: bool,
     wanted: Option<u64>,
-    pending: Option<Request>,
+    pending: Option<Job<T>>,
     completed: Option<Box<Snapshot>>,
 }
 
-#[derive(Default)]
-struct Worker {
-    mailbox: Mutex<Mailbox>,
+impl<T> Default for Mailbox<T> {
+    fn default() -> Self {
+        Self {
+            running: false,
+            retire: false,
+            wanted: None,
+            pending: None,
+            completed: None,
+        }
+    }
+}
+
+struct Worker<T> {
+    mailbox: Mutex<Mailbox<T>>,
     changed: Condvar,
 }
 
-impl Worker {
+impl<T> Default for Worker<T> {
+    fn default() -> Self {
+        Self {
+            mailbox: Mutex::default(),
+            changed: Condvar::new(),
+        }
+    }
+}
+
+impl<T: Send + 'static> Worker<T> {
     fn reject(&self, retire: bool) {
         let completed = {
             let mut mailbox = self.mailbox.lock().unwrap();
@@ -151,9 +188,58 @@ impl Worker {
         drop(completed);
     }
 
-    fn run(&self, load: impl Fn(Request) -> Result<Loaded, SourceError>, wake: impl Fn()) {
+    fn submit<L, W>(
+        self: &Arc<Self>,
+        job: Job<T>,
+        name: &str,
+        trim_on_retire: bool,
+        start: impl FnOnce() -> (L, W),
+    ) -> io::Result<()>
+    where
+        L: Fn(T) -> Option<Box<Snapshot>> + Send + 'static,
+        W: Fn() + Send + 'static,
+    {
+        let mut mailbox = self.mailbox.lock().unwrap();
+        if mailbox.wanted == Some(job.id) {
+            return Ok(());
+        }
+        mailbox.retire = false;
+        mailbox.wanted = Some(job.id);
+        mailbox.pending = Some(job);
+        mailbox.completed = None;
+        if mailbox.running {
+            self.changed.notify_one();
+            return Ok(());
+        }
+        mailbox.running = true;
+        let worker_thread = Arc::clone(self);
+        let (load, wake) = start();
+        thread::Builder::new()
+            .name(name.into())
+            .spawn(move || {
+                worker_thread.run(load, wake);
+                if trim_on_retire {
+                    clock::release_memory();
+                }
+            })
+            .map(|_| ())
+            .map_err(|error| {
+                *mailbox = Mailbox::default();
+                error
+            })
+    }
+
+    fn take(&self) -> Option<Box<Snapshot>> {
+        self.mailbox.lock().unwrap().completed.take()
+    }
+
+    fn wants(&self, id: u64) -> bool {
+        self.mailbox.lock().unwrap().wanted == Some(id)
+    }
+
+    fn run(&self, load: impl Fn(T) -> Option<Box<Snapshot>>, wake: impl Fn()) {
         loop {
-            let request = {
+            let job = {
                 let mut mailbox = self.mailbox.lock().unwrap();
                 loop {
                     if let Some(request) = mailbox.pending.take() {
@@ -166,16 +252,12 @@ impl Worker {
                     mailbox = self.changed.wait(mailbox).unwrap();
                 }
             };
-            let outcome = load(request).map_err(ReadError::Source);
-            let finished_at = clock::wall_now();
+            let Some(completed) = load(job.input) else {
+                continue;
+            };
             let mut mailbox = self.mailbox.lock().unwrap();
-            if mailbox.wanted == Some(request.id) {
-                mailbox.completed = Some(Box::new(Snapshot {
-                    selected: request.selected,
-                    cutoff: request.cutoff,
-                    finished_at,
-                    outcome,
-                }));
+            if mailbox.wanted == Some(job.id) {
+                mailbox.completed = Some(completed);
                 drop(mailbox);
                 wake();
             }
@@ -183,10 +265,24 @@ impl Worker {
     }
 }
 
+struct UsageRequest {
+    request: Request,
+    report: product::ReportRead<Recap>,
+}
+
+struct UsageLoader {
+    worker: Arc<Worker<UsageRequest>>,
+    load: Arc<ReadUsage>,
+    wake: Arc<dyn Fn() + Send + Sync>,
+}
+
+type ReadUsage =
+    dyn Fn(UsageRequest, &dyn Fn() -> bool) -> Option<product::ReportRead<Recap>> + Send + Sync;
+
 struct Visit {
     selected: Selection,
     cutoff: f64,
-    cache: [Option<Box<Snapshot>>; 8],
+    cache: [Option<Box<Snapshot>>; 15],
     previous: Option<Box<Snapshot>>,
     loading_since: Option<f64>,
     dispatched: bool,
@@ -194,7 +290,9 @@ struct Visit {
 
 impl Visit {
     fn current(&self) -> Option<&Snapshot> {
-        self.cache[self.selected.index()].as_deref()
+        self.cache[self.selected.index()]
+            .as_deref()
+            .filter(|snapshot| snapshot.selected == self.selected)
     }
 
     fn accept(&mut self, snapshot: Box<Snapshot>) {
@@ -210,7 +308,8 @@ impl Visit {
 #[derive(Default)]
 pub struct InsightsData {
     visit: Option<Visit>,
-    worker: Option<Arc<Worker>>,
+    worker: Option<Arc<Worker<Request>>>,
+    usage: Option<UsageLoader>,
     next_id: u64,
 }
 
@@ -232,6 +331,9 @@ impl InsightsData {
     pub fn close(&mut self) {
         if let Some(worker) = &self.worker {
             worker.reject(true);
+        }
+        if let Some(usage) = &self.usage {
+            usage.worker.reject(true);
         }
         self.visit = None;
     }
@@ -272,6 +374,7 @@ impl InsightsData {
         visit.previous = None;
         visit.loading_since = visit.current().is_none().then_some(now);
         visit.dispatched = false;
+        self.schedule_usage();
         true
     }
 
@@ -282,8 +385,11 @@ impl InsightsData {
         if let Some(worker) = &self.worker {
             worker.reject(false);
         }
+        if let Some(usage) = &self.usage {
+            usage.worker.reject(false);
+        }
         if let Some(snapshot) = visit.cache[visit.selected.index()].take() {
-            if snapshot.outcome.is_ok() {
+            if snapshot.selected == visit.selected && snapshot.outcome.is_ok() {
                 visit.previous = Some(snapshot);
             }
         }
@@ -300,10 +406,34 @@ impl InsightsData {
     ///
     /// Returns true if a request was dispatched. A thread creation failure
     /// immediately sets `outcome` and clears `loading_since`, without a callback.
-    pub fn dispatch(&mut self, database: &Database, wake: impl Fn() + Send + 'static) -> bool {
+    pub fn dispatch(
+        &mut self,
+        database: &Database,
+        wake: impl Fn() + Send + Sync + 'static,
+    ) -> bool {
+        let wake = Arc::new(wake);
+        if self.usage.is_none()
+            && matches!(database, Database::Path { .. })
+            && !loupe_core::theme::disabled()
+        {
+            let database = database.clone();
+            self.usage = Some(UsageLoader {
+                worker: Arc::new(Worker::default()),
+                load: Arc::new(move |job, keep_reading| {
+                    product::finish_insights_recap(
+                        &database,
+                        job.request.cutoff,
+                        &platform::local_time,
+                        job.report,
+                        keep_reading,
+                    )
+                }),
+                wake: wake.clone(),
+            });
+        }
         self.dispatch_with(matches!(database, Database::Path { .. }), || {
             let database = database.clone();
-            (move |request| read(&database, request), wake)
+            (move |request| read(&database, request), move || wake())
         })
     }
 
@@ -327,31 +457,25 @@ impl InsightsData {
         let worker = self
             .worker
             .get_or_insert_with(|| Arc::new(Worker::default()));
-        let mut mailbox = worker.mailbox.lock().unwrap();
         visit.dispatched = true;
-        mailbox.retire = false;
-        mailbox.wanted = Some(request.id);
-        mailbox.pending = Some(request);
-        if mailbox.running {
-            worker.changed.notify_one();
-            return true;
-        }
-
-        mailbox.running = true;
-        let worker_thread = Arc::clone(worker);
-        let (load, wake) = start();
-        if let Err(error) = thread::Builder::new()
-            .name("t3-insights".into())
-            .spawn(move || {
-                worker_thread.run(load, wake);
-                // The read scratch is gone and a new visit can start using the mailbox.
-                if trim_on_retire {
-                    clock::release_memory();
-                }
-            })
-        {
-            *mailbox = Mailbox::default();
+        if let Err(error) = worker.submit(
+            Job {
+                id: request.id,
+                input: request,
+            },
+            "t3-insights",
+            trim_on_retire,
+            || {
+                let (load, wake) = start();
+                let load = move |request: Request| {
+                    let outcome = load(request).map_err(ReadError::Source);
+                    Some(snapshot(request, outcome))
+                };
+                (load, wake)
+            },
+        ) {
             visit.accept(Box::new(Snapshot {
+                id: request.id,
                 selected: request.selected,
                 cutoff: request.cutoff,
                 finished_at: clock::wall_now(),
@@ -361,23 +485,102 @@ impl InsightsData {
         true
     }
 
-    /// Take at most one result on the event loop. The mailbox rejects results
-    /// superseded by navigation, refresh or closing, even across reopening.
+    /// Publish the base report before scheduling any provider history scan.
     pub fn poll(&mut self) -> bool {
         let Some(visit) = &mut self.visit else {
             return false;
         };
-        let Some(worker) = &self.worker else {
-            return false;
-        };
-        let completed = worker.mailbox.lock().unwrap().completed.take();
-        if let Some(snapshot) = completed {
+        let mut changed = false;
+        if let Some(snapshot) = self.worker.as_ref().and_then(|worker| worker.take()) {
             visit.accept(snapshot);
-            true
-        } else {
-            false
+            changed = true;
+        }
+        if let Some(snapshot) = self.usage.as_ref().and_then(|usage| usage.worker.take()) {
+            let selected = snapshot.selected;
+            let slot = &mut visit.cache[selected.index()];
+            if slot.as_ref().is_some_and(|base| base.id == snapshot.id) {
+                *slot = Some(snapshot);
+                changed |= selected == visit.selected;
+            }
+        }
+        self.schedule_usage();
+        changed
+    }
+
+    fn schedule_usage(&mut self) {
+        let Some(usage) = &self.usage else { return };
+        let Some(visit) = &mut self.visit else { return };
+        let Some(base) = visit.cache[visit.selected.index()]
+            .as_mut()
+            .filter(|base| base.selected == visit.selected)
+        else {
+            return;
+        };
+        let Ok(Loaded {
+            returned,
+            value: Value::Recap(report),
+        }) = &mut base.outcome
+        else {
+            return;
+        };
+        if report.insights_usage != Some(InsightsUsage::Pending) || usage.worker.wants(base.id) {
+            return;
+        }
+        let request = Request {
+            id: base.id,
+            selected: base.selected,
+            cutoff: base.cutoff,
+        };
+        let job = Job {
+            id: base.id,
+            input: UsageRequest {
+                request,
+                report: product::ReportRead {
+                    returned: *returned,
+                    value: report.clone(),
+                },
+            },
+        };
+        if usage
+            .worker
+            .submit(job, "t3-insights-usage", true, || {
+                let load_report = Arc::clone(&usage.load);
+                let wake = Arc::clone(&usage.wake);
+                let worker = Arc::clone(&usage.worker);
+                let load = move |job: UsageRequest| {
+                    let request = job.request;
+                    let canceled = Cell::new(false);
+                    let report = load_report(job, &|| {
+                        if !canceled.get() && !worker.wants(request.id) {
+                            canceled.set(true);
+                        }
+                        !canceled.get()
+                    })?;
+                    Some(snapshot(
+                        request,
+                        Ok(Loaded {
+                            returned: report.returned,
+                            value: Value::Recap(report.value),
+                        }),
+                    ))
+                };
+                (load, move || wake())
+            })
+            .is_err()
+        {
+            report.insights_usage = Some(InsightsUsage::Turns);
         }
     }
+}
+
+fn snapshot(request: Request, outcome: Result<Loaded, ReadError>) -> Box<Snapshot> {
+    Box::new(Snapshot {
+        id: request.id,
+        selected: request.selected,
+        cutoff: request.cutoff,
+        finished_at: clock::wall_now(),
+        outcome,
+    })
 }
 
 impl Drop for InsightsData {
@@ -415,9 +618,13 @@ mod tests {
         assert_eq!(recap.selected, Selection::ENTRY);
         assert_eq!(recap.cutoff, NOW);
         let loaded = recap.outcome.as_ref().unwrap();
-        let expected =
-            product::load_recap(&Database::Demo, NOW, Which::ThisWeek, &platform::local_time)
-                .unwrap();
+        let expected = product::load_insights_recap(
+            &Database::Demo,
+            NOW,
+            Which::ThisWeek,
+            &platform::local_time,
+        )
+        .unwrap();
         assert_eq!(loaded.returned, expected.returned);
         assert!(matches!(&loaded.value, Value::Recap(value) if *value == expected.value));
 
@@ -451,6 +658,84 @@ mod tests {
         ready.recv_timeout(TIMEOUT).unwrap();
         assert!(data.poll());
         assert_eq!(data.visible().unwrap().cutoff, LATER);
+    }
+
+    #[test]
+    fn recap_and_tools_are_visible_while_usage_is_reading() {
+        let (wake, ready) = mpsc::channel();
+        let (started, scanning) = mpsc::channel();
+        let (release, barrier) = mpsc::channel();
+        let barrier = Mutex::new(barrier);
+        let token_wake = wake.clone();
+        let mut data = InsightsData::default();
+        data.usage = Some(UsageLoader {
+            worker: Arc::new(Worker::default()),
+            wake: Arc::new(move || token_wake.send(()).unwrap()),
+            load: Arc::new(move |job, _| {
+                started.send(()).unwrap();
+                barrier.lock().unwrap().recv_timeout(TIMEOUT).unwrap();
+                let mut report = job.report;
+                report.value.insights_usage = Some(InsightsUsage::History(Box::new(
+                    loupe_core::comparison::UsageWindow {
+                        tokens: loupe_core::comparison::Tokens {
+                            fresh: 83.,
+                            turns: 1,
+                            ..Default::default()
+                        },
+                        models: Default::default(),
+                        providers: Default::default(),
+                        days: Vec::new(),
+                        partial: false,
+                    },
+                )));
+                Some(report)
+            }),
+        });
+        data.open(NOW);
+        assert!(data.dispatch_with(false, || {
+            let load = |request: Request| {
+                let value = match request.selected.report {
+                    Report::Recap => Value::Recap(Recap {
+                        runs: 1,
+                        insights_usage: Some(InsightsUsage::Pending),
+                        ..Recap::default()
+                    }),
+                    Report::Tools => Value::Tools(Tools::default()),
+                    _ => unreachable!(),
+                };
+                Ok(Loaded {
+                    returned: request.selected.period,
+                    value,
+                })
+            };
+            (load, move || wake.send(()).unwrap())
+        }));
+        ready.recv_timeout(TIMEOUT).unwrap();
+        assert!(data.poll());
+        scanning.recv_timeout(TIMEOUT).unwrap();
+        let visible = || data.visible().unwrap().outcome.as_ref().unwrap();
+        assert!(
+            matches!(&visible().value, Value::Recap(r) if r.insights_usage == Some(InsightsUsage::Pending))
+        );
+        assert_eq!(data.loading_since(), None);
+
+        assert!(data.select(TOOLS, NOW));
+        assert!(data.dispatch(&Database::Demo, || panic!("worker should be reused")));
+        ready.recv_timeout(TIMEOUT).unwrap();
+        assert!(data.poll());
+        assert!(matches!(
+            &data.visible().unwrap().outcome.as_ref().unwrap().value,
+            Value::Tools(_)
+        ));
+
+        release.send(()).unwrap();
+        ready.recv_timeout(TIMEOUT).unwrap();
+        assert!(!data.poll(), "an offscreen Usage result needs no repaint");
+        assert!(data.select(Selection::ENTRY, NOW));
+        assert!(
+            matches!(&data.visible().unwrap().outcome.as_ref().unwrap().value,
+            Value::Recap(r) if matches!(&r.insights_usage, Some(InsightsUsage::History(usage)) if usage.tokens.total() == 83.))
+        );
     }
 
     #[test]

@@ -94,7 +94,7 @@ fn at(local: Local, seconds: i64) -> LocalTime {
 
 /// The first instant of the local day that holds `seconds`: its midnight, or where a clock
 /// change skips midnight, the instant the day begins at.
-fn midnight(local: Local, seconds: i64) -> i64 {
+pub(crate) fn midnight(local: Local, seconds: i64) -> i64 {
     let day = |t: &LocalTime| (t.year, t.month0, t.day);
     let since = |t: &LocalTime| i64::from(t.hour * 3600 + t.minute * 60 + t.second);
     let target = at(local, seconds);
@@ -129,6 +129,8 @@ fn weekday(t: &LocalTime) -> i64 {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Which {
+    /// Today and the six preceding local dates, as in T3 Usage.
+    Last7Days,
     /// The last full week, Monday to Sunday.
     LastWeek,
     /// The current week, so far.
@@ -144,7 +146,7 @@ impl Which {
         if matches!(self, Which::LastMonth | Which::ThisMonth) { Span::Month } else { Span::Week }
     }
     pub fn so_far(self) -> bool {
-        matches!(self, Which::ThisWeek | Which::ThisMonth)
+        matches!(self, Which::Last7Days | Which::ThisWeek | Which::ThisMonth)
     }
 }
 
@@ -179,7 +181,12 @@ impl Period {
         let mut first = midnight(local, (now / 1000.).floor() as i64);
         let length = match which.span() {
             Span::Week => {
-                for _ in 0..weekday(&at(local, first)) + if which == Which::LastWeek { 7 } else { 0 } {
+                let days_back = match which {
+                    Which::Last7Days => 6,
+                    Which::LastWeek => weekday(&at(local, first)) + 7,
+                    _ => weekday(&at(local, first)),
+                };
+                for _ in 0..days_back {
                     first = back(first);
                 }
                 7
@@ -508,7 +515,7 @@ pub fn read_from(db: &Connection, path: &Path, period: &Period) -> Result<Facts,
 }
 
 /// End the read transaction even when one of its queries fails.
-fn read_in_transaction(db: &Connection, path: &Path, read: impl FnOnce() -> rusqlite::Result<Facts>) -> Result<Facts, SourceError> {
+pub(crate) fn read_in_transaction<T>(db: &Connection, path: &Path, read: impl FnOnce() -> rusqlite::Result<T>) -> Result<T, SourceError> {
     let fail = |e: rusqlite::Error| {
         let not_db = matches!(&e, rusqlite::Error::SqliteFailure(c, _) if c.extended_code == 26);
         source_error(path, if not_db { "unreadable" } else { "schema" }, if not_db { "not a SQLite database".into() } else { e.to_string() })
@@ -1443,6 +1450,13 @@ pub fn printed_json(report: &Recap) -> Result<String, serde_json::Error> {
     crate::report_json::with_schema(report, JSON_SCHEMA)
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum InsightsUsage {
+    Pending,
+    Turns,
+    History(Box<crate::comparison::UsageWindow>),
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct Recap {
     /// `week` or `month`.
@@ -1488,6 +1502,8 @@ pub struct Recap {
     pub handed: Handed,
     pub asks: Asks,
     pub tokens: Tokens,
+    #[serde(skip)]
+    pub insights_usage: Option<InsightsUsage>,
     pub compactions: u32,
     pub turns_past_90: u32,
     pub tool_calls: u32,
@@ -1503,6 +1519,24 @@ pub struct Recap {
 impl Recap {
     pub fn is_empty(&self) -> bool {
         self.runs == 0
+    }
+
+    pub(crate) fn insights_total(&self) -> Option<(Option<f64>, &'static str)> {
+        Some(match self.insights_usage.as_ref()? {
+            InsightsUsage::Pending if self.is_empty() => (None, "Loading T3 Usage"),
+            InsightsUsage::Pending | InsightsUsage::Turns => (
+                self.tokens.reported.then_some(self.tokens.input + self.tokens.output),
+                if self.insights_usage == Some(InsightsUsage::Pending) { "Turns · loading T3" } else { "Turn totals" },
+            ),
+            InsightsUsage::History(usage) => (
+                Some(usage.tokens.total()),
+                if usage.partial { "T3 Usage · partial" } else { "T3 Usage" },
+            ),
+        })
+    }
+
+    pub(crate) fn has_usage_history(&self) -> bool {
+        matches!(self.insights_usage, Some(InsightsUsage::History(_)))
     }
 }
 
@@ -1565,7 +1599,7 @@ fn spread(recap: &mut Recap, period: &Period, a: f64, b: f64) {
     }
 }
 
-fn family_name(family: ProviderFamily) -> &'static str {
+pub(crate) fn family_name(family: ProviderFamily) -> &'static str {
     match family {
         ProviderFamily::Claude => "claude",
         ProviderFamily::OpenAi => "openai",

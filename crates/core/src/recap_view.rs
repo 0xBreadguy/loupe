@@ -8,7 +8,8 @@
 //! bar and never beside the accent, so the two cannot be mistaken in a colorful theme.
 //! Without color, parts are told apart by their fill.
 use crate::{
-    recap::{self, Recap, Span},
+    comparison::{Tokens, UsageWindow},
+    recap::{self, InsightsUsage, Recap, Span},
     terminal::{self, Canvas, Palette, Rgb, mix},
 };
 
@@ -150,6 +151,7 @@ pub(crate) fn coverage(r: &Recap, source: Source, roomy: bool) -> String {
     let recorded = format!("{} {} recorded", r.days_recorded, if r.days_recorded == 1 { "day" } else { "days" });
     match source {
         Source::Demo => "demo data · made up".into(),
+        Source::Records if r.insights_usage.is_some() && r.is_empty() => "no runs recorded".into(),
         Source::Records if r.so_far && roomy && r.period == Span::Month => match month_day(&r.from) {
             Some((month, _)) => format!("so far, to {} {} · {recorded}", MONTHS[month], r.days_elapsed),
             None => format!("so far · {recorded}"),
@@ -235,6 +237,21 @@ fn recorded(r: &Recap, day: usize) -> bool {
     day as u32 >= r.first_recorded_day && (day as u32) < r.days_elapsed
 }
 
+fn no_saved_runs(r: &Recap) -> bool {
+    r.is_empty() && r.insights_usage.is_some()
+}
+
+fn historical_usage(r: &Recap) -> Option<&UsageWindow> {
+    match &r.insights_usage {
+        Some(InsightsUsage::History(usage)) if r.is_empty() => Some(usage),
+        _ => None,
+    }
+}
+
+fn day_tokens(usage: &UsageWindow, day: usize) -> Option<f64> {
+    usage.days.get(day)?.tokens.map(Tokens::total)
+}
+
 // ── A month's days ──────────────────────────────────────────────────────────
 
 /// An amount of hours as `hours_text` writes it, so a cut point in a key is the number a day
@@ -263,28 +280,32 @@ impl Shades {
         let peak = busiest.map_or(0., |day| r.by_day[day]);
         Shades { cuts: [as_written(peak / 3.), as_written(peak * 2. / 3.)], busiest }
     }
-    /// 0 for a day with no agent time, then 1 to 3; `None` for a day that holds no records.
-    fn level(&self, r: &Recap, day: usize) -> Option<usize> {
-        if !recorded(r, day) {
-            return None;
-        }
-        let hours = r.by_day[day];
-        Some(if hours <= 0. {
+    fn for_usage(usage: &UsageWindow) -> Self {
+        let busiest = (0..usage.days.len())
+            .filter_map(|day| day_tokens(usage, day).filter(|&n| n > 0.).map(|n| (day, n)))
+            .max_by(|a, b| a.1.total_cmp(&b.1).then(b.0.cmp(&a.0)));
+        let peak = busiest.map_or(0., |(_, n)| n);
+        Self { cuts: [peak / 3., peak * 2. / 3.], busiest: busiest.map(|(day, _)| day) }
+    }
+
+    /// 0 for a recorded day with no activity, then 1 to 3.
+    fn level(&self, value: f64, day: usize) -> usize {
+        if value <= 0. {
             0
-        } else if self.busiest == Some(day) || hours >= self.cuts[1] {
+        } else if self.busiest == Some(day) || value >= self.cuts[1] {
             3
-        } else if hours >= self.cuts[0] {
+        } else if value >= self.cuts[0] {
             2
         } else {
             1
-        })
+        }
     }
     /// The key's entries, lightest first: the step and what it stands for. A month so quiet
     /// that a cut point is written as nothing, or two as the same, has fewer steps to name.
-    fn key(&self) -> Vec<(usize, String)> {
-        let [low, high] = self.cuts.map(recap::hours_text);
+    fn key(&self, format: fn(f64) -> String, zero: &str) -> Vec<(usize, String)> {
+        let [low, high] = self.cuts.map(format);
         if self.cuts[1] <= 0. {
-            return vec![(3, "agents at work".to_owned())];
+            return vec![(3, zero.to_owned())];
         }
         let mut key = vec![];
         if self.cuts[0] > 0. {
@@ -300,8 +321,8 @@ impl Shades {
 
 /// One Monday-to-Sunday week of a month, as both cards show it.
 struct Week {
-    /// Agent hours on its days inside the month.
-    hours: f64,
+    /// Agent hours or processed tokens on its days inside the month.
+    total: f64,
     /// The date it begins on inside the month: the 1st, or its Monday.
     first: usize,
     /// Whether any of its days holds records, and whether any has come.
@@ -311,16 +332,16 @@ struct Week {
 
 /// A month's weeks, 4 to 6 of them. The first and the last are as short as the calendar
 /// makes them.
-fn weeks(r: &Recap) -> Vec<Week> {
+fn weeks(r: &Recap, value: impl Fn(usize) -> Option<f64>) -> Vec<Week> {
     let mut weeks: Vec<Week> = vec![];
     for day in 0..r.by_day.len() {
         let index = (r.first_weekday as usize + day) / 7;
         if weeks.len() <= index {
-            weeks.push(Week { hours: 0., first: day + 1, recorded: false, come: false });
+            weeks.push(Week { total: 0., first: day + 1, recorded: false, come: false });
         }
         let week = &mut weeks[index];
-        if recorded(r, day) {
-            week.hours += r.by_day[day];
+        if let Some(n) = value(day) {
+            week.total += n;
             week.recorded = true;
         }
         week.come |= (day as u32) < r.days_elapsed;
@@ -328,9 +349,9 @@ fn weeks(r: &Recap) -> Vec<Week> {
     weeks
 }
 
-/// The week with the most agent hours; the earliest of them when several have as many.
+/// The week with the highest total; the earliest of them in case of a tie.
 fn busiest_week(weeks: &[Week]) -> Option<usize> {
-    (0..weeks.len()).filter(|&w| weeks[w].hours > 0.).max_by(|&a, &b| weeks[a].hours.total_cmp(&weeks[b].hours).then(b.cmp(&a)))
+    (0..weeks.len()).filter(|&w| weeks[w].total > 0.).max_by(|&a, &b| weeks[a].total.total_cmp(&weeks[b].total).then(b.cmp(&a)))
 }
 
 /// One column of the hours tile, two cells wide: `part` of the tallest, which stops level
@@ -355,16 +376,26 @@ fn column(pen: &mut Pen, x: i32, part: f64, is_top: bool) {
 /// Its rows touched, so it read as seven bars whose height meant only which dates exist.
 fn month_tile(pen: &mut Pen, r: &Recap) {
     let p = pen.p;
-    pen.c.fill(0, 2, 41, 5, p.panel);
-    pen.c.text_bold(2, 2, "AGENT HOURS", p.dim);
-    let weeks = weeks(r);
-    let top = busiest_week(&weeks);
-    if let Some(week) = top {
-        pen.c.right(40, 2, &format!("busiest week · {}", recap::hours_text(weeks[week].hours)), p.dim);
+    let usage = historical_usage(r);
+    if no_saved_runs(r) {
+        tile(pen, 0, 41, "AGENT HOURS", "—", true, "no saved runs");
+    } else {
+        pen.c.fill(0, 2, 41, 5, p.panel);
+        pen.c.text_bold(2, 2, "AGENT HOURS", p.dim);
+        terminal::draw_big(&mut pen.c, 2, 3, &big_hours(r), p.bright, p.bright, false);
+        pen.c.text(2, 6, &if r.most_at_once <= 1 { "one at a time".to_owned() } else { format!("up to {} at once", r.most_at_once) }, p.dim);
     }
-    terminal::draw_big(&mut pen.c, 2, 3, &big_hours(r), p.bright, p.bright, false);
-    pen.c.text(2, 6, &if r.most_at_once <= 1 { "one at a time".to_owned() } else { format!("up to {} at once", r.most_at_once) }, p.dim);
-    let peak = top.map_or(0., |week| weeks[week].hours);
+    let weeks = weeks(r, |day| match usage {
+        Some(usage) => day_tokens(usage, day),
+        None => recorded(r, day).then(|| r.by_day[day]),
+    });
+    let top = busiest_week(&weeks);
+    if usage.is_some() {
+        pen.c.right(40, 2, "tokens by week", p.dim);
+    } else if let Some(week) = top {
+        pen.c.right(40, 2, &format!("busiest week · {}", recap::hours_text(weeks[week].total)), p.dim);
+    }
+    let peak = top.map_or(0., |week| weeks[week].total);
     for (i, week) in weeks.iter().enumerate() {
         let x = 20 + 3 * i as i32;
         let date = week.first.to_string();
@@ -377,46 +408,54 @@ fn month_tile(pen: &mut Pen, r: &Recap) {
             continue;
         }
         let is_top = top == Some(i);
-        if week.hours <= 0. {
+        if week.total <= 0. {
             pen.c.text(x, 5, "▁▁", p.track);
         } else {
-            column(pen, x, week.hours / peak, is_top);
+            column(pen, x, week.total / peak, is_top);
         }
         pen.c.right_with(x + 2, 6, &date, if is_top { p.fg } else { p.dim }, None, is_top);
     }
 }
 
-/// A month day by day on the wide card: a calendar with its dates, each day shaded by its
-/// agent hours, and each week's hours at the right. A day before the records begin, or one
-/// that has not come, keeps its date and gets no mark: it is not a day without work.
+/// A month's calendar. The day shades and weekly totals use agent hours, or processed
+/// tokens when only Usage history is available.
 fn month_grid(pen: &mut Pen, r: &Recap) {
     let p = pen.p;
-    pen.section(1, 8, 57, "AGENTS AT WORK, BY DAY", &busiest_text(r).unwrap_or_default());
+    let usage = historical_usage(r);
+    let (heading, note, format): (&str, String, fn(f64) -> String) = match usage {
+        Some(_) => ("TOKENS BY DAY", "T3 Usage".into(), terminal::tokens),
+        None => ("AGENTS AT WORK, BY DAY", busiest_text(r).unwrap_or_default(), recap::hours_text),
+    };
+    let value = |day| match usage {
+        Some(usage) => day_tokens(usage, day),
+        None => recorded(r, day).then(|| r.by_day[day]),
+    };
+    pen.section(1, 8, 57, heading, &note);
     for (weekday, name) in DAYS.iter().enumerate() {
         pen.c.text(1 + 7 * weekday as i32, 9, name, p.dim);
     }
     pen.c.right(58, 9, "week", p.dim);
-    let (shades, inks) = (Shades::new(r), grid_inks(pen));
+    let (shades, inks) = (usage.map_or_else(|| Shades::new(r), Shades::for_usage), grid_inks(pen));
     const FILLS: [char; 4] = ['·', '░', '▄', '█'];
     let mark = |pen: &mut Pen, x: i32, y: i32, cells: usize, level: usize| {
         if pen.mono { pen.fill_run(x, y, cells, FILLS[level], p.fg) } else { pen.fill_run(x, y, cells, '▆', inks[level]) }
     };
-    let weeks = weeks(r);
+    let weeks = weeks(r, value);
     let top_week = busiest_week(&weeks);
     for day in 0..r.by_day.len() {
         let slot = r.first_weekday as usize + day;
         let (x, y) = (1 + 7 * (slot % 7) as i32, 10 + (slot / 7) as i32);
         let date = (day + 1).to_string();
-        match shades.level(r, day) {
+        match value(day) {
             None => drop(pen.c.right(x + 2, y, &date, p.faint)),
-            Some(level) => {
+            Some(n) => {
                 let is_top = shades.busiest == Some(day);
                 pen.c.right_with(x + 2, y, &date, if is_top { p.fg } else { p.text2 }, None, is_top);
-                mark(pen, x + 3, y, 3, level);
+                mark(pen, x + 3, y, 3, shades.level(n, day));
             }
         }
     }
-    // The same hours as the 80-column card's columns, so the two cards agree.
+    // The same totals as the 80-column card's columns, so the two cards agree.
     for (i, week) in weeks.iter().enumerate() {
         let y = 10 + i as i32;
         if !week.come {
@@ -424,11 +463,11 @@ fn month_grid(pen: &mut Pen, r: &Recap) {
         }
         if !week.recorded {
             pen.c.right(58, y, "—", p.dim);
-        } else if week.hours <= 0. {
+        } else if week.total <= 0. && usage.is_none() {
             pen.c.right(58, y, "none", p.dim);
         } else {
             let is_top = top_week == Some(i);
-            pen.c.right_with(58, y, &recap::hours_text(week.hours), if is_top { p.fg } else { p.text2 }, None, is_top);
+            pen.c.right_with(58, y, &format(week.total), if is_top { p.fg } else { p.text2 }, None, is_top);
         }
     }
     // What a month can say that a week cannot: how many of its days had agents at work, and
@@ -441,11 +480,13 @@ fn month_grid(pen: &mut Pen, r: &Recap) {
         }
         let _ = x;
     }
-    // The key writes the cut points out in hours, so a shade means the same to whoever is
-    // shown the card. The shorter lead where the long one would not fit.
-    let key = shades.key();
+    if no_saved_runs(r) && usage.is_none() {
+        return;
+    }
+    let (lead, zero) = if usage.is_some() { ("tokens a day: ", "reported usage") } else { ("hours a day: ", "agents at work") };
+    let key = shades.key(format, zero);
     let wide: usize = key.iter().map(|(_, label)| 3 + terminal::width(label)).sum::<usize>() + 2 * key.len().saturating_sub(1);
-    let lead = if "hours a day: ".len() + wide <= 57 { "hours a day: " } else { "a day: " };
+    let lead = if lead.len() + wide <= 57 { lead } else { "a day: " };
     let mut x = 1 + pen.c.text(1, 17, lead, p.dim);
     for (i, (level, label)) in key.iter().enumerate() {
         if i > 0 {
@@ -459,6 +500,22 @@ fn month_grid(pen: &mut Pen, r: &Recap) {
 /// The hours tile, two tiles wide: the number, and the week beside it as seven columns.
 fn hours_tile(pen: &mut Pen, r: &Recap) {
     let p = pen.p;
+    if no_saved_runs(r) {
+        tile(pen, 0, 41, "AGENT HOURS", "—", true, "no saved runs");
+        if let Some(usage) = historical_usage(r) {
+            pen.c.right(40, 2, "tokens by day", p.dim);
+            let top = Shades::for_usage(usage).busiest;
+            let peak = top.and_then(|day| day_tokens(usage, day)).unwrap_or(0.);
+            for (day, name) in DAYS.iter().enumerate() {
+                let x = 20 + 3 * day as i32;
+                if let Some(n) = day_tokens(usage, day).filter(|&n| n > 0.) {
+                    column(pen, x, n / peak, top == Some(day));
+                }
+                pen.c.text(x, 6, &name[..1], p.dim);
+            }
+        }
+        return;
+    }
     pen.c.fill(0, 2, 41, 5, p.panel);
     pen.c.text_bold(2, 2, "AGENT HOURS", p.dim);
     let top = busiest(r);
@@ -528,6 +585,10 @@ fn split_bar(pen: &mut Pen, x: i32, y: i32, width: usize, parts: &[Part; 3]) -> 
 
 fn split(pen: &mut Pen, r: &Recap) {
     let p = pen.p;
+    if no_saved_runs(r) {
+        pen.section(1, 8, 78, "WHERE THE HOURS WENT", "no saved runs");
+        return;
+    }
     pen.section(1, 8, 78, "WHERE THE HOURS WENT", &format!("of {}", recap::hours_text(r.hours)));
     let parts = parts(pen, r);
     let share = split_bar(pen, 1, 9, 78, &parts);
@@ -563,22 +624,44 @@ fn folded_models(r: &Recap, named: usize) -> Vec<(String, Option<&'static str>, 
 }
 
 /// How wide that legend is, counting the two spaces between its items.
-fn legend_width(items: &[(String, Option<&'static str>, f64)]) -> usize {
-    items.iter().map(|(name, family, hours)| terminal::width(name) + recap::hours_text(*hours).len() + if family.is_some() { 3 } else { 1 } + 2).sum::<usize>().saturating_sub(2)
+fn legend_width(items: &[(String, Option<&'static str>, f64)], format: fn(f64) -> String) -> usize {
+    items.iter().map(|(name, family, amount)| terminal::width(name) + format(*amount).len() + if family.is_some() { 3 } else { 1 } + 2).sum::<usize>().saturating_sub(2)
+}
+
+fn fold_usage_models(usage: &UsageWindow, named: usize) -> Vec<(String, Option<&'static str>, f64)> {
+    let mut models: Vec<_> = usage.models.iter().collect();
+    models.sort_by(|(a, x), (b, y)| y.total().total_cmp(&x.total()).then(a.cmp(b)));
+    let mut items: Vec<_> = models.iter().take(named).map(|(name, tokens)| {
+        let family = recap::family_name(terminal::family(name, Some(name)));
+        (terminal::fit(name, 16), Some(family), tokens.total())
+    }).collect();
+    if let Some(rest) = models.get(named..).filter(|rest| !rest.is_empty()) {
+        items.push((format!("{} more", rest.len()), None, rest.iter().map(|(_, tokens)| tokens.total()).sum()));
+    }
+    items
 }
 
 /// One bar in provider hues, ordered by run time. The legend names as many models as fit and
 /// folds the rest into "N more".
 fn models(pen: &mut Pen, r: &Recap) {
     let p = pen.p;
-    let count = r.models.len();
-    pen.section(1, 12, 78, "MODELS", &if count == 1 { "one model".to_owned() } else { format!("{count} models · by run time") });
+    let usage = historical_usage(r);
+    let count = usage.map_or(r.models.len(), |usage| usage.models.len());
+    let (note, format): (String, fn(f64) -> String) = if usage.is_some() {
+        (format!("{count} models · by tokens"), terminal::tokens)
+    } else if no_saved_runs(r) {
+        ("".into(), recap::hours_text)
+    } else {
+        (if count == 1 { "one model".into() } else { format!("{count} models · by run time") }, recap::hours_text)
+    };
+    pen.section(1, 12, 78, "MODELS", &note);
+    let items = |named| usage.map_or_else(|| folded_models(r, named), |usage| fold_usage_models(usage, named));
     // (legend name, family, hours); the folded item has no family.
     let mut named = count.min(4);
-    while named > 1 && legend_width(&folded_models(r, named)) > 78 {
+    while named > 1 && legend_width(&items(named), format) > 78 {
         named -= 1;
     }
-    let items = folded_models(r, named);
+    let items = items(named);
     let cells = allot(78usize.saturating_sub(items.len().saturating_sub(1)), &items.iter().map(|i| i.2).collect::<Vec<_>>());
     let (mut x, mut legend) = (1, 1);
     for (i, (name, family, hours)) in items.iter().enumerate() {
@@ -586,7 +669,7 @@ fn models(pen: &mut Pen, r: &Recap) {
         let color = family.map_or(p.dim, |f| family_color(p, f));
         pen.fill_run(x, 13, cells[i], if pen.mono && i % 2 == 1 { '░' } else { '▆' }, color);
         x += cells[i] as i32 + 1;
-        let time = recap::hours_text(*hours);
+        let time = format(*hours);
         legend = match family {
             Some(_) => pen.runs(legend, 14, &[("●", color, false), (&format!(" {name} "), p.text2, false), (&time, p.fg, true)]),
             None => pen.runs(legend, 14, &[(&format!("{name} "), p.dim, false), (&time, p.text2, true)]),
@@ -594,11 +677,28 @@ fn models(pen: &mut Pen, r: &Recap) {
     }
 }
 
+fn usage_breakdown(pen: &mut Pen, x: i32, y: i32, width: usize, usage: &UsageWindow) {
+    let p = pen.p;
+    let tokens = usage.tokens;
+    let fresh = terminal::tokens(tokens.fresh + tokens.cache_written);
+    let output = terminal::tokens(tokens.output);
+    let cached = terminal::tokens(tokens.cached);
+    pen.runs_in(x, y, width, &[(&fresh, p.fg, true), (" in · ", p.text2, false), (&output, p.fg, true), (" out", p.text2, false)]);
+    pen.runs_in(x, y + 1, width, &[(&cached, p.fg, true), (" cached input", p.text2, false)]);
+}
+
 fn ledger(pen: &mut Pen, r: &Recap) {
     let p = pen.p;
     let lines_up = r.prs_merged == 0; // lines moved up into the fourth tile
-    for (x, head) in [(1, "TASKS"), (21, if lines_up { "PULL REQUESTS" } else { "LINES CHANGED" }), (41, "HANDED TO AGENTS"), (61, "TOKENS")] {
+    let tokens_heading = if r.has_usage_history() && !r.is_empty() { "TURN TOKENS" } else { "TOKENS" };
+    for (x, head) in [(1, "TASKS"), (21, if lines_up { "PULL REQUESTS" } else { "LINES CHANGED" }), (41, "HANDED TO AGENTS"), (61, tokens_heading)] {
         pen.c.text_bold(x, 16, head, p.dim);
+    }
+    if no_saved_runs(r) {
+        if let Some(usage) = historical_usage(r) {
+            usage_breakdown(pen, 61, 17, 19, usage);
+        }
+        return;
     }
     // Each column keeps to its 19 cells.
     let dot = (" · ", p.faint, false);
@@ -684,6 +784,9 @@ fn quiet_notes(r: &Recap) -> Vec<&'static str> {
 
 fn findings(pen: &mut Pen, r: &Recap) {
     let p = pen.p;
+    if no_saved_runs(r) {
+        return;
+    }
     if r.findings.is_empty() {
         let quiet = quiet_notes(r);
         let x = pen.c.text(2, 20, &format!("No findings this {}", span_word(r)), p.text2) + 2;
@@ -710,7 +813,9 @@ fn findings(pen: &mut Pen, r: &Recap) {
 
 /// Pull requests merged; with none merged, the lines added, so the tile is never a dead zero.
 fn fourth_tile(pen: &mut Pen, r: &Recap, x: i32, w: i32, closed: bool) {
-    if r.prs_merged > 0 {
+    if no_saved_runs(r) {
+        tile(pen, x, w, "LINES ADDED", "—", true, "");
+    } else if r.prs_merged > 0 {
         let note = if closed && r.prs_closed > 0 { format!("{} open · {} closed", r.prs_open, r.prs_closed) } else { format!("{} open", r.prs_open) };
         tile(pen, x, w, "PRS MERGED", &tile_count(u64::from(r.prs_merged)), false, &note);
     } else {
@@ -726,7 +831,11 @@ pub fn card(r: &Recap, p: &Palette, source: Source, mono: bool) -> Canvas {
     if r.period == Span::Month { month_tile(&mut pen, r) } else { hours_tile(&mut pen, r) }
     let t = &r.tasks;
     let done = if t.total > 0 && t.finished == t.total { "all finished".to_owned() } else { format!("{} finished", recap::count_text(u64::from(t.finished))) };
-    tile(&mut pen, 42, 18, "TASKS", &tile_count(u64::from(t.total)), t.total == 0, &done);
+    if no_saved_runs(r) {
+        tile(&mut pen, 42, 18, "TASKS", "—", true, "");
+    } else {
+        tile(&mut pen, 42, 18, "TASKS", &tile_count(u64::from(t.total)), t.total == 0, &done);
+    }
     fourth_tile(&mut pen, r, 61, 19, false);
     split(&mut pen, r);
     models(&mut pen, r);
@@ -758,6 +867,25 @@ fn grid_inks(pen: &Pen) -> [Rgb; 4] {
 /// agents were running. The 80-column card has room only for the seven days.
 fn hour_grid(pen: &mut Pen, r: &Recap) {
     let p = pen.p;
+    if let Some(usage) = historical_usage(r) {
+        pen.section(1, 8, 57, "TOKENS BY DAY", "T3 Usage");
+        let top = Shades::for_usage(usage).busiest;
+        let peak = top.and_then(|day| day_tokens(usage, day)).unwrap_or(0.);
+        for (day, name) in DAYS.iter().enumerate() {
+            let y = 9 + day as i32;
+            let value = day_tokens(usage, day);
+            pen.c.text(1, y, name, if value.is_some() { p.text2 } else { p.faint });
+            if let Some(n) = value {
+                terminal::hbar(&mut pen.c, 5, y, 43, if peak > 0. { n / peak } else { 0. }, p.accent, p.track);
+                pen.c.right(58, y, &terminal::tokens(n), p.fg);
+            }
+        }
+        return;
+    }
+    if no_saved_runs(r) {
+        pen.section(1, 8, 57, "AGENTS AT WORK, BY HOUR", "no saved runs");
+        return;
+    }
     pen.section(1, 8, 57, "AGENTS AT WORK, BY HOUR", "hours a day");
     let inks = grid_inks(pen);
     const FILLS: [char; 4] = ['·', '░', '▄', '█'];
@@ -809,6 +937,11 @@ fn hour_grid(pen: &mut Pen, r: &Recap) {
 fn split_wide(pen: &mut Pen, r: &Recap) {
     let p = pen.p;
     let x = 62;
+    if no_saved_runs(r) {
+        pen.section(x, 8, 57, "WHERE THE HOURS WENT", "no saved runs");
+        pen.section(x, 15, 57, "WAITING ON YOU", "");
+        return;
+    }
     pen.section(x, 8, 57, "WHERE THE HOURS WENT", &format!("of {}", recap::hours_text(r.hours)));
     let parts = parts(pen, r);
     let share = split_bar(pen, x, 9, 57, &parts);
@@ -844,9 +977,36 @@ fn split_wide(pen: &mut Pen, r: &Recap) {
 /// The models as a table: run time as a bar, then hours, runs and the tokens they read.
 fn models_wide(pen: &mut Pen, r: &Recap) {
     let p = pen.p;
+    if no_saved_runs(r) {
+        let Some(usage) = historical_usage(r) else {
+            pen.section(1, 19, 76, "MODELS", "");
+            return;
+        };
+        let count = usage.models.len();
+        pen.section(1, 19, 76, "MODELS", &format!("{count} models · by tokens"));
+        pen.c.right(71, 20, "tokens", p.dim);
+        let items = fold_usage_models(usage, if count <= 5 { count } else { 4 });
+        let longest = items.iter().map(|(_, _, n)| *n).fold(0., f64::max);
+        for (i, (name, family, count)) in items.iter().enumerate() {
+            let y = 21 + i as i32;
+            let color = family.map_or(p.dim, |f| family_color(p, f));
+            if family.is_some() {
+                pen.runs(1, y, &[("●", color, false), (&format!(" {name}"), p.text2, false)]);
+            } else {
+                pen.c.text(3, y, name, p.dim);
+            }
+            if *count > 0. {
+                let cells = ((count / longest * 20.).round() as usize).clamp(1, 20);
+                pen.fill_run(20, y, cells, if pen.mono && i % 2 == 1 { '░' } else { '▆' }, color);
+            }
+            pen.c.right(71, y, &terminal::tokens(*count), p.text2);
+        }
+        return;
+    }
     let count = r.models.len();
     pen.section(1, 19, 76, "MODELS", &if count == 1 { "one model".to_owned() } else { format!("{count} models · by run time") });
-    for (right, head) in [(48, "hours"), (57, "runs"), (71, "tokens in")] {
+    let tokens_column = if r.has_usage_history() { "turn input" } else { "tokens in" };
+    for (right, head) in [(48, "hours"), (57, "runs"), (71, tokens_column)] {
         pen.c.right(right, 20, head, p.dim);
     }
     // Five rows: every model when there are five or fewer, else four and the rest as one.
@@ -891,7 +1051,9 @@ fn handed_wide(pen: &mut Pen, r: &Recap) {
     let h = &r.handed;
     if h.count == 0 {
         pen.section(x, 19, right - x, "HANDED TO AGENTS", "");
-        pen.c.text(x, 20, &format!("none this {}", span_word(r)), p.dim);
+        if !no_saved_runs(r) {
+            pen.c.text(x, 20, &format!("none this {}", span_word(r)), p.dim);
+        }
         return;
     }
     // "Handoffs", so the count is not read as the tasks another agent started: a handoff
@@ -935,6 +1097,18 @@ fn ledger_wide(pen: &mut Pen, r: &Recap) {
     let n = |count: u32| recap::count_text(u64::from(count));
     let (a, b, c, w) = (1, 41, 81, 38);
     let t = &r.tasks;
+    if no_saved_runs(r) {
+        for (x, y, label) in [
+            (a, 27, "TASKS"), (b, 27, "HOW THEY ENDED"), (c, 27, "LINES AND PRS"),
+            (a, 32, "TOOLS"), (b, 32, "CONTEXT"), (c, 32, "TOKENS"),
+        ] {
+            pen.section(x, y, w, label, "");
+        }
+        if let Some(usage) = historical_usage(r) {
+            usage_breakdown(pen, c, 33, w as usize, usage);
+        }
+        return;
+    }
 
     // Every line keeps to its column's 38 cells, whatever the numbers come to.
     let cells = w as usize;
@@ -1021,7 +1195,8 @@ fn ledger_wide(pen: &mut Pen, r: &Recap) {
         pen.c.text(b, 34, "no turn ran past 90% full", p.dim);
     }
 
-    pen.section(c, 32, w, "TOKENS", "");
+    let tokens_heading = if r.has_usage_history() { "TURN TOKENS" } else { "TOKENS" };
+    pen.section(c, 32, w, tokens_heading, "");
     let tokens = &r.tokens;
     if !tokens.reported {
         pen.c.text(c, 33, "none reported", p.dim);
@@ -1062,24 +1237,42 @@ pub fn wide(r: &Recap, p: &Palette, source: Source, mono: bool) -> Canvas {
     header(&mut pen, &period_with_year(r.period, &r.from, &r.to), &coverage(r, source, true), p.dim);
     let t = &r.tasks;
     let n = |count: u32| recap::count_text(u64::from(count));
-    // The runs alone where a month's counts leave the threads no room: a note is never cut.
-    let runs = format!("{} {}", n(r.runs), noun(u64::from(r.runs), "run", "runs"));
-    let work = Some(format!("{runs} · {} {}", n(r.threads), noun(u64::from(r.threads), "thread", "threads"))).filter(|note| terminal::width(note) <= 26).unwrap_or(runs);
-    tile(&mut pen, 0, 29, "AGENT HOURS", &big_hours(r), false, &work);
-    // The note adds up to the number above it. A task still running has not failed to
-    // finish, so "did not" is said only when none is. The longer note where it fits the tile.
-    let rest = t.total.saturating_sub(t.finished);
-    let others = if t.running == 0 { "did not" } else if t.running == rest { "running" } else { "others" };
-    // A month's four digits still say how many did not: "2,842 of 2,931 finished".
-    let done = [
-        if rest == 0 { "all finished".to_owned() } else { format!("{} finished · {} {others}", n(t.finished), n(rest)) },
-        format!("{} of {} finished", n(t.finished), n(t.total)),
-        format!("{} finished", n(t.finished)),
-    ];
-    let done = done.iter().find(|note| terminal::width(note) <= 26).unwrap_or(&done[2]);
-    tile(&mut pen, 30, 29, "TASKS", &tile_count(u64::from(t.total)), t.total == 0, done);
-    tile(&mut pen, 60, 29, "MOST AT ONCE", &tile_count(u64::from(r.most_at_once)), r.most_at_once == 0, r.most_at_once_when.as_deref().unwrap_or(""));
-    fourth_tile(&mut pen, r, 90, 30, true);
+    let usage = r.insights_total();
+    let [hours_w, tasks_w, peak_w, changes_w] = if usage.is_some() { [27, 25, 20, 22] } else { [29, 29, 29, 30] };
+    let tasks_x = hours_w + 1;
+    let peak_x = tasks_x + tasks_w + 1;
+    let changes_x = peak_x + peak_w + 1;
+    if no_saved_runs(r) {
+        tile(&mut pen, 0, hours_w, "AGENT HOURS", "—", true, "no saved runs");
+        tile(&mut pen, tasks_x, tasks_w, "TASKS", "—", true, "");
+        tile(&mut pen, peak_x, peak_w, "MOST AT ONCE", "—", true, "");
+    } else {
+        // The runs alone where a month's counts leave the threads no room: a note is never cut.
+        let runs = format!("{} {}", n(r.runs), noun(u64::from(r.runs), "run", "runs"));
+        let work = Some(format!("{runs} · {} {}", n(r.threads), noun(u64::from(r.threads), "thread", "threads"))).filter(|note| terminal::width(note) <= (hours_w - 3) as usize).unwrap_or(runs);
+        tile(&mut pen, 0, hours_w, "AGENT HOURS", &big_hours(r), false, &work);
+        // The note adds up to the number above it. A task still running has not failed to
+        // finish, so "did not" is said only when none is. The longer note where it fits the tile.
+        let rest = t.total.saturating_sub(t.finished);
+        let others = if t.running == 0 { "did not" } else if t.running == rest { "running" } else { "others" };
+        // A month's four digits still say how many did not: "2,842 of 2,931 finished".
+        let done = [
+            if rest == 0 { "all finished".to_owned() } else { format!("{} finished · {} {others}", n(t.finished), n(rest)) },
+            format!("{} of {} finished", n(t.finished), n(t.total)),
+            format!("{} finished", n(t.finished)),
+        ];
+        let done = done.iter().find(|note| terminal::width(note) <= (tasks_w - 3) as usize).unwrap_or(&done[2]);
+        tile(&mut pen, tasks_x, tasks_w, "TASKS", &tile_count(u64::from(t.total)), t.total == 0, done);
+        tile(&mut pen, peak_x, peak_w, "MOST AT ONCE", &tile_count(u64::from(r.most_at_once)), r.most_at_once == 0, r.most_at_once_when.as_deref().unwrap_or(""));
+    }
+    fourth_tile(&mut pen, r, changes_x, changes_w, true);
+    if let Some((total, source)) = usage {
+        let x = changes_x + changes_w + 1;
+        let width = WIDE_COLUMNS as i32 - x;
+        let value = total.map(terminal::tokens).unwrap_or_else(|| "—".into());
+        let quiet = total.is_none_or(|n| n == 0.) || terminal::big_width(&value, false) > width - 3;
+        tile(&mut pen, x, width, "TOTAL TOKENS", &value, quiet, source);
+    }
     if r.period == Span::Month { month_grid(&mut pen, r) } else { hour_grid(&mut pen, r) }
     split_wide(&mut pen, r);
     models_wide(&mut pen, r);
@@ -1197,6 +1390,9 @@ fn list_header(p: &Palette, r: &Recap) -> ListRow {
 
 /// Row 3: the hours, and how many agents ran at once when that fits.
 fn hours_row(p: &Palette, r: &Recap) -> ListRow {
+    if no_saved_runs(r) {
+        return text_row(None, vec![painted("— agent hours", p.dim, false)]);
+    }
     let hours = painted(recap::hours_text(r.hours), p.bright, true);
     let words = painted(" agent hours", p.text2, false);
     let once = if r.most_at_once <= 1 { "one at a time".to_owned() } else { format!("up to {} at once", r.most_at_once) };
@@ -1261,9 +1457,19 @@ fn bar_runs(p: &Palette, mono: bool, hours_ink: Rgb, day: usize, hours: f64, cel
 
 /// Rows 7 to 9: the day marks, their labels, and the busiest day when any day has hours.
 fn day_rows(p: &Palette, r: &Recap, mono: bool, hours_ink: Rgb) -> Vec<ListRow> {
+    if let Some(usage) = historical_usage(r) {
+        let top = Shades::for_usage(usage).busiest;
+        let peak = top.and_then(|day| day_tokens(usage, day)).unwrap_or(0.);
+        let (marks, labels) = if r.period == Span::Week {
+            week_days(p, r, mono, hours_ink, peak, top, Some(usage))
+        } else {
+            month_days(p, r, mono, hours_ink, peak, top, Some(usage))
+        };
+        return vec![text_row(None, vec![painted("Tokens by day", p.dim, false)]), text_row(None, marks), text_row(None, labels)];
+    }
     let top = busiest(r);
     let peak = top.map(|day| r.by_day[day]).unwrap_or(0.);
-    let (marks, labels) = if r.period == Span::Week { week_days(p, r, mono, hours_ink, peak, top) } else { month_days(p, r, mono, hours_ink, peak, top) };
+    let (marks, labels) = if r.period == Span::Week { week_days(p, r, mono, hours_ink, peak, top, None) } else { month_days(p, r, mono, hours_ink, peak, top, None) };
     let mut rows = vec![text_row(None, marks), text_row(None, labels)];
     if let Some(text) = busiest_text(r) {
         let base = vec![painted(text, p.dim, false)];
@@ -1283,7 +1489,7 @@ fn day_rows(p: &Palette, r: &Recap, mono: bool, hours_ink: Rgb) -> Vec<ListRow> 
 }
 
 /// A week: four cells a day, a gap between days, and a letter under each.
-fn week_days(p: &Palette, r: &Recap, mono: bool, hours_ink: Rgb, peak: f64, top: Option<usize>) -> (Vec<(String, Rgb, bool)>, Vec<(String, Rgb, bool)>) {
+fn week_days(p: &Palette, r: &Recap, mono: bool, hours_ink: Rgb, peak: f64, top: Option<usize>, usage: Option<&UsageWindow>) -> (Vec<(String, Rgb, bool)>, Vec<(String, Rgb, bool)>) {
     let mut marks = Vec::new();
     let mut labels = Vec::new();
     for day in 0..r.by_day.len().min(7) {
@@ -1291,8 +1497,9 @@ fn week_days(p: &Palette, r: &Recap, mono: bool, hours_ink: Rgb, peak: f64, top:
             marks.push(painted(" ", p.fg, false));
             labels.push(painted("    ", p.fg, false));
         }
-        let known = recorded(r, day);
-        marks.extend(bar_runs(p, mono, hours_ink, day, r.by_day[day], 4, known, peak, top));
+        let value = usage.map_or_else(|| recorded(r, day).then(|| r.by_day[day]), |usage| day_tokens(usage, day));
+        let known = value.is_some();
+        marks.extend(bar_runs(p, mono, hours_ink, day, value.unwrap_or(0.), 4, known, peak, top));
         let letter = DAYS[day].chars().next().unwrap_or(' ').to_string();
         let (ink, bold) = if top == Some(day) { (p.fg, true) } else if known { (p.dim, false) } else { (p.faint, false) };
         labels.push(painted(letter, ink, bold));
@@ -1301,20 +1508,21 @@ fn week_days(p: &Palette, r: &Recap, mono: bool, hours_ink: Rgb, peak: f64, top:
 }
 
 /// A month: one cell a day, a gap after each Sunday, and the 1st and each Monday underneath.
-fn month_days(p: &Palette, r: &Recap, mono: bool, hours_ink: Rgb, peak: f64, top: Option<usize>) -> (Vec<(String, Rgb, bool)>, Vec<(String, Rgb, bool)>) {
+fn month_days(p: &Palette, r: &Recap, mono: bool, hours_ink: Rgb, peak: f64, top: Option<usize>, usage: Option<&UsageWindow>) -> (Vec<(String, Rgb, bool)>, Vec<(String, Rgb, bool)>) {
     let mut marks = Vec::new();
     let mut placed: Vec<(usize, String, bool)> = Vec::new();
     let mut col = 0usize;
     for (day, hours) in r.by_day.iter().enumerate() {
+        let value = usage.map_or_else(|| recorded(r, day).then_some(*hours), |usage| day_tokens(usage, day));
         let weekday = (r.first_weekday as usize + day) % 7;
         if day > 0 && weekday == 0 {
             marks.push(painted(" ", p.fg, false));
             col += 1;
         }
         if day == 0 || weekday == 0 {
-            placed.push((col, (day + 1).to_string(), !recorded(r, day)));
+            placed.push((col, (day + 1).to_string(), value.is_none()));
         }
-        marks.extend(bar_runs(p, mono, hours_ink, day, *hours, 1, recorded(r, day), peak, top));
+        marks.extend(bar_runs(p, mono, hours_ink, day, value.unwrap_or(0.), 1, value.is_some(), peak, top));
         col += 1;
     }
     let mut labels = Vec::new();
@@ -1381,20 +1589,20 @@ fn prs_row(p: &Palette, r: &Recap) -> ListRow {
 
 /// The several-model legend for these items: each named model, then the fold of the rest, with
 /// its hours or without them.
-fn model_runs(p: &Palette, items: &[(String, Option<&'static str>, f64)], fold_hours: bool) -> Vec<(String, Rgb, bool)> {
+fn model_runs(p: &Palette, items: &[(String, Option<&'static str>, f64)], fold_total: bool, format: fn(f64) -> String) -> Vec<(String, Rgb, bool)> {
     let mut runs = Vec::new();
     for (i, (name, family, hours)) in items.iter().enumerate() {
         if i > 0 {
             runs.push(painted("  ", p.fg, false));
         }
-        let time = recap::hours_text(*hours);
+        let time = format(*hours);
         match family {
             Some(family) => {
                 runs.push(painted("●", family_color(p, family), false));
                 runs.push(painted(format!(" {name} "), p.text2, false));
                 runs.push(painted(time, p.fg, true));
             }
-            None if fold_hours => {
+            None if fold_total => {
                 runs.push(painted(format!("{name} "), p.dim, false));
                 runs.push(painted(time, p.text2, true));
             }
@@ -1406,6 +1614,12 @@ fn model_runs(p: &Palette, items: &[(String, Option<&'static str>, f64)], fold_h
 
 /// Row 13: one model on its own, or as many of the 80-card legend as fit. None when there are none.
 fn models_row(p: &Palette, r: &Recap) -> Option<ListRow> {
+    if let Some(usage) = historical_usage(r) {
+        let items = fold_usage_models(usage, 1);
+        let full = model_runs(p, &items, true, terminal::tokens);
+        let short = model_runs(p, &items, false, terminal::tokens);
+        return Some(text_row(None, pick(vec![full, short])));
+    }
     match r.models.as_slice() {
         [] => None,
         [model] => {
@@ -1422,15 +1636,15 @@ fn models_row(p: &Palette, r: &Recap) -> Option<ListRow> {
         _ => {
             let most = r.models.len().min(4);
             let mut named = most;
-            while named > 1 && legend_width(&folded_models(r, named)) > LIST_TEXT {
+            while named > 1 && legend_width(&folded_models(r, named), recap::hours_text) > LIST_TEXT {
                 named -= 1;
             }
             let items = folded_models(r, named);
             // One model named and still too long (a 16-cell name, four-digit hours and a
             // four-digit fold): the fold gives up its hours, and then goes.
-            let with_hours = model_runs(p, &items, true);
-            let bare_fold = model_runs(p, &items, false);
-            let alone = model_runs(p, &items[..1], true);
+            let with_hours = model_runs(p, &items, true, recap::hours_text);
+            let bare_fold = model_runs(p, &items, false, recap::hours_text);
+            let alone = model_runs(p, &items[..1], true, recap::hours_text);
             Some(text_row(None, pick(vec![with_hours, bare_fold, alone])))
         }
     }
@@ -1496,7 +1710,8 @@ fn tokens_row(p: &Palette, r: &Recap) -> ListRow {
     if !tokens.reported {
         return text_row(None, vec![painted("no tokens reported", p.dim, false)]);
     }
-    let head = vec![painted(recap::short_text(tokens.input, 10.), p.fg, true), painted(" tokens in", p.text2, false)];
+    let label = if r.has_usage_history() { " turn tokens in" } else { " tokens in" };
+    let head = vec![painted(recap::short_text(tokens.input, 10.), p.fg, true), painted(label, p.text2, false)];
     if tokens.left_out.is_empty() {
         let mut runs = head;
         runs.push(faint_dot(p));
@@ -1575,10 +1790,18 @@ fn list_rows(r: &Recap, p: &Palette, source: Source, mono: bool) -> Vec<ListRow>
         text_row(None, vec![painted(coverage(r, source, false), p.dim, false)]),
         ListRow::Blank,
         hours_row(p, r),
-        ListRow::Bar,
-        legend_row(p, &bar_parts, mono),
-        ListRow::Blank,
     ];
+    if no_saved_runs(r) {
+        if historical_usage(r).is_some() {
+            rows.push(ListRow::Blank);
+            rows.extend(day_rows(p, r, mono, hours_ink));
+            if let Some(row) = models_row(p, r) {
+                rows.push(row);
+            }
+        }
+        return rows;
+    }
+    rows.extend([ListRow::Bar, legend_row(p, &bar_parts, mono), ListRow::Blank]);
     rows.extend(day_rows(p, r, mono, hours_ink));
     rows.push(ListRow::Blank);
     rows.push(tasks_row(p, r));
@@ -1927,21 +2150,22 @@ mod tests {
         // A third and two thirds of the busiest day's 36 hours.
         assert_eq!((shades.cuts, shades.busiest), ([12., 24.], Some(29)));
         // Sat 3 none, Fri 2 under 12h, Tue 6 12h to 24h, Thu 8 and Fri 30 24h or more.
-        assert_eq!([2, 1, 5, 7, 29].map(|day| shades.level(&r, day)), [Some(0), Some(1), Some(2), Some(3), Some(3)]);
-        assert_eq!(shades.key(), vec![(1, "under 12h".into()), (2, "12h to 24h".into()), (3, "24h or more".into())]);
+        assert_eq!([2, 1, 5, 7, 29].map(|day| shades.level(r.by_day[day], day)), [0, 1, 2, 3, 3]);
+        assert_eq!(shades.key(recap::hours_text, "agents at work"), vec![(1, "under 12h".into()), (2, "12h to 24h".into()), (3, "24h or more".into())]);
         // A day is sorted by the cut points as the key writes them. A busiest day of 43h cuts
         // at 14.33h and 28.67h, written 14h and 29h: 14.1h is "14h to 29h", and so is 28.8h.
         let close = month(0, &[43., 14.1, 28.8, 29., 13.9], 0, 5);
         let shades = Shades::new(&close);
-        assert_eq!((shades.cuts, [1, 2, 3, 4].map(|day| shades.level(&close, day))), ([14., 29.], [Some(2), Some(2), Some(3), Some(1)]));
+        assert_eq!((shades.cuts, [1, 2, 3, 4].map(|day| shades.level(close.by_day[day], day))), ([14., 29.], [2, 2, 3, 1]));
         // Before the records begin and after today a day has no shade: it is not a zero.
         // What is left is shaded against its own busiest day, Thursday the 15th.
         let part = month(3, &r.by_day, 13, 18);
-        assert_eq!([12, 13, 14, 17, 18].map(|day| Shades::new(&part).level(&part, day)), [None, Some(1), Some(3), Some(0), None]);
+        let shades = Shades::new(&part);
+        assert_eq!([12, 13, 14, 17, 18].map(|day| recorded(&part, day).then(|| shades.level(part.by_day[day], day))), [None, Some(1), Some(3), Some(0), None]);
         // A month so quiet that the cut points are written alike names fewer steps, never "0m".
         let quiet = month(3, &[0.02, 0.01, 0.], 0, 3);
-        assert_eq!(Shades::new(&quiet).key(), vec![(2, "under 1m".into()), (3, "1m or more".into())]);
-        assert_eq!(Shades::new(&month(3, &[0.004], 0, 1)).key(), vec![(3, "agents at work".into())]);
+        assert_eq!(Shades::new(&quiet).key(recap::hours_text, "agents at work"), vec![(2, "under 1m".into()), (3, "1m or more".into())]);
+        assert_eq!(Shades::new(&month(3, &[0.004], 0, 1)).key(recap::hours_text, "agents at work"), vec![(3, "agents at work".into())]);
     }
 
     #[test]

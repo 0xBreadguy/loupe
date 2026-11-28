@@ -169,6 +169,8 @@ pub struct Update {
     pub changed: Changed,
     pub served: Served,
     pub counters: Counters,
+    pub daily_usage: Option<Arc<source::DailyUsage>>,
+    pub compactions: Option<Arc<crate::compaction::Totals>>,
     /// A canary discrepancy is delivered explicitly, never silently repaired.
     pub mismatch: bool,
 }
@@ -6359,6 +6361,8 @@ pub struct Reader {
     span_plans: BTreeMap<(i64, usize), Option<cache::EncounterOrder>>,
     thread_scan_plan: Option<(i64, bool)>,
     item_inline_plan: Option<(i64, bool)>,
+    daily_usage: Option<source::daily_usage::Tracker>,
+    compactions: Option<crate::compaction::Tracker>,
     /// Publish `status_view` of every agent and read no item text.
     status_only: bool,
     /// For tests: run once in the next poll, between its probe and its read.
@@ -6395,6 +6399,8 @@ impl Reader {
             span_plans: BTreeMap::new(),
             thread_scan_plan: None,
             item_inline_plan: None,
+            daily_usage: None,
+            compactions: None,
             status_only: false,
             between_probe_and_read: None,
         })
@@ -6409,6 +6415,11 @@ impl Reader {
     }
     pub fn with_self_check(mut self, enabled: bool) -> Self {
         self.self_check = enabled;
+        self
+    }
+    pub fn with_daily_usage(mut self, enabled: bool) -> Self {
+        self.daily_usage = enabled.then(source::daily_usage::Tracker::default);
+        self.compactions = enabled.then(crate::compaction::Tracker::default);
         self
     }
     pub fn mismatches(&self) -> u64 {
@@ -6490,6 +6501,12 @@ impl Reader {
             self.span_plans.clear();
             self.thread_scan_plan = None;
             self.item_inline_plan = None;
+            if let Some(usage) = &mut self.daily_usage {
+                *usage = Default::default();
+            }
+            if let Some(compactions) = &mut self.compactions {
+                *compactions = Default::default();
+            }
             if current != identity(&self.path)? {
                 return Err(error(&self.path, "database replaced while reopening"));
             }
@@ -7103,10 +7120,14 @@ impl Reader {
                 .phases_ns
                 .insert("publish_release".into(), start.elapsed().as_nanos() as u64);
         }
+        let daily_usage = self.daily_usage.as_mut().map(|usage| usage.poll(&self.db, &self.path, now, version));
+        let compactions = self.compactions.as_mut().and_then(|compactions| compactions.poll(&self.db, now, version));
         counters.total = start.elapsed();
         Ok(Update {
             snapshot,
             changed,
+            daily_usage,
+            compactions,
             served: if skip {
                 Served::Skipped
             } else if incremental {
@@ -7209,7 +7230,15 @@ pub fn spawn(
     interval: Duration,
     wake: impl Fn() + Send + 'static,
 ) -> Handle {
-    spawn_inner(path, None, interval, wake)
+    spawn_inner(path, None, interval, std::convert::identity, wake)
+}
+/// A background observer that keeps only the status projection.
+pub fn spawn_status(
+    path: impl AsRef<Path>,
+    interval: Duration,
+    wake: impl Fn() + Send + 'static,
+) -> Handle {
+    spawn_inner(path, None, interval, Reader::status_only, wake)
 }
 pub fn spawn_with_reader(
     path: impl AsRef<Path>,
@@ -7217,12 +7246,22 @@ pub fn spawn_with_reader(
     interval: Duration,
     wake: impl Fn() + Send + 'static,
 ) -> Handle {
-    spawn_inner(path, Some(reader), interval, wake)
+    spawn_inner(path, Some(reader), interval, std::convert::identity, wake)
+}
+pub(crate) fn spawn_dashboard(
+    path: impl AsRef<Path>,
+    reader: Option<Reader>,
+    interval: Duration,
+    daily_usage: bool,
+    wake: impl Fn() + Send + 'static,
+) -> Handle {
+    spawn_inner(path, reader, interval, move |r| r.with_daily_usage(daily_usage), wake)
 }
 fn spawn_inner(
     path: impl AsRef<Path>,
     initial: Option<Reader>,
     interval: Duration,
+    configure: impl Fn(Reader) -> Reader + Send + 'static,
     wake: impl Fn() + Send + 'static,
 ) -> Handle {
     let path = path.as_ref().to_owned();
@@ -7245,7 +7284,8 @@ fn spawn_inner(
             let result = match reader.as_mut() {
                 Some(r) => Reader::poll(r, crate::clock::wall_now()),
                 None => match Reader::open(&path) {
-                    Ok(mut r) => {
+                    Ok(r) => {
+                        let mut r = configure(r);
                         let result = r.poll(crate::clock::wall_now());
                         reader = Some(r);
                         result

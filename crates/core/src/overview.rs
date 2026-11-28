@@ -383,7 +383,7 @@ pub(crate) fn draw_header_kpis_limits(
         .and_then(|id| prepared.by_id.get(id.as_str()).map(|i| s.snap.agents[*i].as_ref()));
     draw_header(c, s, p, linked, false);
     let mut result = draw_kpis(c, 1, s, p, face_for(w, h), h >= 30, prepared);
-    let limited: Vec<&Provider> = s.usage.iter().filter(|u| !u.limits.is_empty()).collect();
+    let limited: Vec<&Provider> = s.usage_providers().iter().filter(|u| !u.limits.is_empty()).collect();
     if !limited.is_empty() {
         result.main_top += if h < 36 {
             limits_line(c, result.main_top, w, &limited, p)
@@ -561,7 +561,8 @@ fn draw_kpis(
             }
         });
     let peak_ratio = peak.and_then(|a| ratio(a));
-    let today = s.usage.iter().map(|u| u.today).sum::<f64>();
+    let usage = s.usage_providers();
+    let today = usage.iter().map(|u| u.today).sum::<f64>();
     let blind = s.snap.at == 0. || s.error.is_some();
     let mut tiles = vec![
         Tile {
@@ -627,16 +628,16 @@ fn draw_kpis(
         },
         Tile {
             label: "TOKENS TODAY",
-            value: if s.usage.is_empty() {
+            value: if usage.is_empty() {
                 "—".into()
             } else {
                 tokens(today)
             },
             color: if today > 0. { p.fg } else { p.dim },
-            quiet: today == 0. || s.usage.is_empty(),
+            quiet: today == 0. || usage.is_empty(),
             alert: false,
-            note: if s.usage.is_empty() {
-                "no Omarchy usage data".into()
+            note: if usage.is_empty() {
+                if s.themes { "no token totals reported" } else { "no Omarchy usage data" }.into()
             } else if today == 0. {
                 "none yet today".into()
             } else {
@@ -894,8 +895,12 @@ fn draw_kpis(
                 }
             }
             4 => {
-                let mut col = 0;
-                for u in s.usage.iter().filter(|u| u.today > 0.) {
+                let mut col = if s.uses_daily_usage() {
+                    c.text(sx, sy, "T3 · ", p.dim)
+                } else {
+                    0
+                };
+                for u in usage.iter().filter(|u| u.today > 0.) {
                     let t = format!("{} {}", u.id, tokens(u.today));
                     if col + width(&t) + 2 > sw {
                         break;
@@ -904,7 +909,7 @@ fn draw_kpis(
                         sx + col,
                         sy,
                         '●',
-                        family_color(p, family(&u.id, None)),
+                        family_color(p, family(&u.id, s.uses_daily_usage().then_some(u.id.as_str()))),
                         None,
                         false,
                     );
@@ -1135,7 +1140,7 @@ fn limit_row(
 
 pub fn draw_extras(c: &mut Canvas, r: Rect, s: &State, p: &Palette) {
     let mut models: Vec<_> = s
-        .usage
+        .usage_providers()
         .iter()
         .flat_map(|u| u.models.iter().map(move |m| (m, family(&m.model, Some(&u.id)))))
         .collect();
@@ -1152,6 +1157,8 @@ pub fn draw_extras(c: &mut Canvas, r: Rect, s: &State, p: &Palette) {
         y += pulse(c, r.x, y, r.w, (pulse_room - 4).min(8), s, p);
     }
     if model_rows > 0 && r.y + r.h - y >= 3 {
+        let t3_usage = s.uses_daily_usage();
+        let source = s.usage_source();
         section(
             c,
             r.x,
@@ -1159,11 +1166,12 @@ pub fn draw_extras(c: &mut Canvas, r: Rect, s: &State, p: &Palette) {
             r.w,
             "MODELS TODAY",
             p,
-            "Omarchy usage records",
+            source,
             p.dim,
         );
         y += 1;
         let max = models[0].0.tokens;
+        let label_limit = if t3_usage { (r.w / 3).min(48) } else { 22 };
         let label_w = (models
             .iter()
             .take(model_rows)
@@ -1171,7 +1179,7 @@ pub fn draw_extras(c: &mut Canvas, r: Rect, s: &State, p: &Palette) {
             .max()
             .unwrap_or(0)
             + 1)
-        .min(22);
+        .min(label_limit);
         for (m, fam) in models
             .into_iter()
             .take(model_rows.min((r.y + r.h - y).max(0) as usize))

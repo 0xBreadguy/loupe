@@ -117,6 +117,32 @@ explains what each number counts.
   `id`, a `severity`, a `message` and usually a `fix`. `source` is `demo` for
   made-up data. `network` and `writes` are always `none`.
 
+## Comparison reports
+
+Use **--compare --last-7-days --json** for the same seven local dates as
+T3 Usage. A window's optional `usage_history` contains the local provider
+usage totals, model and day breakdowns, and a partial-coverage flag.
+The existing window totals and project metrics use thread-linked records.
+Compaction data in project and window metrics has a completed count, a
+total reduction, and counts of recorded and estimated sizes.
+
+Run `loupe --compare --json` for the last complete week and its preceding
+week. `--this-week`, `--month`, and `--this-month` select the same periods
+as Recap, and `--back N` moves both windows back by N periods. For a period
+in progress, the preceding window uses the same elapsed time where possible.
+`--db PATH` can read a saved database with the T3 projection tables.
+
+Schema 1 returns `selected` and `prior` windows with local dates, the first
+recorded date, daily token counts and totals. `projects` and `models` contain
+metrics for both windows. Days before the first recorded date have null token
+counts. A count with zero reporting turns has no observed usage.
+
+Reported tokens are fresh input, cached input, and output counts from
+finished provider turns. The median uses completed runs with recorded start
+and end times. Tokens per reported run uses completed runs that began within
+the window and have linked usage. The sample size is `reported_runs`.
+The command exits 0 with a report, 1 on a source error, and 2 on a usage error.
+
 ## Reading the numbers right
 
 - **Recorded asks and estimated asks are different things.** `openAsks` counts

@@ -1460,7 +1460,11 @@ fn local_seconds(
         // SAFETY: `tm` is a live, initialized value; mktime normalizes it in place.
         Some(i64::from(unsafe { libc::mktime(&mut tm) }))
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
+    {
+        crate::platform::local_to_epoch(year, month, day, hour, minute, second)
+    }
+    #[cfg(not(any(unix, windows)))]
     {
         Some(civil_seconds(year, month, day, hour, minute, second))
     }
@@ -1999,6 +2003,8 @@ pub struct State {
     pub help: bool,
     pub help_scroll: usize,
     pub usage: Vec<crate::overview::Provider>,
+    pub daily_usage: Option<std::sync::Arc<crate::source::DailyUsage>>,
+    pub compactions: Option<std::sync::Arc<crate::compaction::Totals>>,
     pub demo: bool,
     pub interval: f64,
     pub fx: bool,
@@ -2050,6 +2056,25 @@ pub struct State {
     pub home: String,
 }
 impl State {
+    pub(crate) fn uses_daily_usage(&self) -> bool {
+        self.usage.is_empty() && self.daily_usage.is_some()
+    }
+
+    pub(crate) fn usage_providers(&self) -> &[crate::overview::Provider] {
+        if self.usage.is_empty() {
+            self.daily_usage.as_ref().map_or(&[], |usage| usage.providers.as_slice())
+        } else {
+            &self.usage
+        }
+    }
+
+    pub(crate) fn usage_source(&self) -> &'static str {
+        if self.uses_daily_usage() {
+            return self.daily_usage.as_ref().unwrap().source;
+        }
+        "Omarchy usage records"
+    }
+
     pub fn telemetry_alert(&self) -> Option<crate::telemetry::Alert> {
         if !self.themes || self.demo {
             return None;
@@ -2073,6 +2098,8 @@ impl State {
             help: false,
             help_scroll: 0,
             usage: crate::overview::demo_usage(now),
+            daily_usage: None,
+            compactions: None,
             demo: true,
             interval: 2.,
             fx: false,

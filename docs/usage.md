@@ -11,6 +11,47 @@ otherwise your default terminal through `xdg-terminal-exec`, otherwise
 it's already open with its app id, which foot always sets and
 `xdg-terminal-exec` sets when your terminal supports it.
 
+## Insights
+
+Open **Insights → Recap** for **Total tokens** in the selected week or
+month. Recap shows saved turn totals while local T3 Usage history loads.
+The total updates with its source when Usage history arrives. Recap keeps
+the selected dates. A period with Usage history and no saved runs keeps
+the Recap layout, using token history for the calendar and model
+breakdown and marking run metrics as unavailable. When there are saved
+runs, the turn-token breakdown uses counts attached to T3 threads.
+
+### Compare
+
+Press **i**, then **v** for the last seven local dates, including today.
+**Tab** switches between the model and project
+tables. **p** and **P** choose a project for the model table. The arrows
+choose a week or month and **[** and **]** move through older or newer
+periods. Press **v** again to return to Recap or Tools.
+
+The comparison includes archived projects with records in the selected or
+preceding period. To use a saved T3 database, start Loupe with **--db PATH**.
+The all-model view uses local T3 Usage history when available. Project
+totals count the turns T3 linked to each project, including archived projects.
+The **Compacted** column shows completed compactions and the recorded or
+estimated reduction in context tokens for the selected period.
+
+## Thread details
+
+Plan, Activity, and Tools appear below the thread header. The Context
+section shows completed compactions retained for the selected chat and its
+T3 project, including zero counts. Chats without a project show the chat
+count. A tilde marks a size estimated from context readings around a
+recorded compaction.
+
+## Windows tray
+
+Run **loupe --tray** to start the watcher. The icon shows running, waiting,
+and watched thread counts. New requests that need input trigger a Windows
+notification. Right-click the icon and choose **Watch** beside a running
+thread to get an alert the next time it finishes, fails, or stops.
+Click an alert to open its thread in T3. **Exit Loupe Tray** stops the watcher.
+
 ## Keys, marks and options
 
 One set of keys works on every screen: the dashboard, Insights, Storage,

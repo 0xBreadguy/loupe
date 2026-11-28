@@ -6,7 +6,7 @@
 //! to wait on the terminal and the pipe, termios for raw mode. `windows.rs` has the same names
 //! with stubs that say "not supported yet"; it uses only `std`, so test builds on every host
 //! compile it and the stubs cannot rot unseen. The Windows console backend is a later step.
-#[cfg(any(windows, test))]
+#[cfg(all(not(windows), test))]
 use std::io;
 
 #[cfg(unix)]
@@ -23,7 +23,7 @@ pub use windows::*;
 /// What every Windows stub says.
 pub const NOT_SUPPORTED_YET: &str = "not supported yet on Windows";
 
-#[cfg(any(windows, test))]
+#[cfg(all(not(windows), test))]
 pub(crate) fn not_supported(what: &str) -> io::Error {
     io::Error::new(io::ErrorKind::Unsupported, format!("{what}: {NOT_SUPPORTED_YET}"))
 }
@@ -50,7 +50,8 @@ mod tests {
     use super::*;
     use std::io;
 
-    /// The Windows file compiles on every host and refuses plainly. Nothing real runs on Windows.
+    /// The non-Windows fallback stubs compile on Unix hosts and refuse plainly.
+    #[cfg(not(windows))]
     #[test]
     fn windows_stubs_refuse_plainly() {
         let err = windows::Wake::new().err().expect("Wake::new must refuse");
@@ -67,5 +68,58 @@ mod tests {
             assert!(err.to_string().contains("not supported yet"), "{err}");
         }
         assert_eq!(windows::take_signals(), Signals::default());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_wake_and_utf16_decoding_work() {
+        use std::time::{Duration, Instant};
+
+        let wake = Wake::new().expect("Wake::new succeeds on Windows");
+        let started = Instant::now();
+        let ready = wait(&wake, Some(Duration::from_millis(80))).unwrap();
+        assert_eq!(ready, Ready::default());
+        assert!(started.elapsed() >= Duration::from_millis(60));
+
+        let waker = wake.waker();
+        let handle = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            waker.wake();
+        });
+        let ready = wait(&wake, None).unwrap();
+        handle.join().unwrap();
+        assert_eq!(ready, Ready { input: false, wake: true });
+        assert!(wait(&wake, Some(Duration::ZERO)).unwrap().wake);
+        wake.drain();
+        assert!(!wait(&wake, Some(Duration::ZERO)).unwrap().wake);
+
+        for _ in 0..10_000 {
+            wake.waker().wake();
+        }
+        assert!(wait(&wake, Some(Duration::ZERO)).unwrap().wake);
+        wake.drain();
+        assert!(!wait(&wake, Some(Duration::ZERO)).unwrap().wake);
+
+        // Surrogate pair split across two reads decodes to the complete UTF-8 scalar.
+        let pair: Vec<u16> = "a🍞\x1b[A".encode_utf16().collect();
+        let mut bytes = Vec::new();
+        let mut hi = None;
+        windows::push_utf16_for_test(&mut bytes, &mut hi, &pair[..2]);
+        windows::push_utf16_for_test(&mut bytes, &mut hi, &pair[2..]);
+        assert_eq!(std::str::from_utf8(&bytes).unwrap(), "a🍞\x1b[A");
+
+        assert_eq!(
+            write_all_fd(99, b"x").unwrap_err().kind(),
+            io::ErrorKind::Unsupported
+        );
+
+        // UTF-8 safe chunking never cuts inside a 3-byte or 4-byte scalar.
+        let text = "ab─🍞z".as_bytes(); // 2 + 3 + 4 + 1 = 10 bytes
+        assert_eq!(windows::utf8_safe_chunk_for_test(text, 3), 2);
+        assert_eq!(windows::utf8_safe_chunk_for_test(text, 4), 2);
+        assert_eq!(windows::utf8_safe_chunk_for_test(text, 5), 5);
+        assert_eq!(windows::utf8_safe_chunk_for_test(text, 6), 5);
+        assert_eq!(windows::utf8_safe_chunk_for_test(text, 8), 5);
+        assert_eq!(windows::utf8_safe_chunk_for_test(text, 9), 9);
     }
 }

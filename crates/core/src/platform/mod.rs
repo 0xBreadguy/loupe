@@ -9,7 +9,7 @@
 //! cross-compile for Windows.
 //!
 //! Nothing outside this module may call `libc` for these. Linux behavior is the reference.
-#[cfg(any(windows, test))]
+#[cfg(test)]
 use std::io;
 use std::ffi::OsString;
 
@@ -27,7 +27,7 @@ pub use windows::*;
 /// The message every Windows stub gives.
 pub const NOT_SUPPORTED_YET: &str = "not supported on this platform yet";
 
-#[cfg(any(windows, test))]
+#[cfg(all(not(windows), test))]
 pub(crate) fn not_supported(what: &str) -> io::Error {
     io::Error::new(
         io::ErrorKind::Unsupported,
@@ -196,7 +196,8 @@ mod tests {
     }
 
     /// The stubs compile on every host and say so plainly. On Linux and macOS the real
-    /// functions run; this only exercises the Windows file.
+    /// functions run; this only exercises the non-Windows stub fallback.
+    #[cfg(not(windows))]
     #[test]
     fn windows_stubs_answer_not_supported() {
         let err = windows::open_url("t3code://threads/a/b").unwrap_err();
@@ -212,6 +213,36 @@ mod tests {
         assert_eq!((local.day, local.hour, local.minute, local.second), (2, 1, 1, 1));
         assert_eq!(windows::local_to_epoch(1970, 1, 2, 1, 1, 1), Some(86_400 + 3_661));
         windows::release_memory();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_time_liveness_and_link_validation_work() {
+        let round_trip = 1_780_000_000i64;
+        let local = windows::local_time(round_trip).unwrap();
+        assert_eq!(
+            windows::local_to_epoch(
+                i64::from(local.year),
+                i64::from(local.month0) + 1,
+                i64::from(local.day),
+                i64::from(local.hour),
+                i64::from(local.minute),
+                i64::from(local.second),
+            ),
+            Some(round_trip)
+        );
+        // Out-of-range fields roll over cleanly, matching mktime semantics.
+        let rolled = windows::local_to_epoch(2026, 1, 32, 0, 0, 0).unwrap();
+        let feb1 = windows::local_to_epoch(2026, 2, 1, 0, 0, 0).unwrap();
+        assert_eq!(rolled, feb1);
+
+        assert_eq!(windows::process_alive(0), ProcessAlive::Stopped);
+        assert_eq!(windows::process_alive(std::process::id()), ProcessAlive::Alive);
+
+        let err = windows::open_url("https://example.com").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+        let err = windows::open_url("t3code://threads/a/b\0").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
     }
 
     /// `os.homedir()`'s order: the variable whenever it exists, the account record otherwise.

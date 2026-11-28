@@ -622,6 +622,7 @@ fn which_tag(which: Which) -> u8 {
         Which::LastWeek => 1,
         Which::ThisMonth => 2,
         Which::LastMonth => 3,
+        Which::Last7Days => 4,
     }
 }
 
@@ -681,10 +682,10 @@ fn report_canvas(input: &Input<'_>, report: Report<'_>, shape: Shape) -> Canvas 
             crop(&recap_view::wide(report, p, source, false), 2)
         }
         (Report::Recap(report), Shape::Card) => {
-            crop(&recap_view::card(report, p, source, false), 2)
+            with_recap_total(crop(&recap_view::card(report, p, source, false), 2), report.insights_total(), p, input.cols)
         }
         (Report::Recap(report), Shape::List) => {
-            crop(&recap_view::list(report, p, source, false), 3)
+            with_recap_total(crop(&recap_view::list(report, p, source, false), 3), report.insights_total(), p, input.cols)
         }
         (Report::Tools(report), Shape::Wide) => {
             crop(&tools_view::wide(report, p, source, false), 2)
@@ -695,6 +696,20 @@ fn report_canvas(input: &Input<'_>, report: Report<'_>, shape: Shape) -> Canvas 
         (Report::Tools(report), Shape::List) => tools_list(report, source, input.cols, p),
         (_, Shape::Notice) => empty_canvas(input, report),
     }
+}
+
+fn with_recap_total(body: Canvas, totals: Option<(Option<f64>, &str)>, p: &Palette, cols: usize) -> Canvas {
+    let Some((total, source)) = totals else { return body };
+    let value = total.map(terminal::tokens).unwrap_or_else(|| "—".into());
+    let main = format!("TOTAL TOKENS   {value}");
+    let label = format!("{main}   ·   {source}");
+    let width = body.w.min(cols).saturating_sub(2);
+    let mut canvas = Canvas::new(body.w, body.h + 1);
+    canvas.fill(0, 0, body.w as i32, 1, p.panel);
+    let shown = if terminal::width(&label) <= width { &label } else { &main };
+    canvas.text_bold(1, 0, &terminal::fit(shown, width), p.fg);
+    canvas.cells[body.w..].clone_from_slice(&body.cells);
+    canvas
 }
 
 fn tools_list(tools: &Tools, source: Source, cols: usize, p: &Palette) -> Canvas {
@@ -760,6 +775,10 @@ fn loading_canvas(input: &Input<'_>) -> Canvas {
     let message = loading_line(input.state.demo, input.tab, input.requested, input.started);
     let tips = [LOAD_TIPS[0].to_owned(), LOAD_TIPS[1].to_owned()];
     let p = input.palette;
+    if input.state.themes && input.tab == Tab::Recap {
+        let body = paint_rows(p, input.cols, &[(format!("  {message}"), p.text2)]);
+        return with_recap_total(body, Some((None, "Loading Recap")), p, input.cols);
+    }
     let mut rows = vec![(String::new(), p.fg)];
     for line in terminal::wrap(&message, input.cols.saturating_sub(4)) {
         rows.push((format!("  {line}"), p.text2));
@@ -1112,6 +1131,7 @@ fn period_word(which: Which) -> &'static str {
         Which::LastWeek => "last week",
         Which::ThisMonth => "this month",
         Which::LastMonth => "last month",
+        Which::Last7Days => "last 7 days",
     }
 }
 
@@ -1152,7 +1172,9 @@ impl<'a> Report<'a> {
     }
     fn is_empty(self) -> bool {
         match self {
-            Report::Recap(report) => report.is_empty(),
+            Report::Recap(report) => report.is_empty()
+                && !report.has_usage_history()
+                && report.insights_usage != Some(recap::InsightsUsage::Pending),
             Report::Tools(report) => report.is_empty(),
         }
     }
@@ -1272,11 +1294,13 @@ mod tests {
     }
 
     fn demo_recap(which: Which) -> &'static Recap {
+        static LAST_7_DAYS: OnceLock<Recap> = OnceLock::new();
         static THIS_WEEK: OnceLock<Recap> = OnceLock::new();
         static LAST_WEEK: OnceLock<Recap> = OnceLock::new();
         static THIS_MONTH: OnceLock<Recap> = OnceLock::new();
         static LAST_MONTH: OnceLock<Recap> = OnceLock::new();
         let cell = match which {
+            Which::Last7Days => &LAST_7_DAYS,
             Which::ThisWeek => &THIS_WEEK,
             Which::LastWeek => &LAST_WEEK,
             Which::ThisMonth => &THIS_MONTH,
@@ -1289,11 +1313,13 @@ mod tests {
     }
 
     fn demo_tools(which: Which) -> &'static Tools {
+        static LAST_7_DAYS: OnceLock<Tools> = OnceLock::new();
         static THIS_WEEK: OnceLock<Tools> = OnceLock::new();
         static LAST_WEEK: OnceLock<Tools> = OnceLock::new();
         static THIS_MONTH: OnceLock<Tools> = OnceLock::new();
         static LAST_MONTH: OnceLock<Tools> = OnceLock::new();
         let cell = match which {
+            Which::Last7Days => &LAST_7_DAYS,
             Which::ThisWeek => &THIS_WEEK,
             Which::LastWeek => &LAST_WEEK,
             Which::ThisMonth => &THIS_MONTH,

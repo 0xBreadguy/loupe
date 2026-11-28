@@ -612,6 +612,24 @@ fn block(
                 .unwrap_or_default();
             section(c, x, y, w, "CONTEXT", &reported, p, p.dim);
             let mut yy = y + 1;
+            if s.themes && !s.demo && a.kind == "thread" && a.remote.is_none() {
+                let chat = s.compactions.as_deref().map_or_else(
+                    || "history unavailable".into(),
+                    |totals| totals.chats.get(&a.thread_id).copied().unwrap_or_default().label(),
+                );
+                c.text(x, yy, &fit(&format!("Chat compactions · {chat}"), w), p.text2);
+                yy += 1;
+                if let Some(project) = a.storage.as_ref().filter(|p| {
+                    !p.project_id.is_empty() && a.project != "No project"
+                }) {
+                    let label = s.compactions.as_deref().map_or_else(
+                        || "history unavailable".into(),
+                        |totals| totals.projects.get(&project.project_id).copied().unwrap_or_default().label(),
+                    );
+                    c.text(x, yy, &fit(&format!("Project compactions · {label}"), w), p.dim);
+                    yy += 1;
+                }
+            }
             let Some(rr) = ratio(a) else {
                 c.text(
                     x,
@@ -954,7 +972,7 @@ fn block(
                 );
                 return yy + 2 - y;
             }
-            let limit = (room - 2).clamp(6, 16) as usize;
+            let limit = if s.themes { 6 } else { (room - 2).clamp(6, 16) as usize };
             let moving = matches!(a.status.as_str(), "running" | "active")
                 && !model::needs_you(a)
                 && !pc.is_some_and(|p| p.quiet);
@@ -1355,11 +1373,21 @@ pub(crate) fn draw_details(
         if r.w >= 100 {
             let cw = (r.w - 3) / 2;
             let mut ly = top;
-            for kind in [Block::Context, Block::Growth, Block::Tokens, Block::Cache] {
-                ly += block(c, kind, r.x, ly, cw, r.y + r.h - ly, r, a, s, p, pc)
+            let left: &[Block] = if s.themes {
+                &[Block::Plan, Block::Activity, Block::Tools]
+            } else {
+                &[Block::Context, Block::Growth, Block::Tokens, Block::Cache]
+            };
+            for &kind in left {
+                ly += block(c, kind, r.x, ly, cw, r.y + r.h - ly, r, a, s, p, pc);
             }
             let mut ry = top;
-            for kind in [Block::Failures, Block::Plan, Block::Activity, Block::Tools] {
+            let right: &[Block] = if s.themes {
+                &[Block::Context, Block::Growth, Block::Tokens, Block::Cache, Block::Failures]
+            } else {
+                &[Block::Failures, Block::Plan, Block::Activity, Block::Tools]
+            };
+            for &kind in right {
                 ry += block(
                     c,
                     kind,
@@ -1380,7 +1408,16 @@ pub(crate) fn draw_details(
             height = (ly.max(ry) - r.y).max(0) as usize;
         } else {
             let mut y = top;
-            for kind in [
+            let blocks = if s.themes { [
+                Block::Plan,
+                Block::Activity,
+                Block::Tools,
+                Block::Context,
+                Block::Growth,
+                Block::Tokens,
+                Block::Cache,
+                Block::Failures,
+            ] } else { [
                 Block::Failures,
                 Block::Context,
                 Block::Plan,
@@ -1389,7 +1426,8 @@ pub(crate) fn draw_details(
                 Block::Growth,
                 Block::Tokens,
                 Block::Cache,
-            ] {
+            ] };
+            for kind in blocks {
                 y += block(c, kind, r.x, y, r.w, r.y + r.h - y, r, a, s, p, pc)
             }
             height = (y - r.y).max(0) as usize;

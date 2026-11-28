@@ -7,6 +7,9 @@
 //! Estimated asks return a count from the SQLite assistant-text function.
 mod asks_hint;
 mod assemble;
+pub(crate) mod daily_usage;
+pub use daily_usage::DailyUsage;
+pub(crate) mod usage_history;
 mod fan;
 mod fast_reads;
 mod turn_items;
@@ -43,7 +46,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const PREFIX: &str = "orchestration_v2_projection_";
+pub(crate) const PREFIX: &str = "orchestration_v2_projection_";
 
 /// Scale-lab phase timing, off unless `enable`d (`--bench-source` or opt-in reader-poll profiling does).
 /// When off, each query pays one relaxed atomic load and no allocation; query

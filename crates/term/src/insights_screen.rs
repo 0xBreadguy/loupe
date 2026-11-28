@@ -9,6 +9,7 @@ use loupe_core::{
     model::State,
     platform::local_time,
     product::{self, Database, Origin},
+    recap::Which,
     recap_view::Source,
     terminal::Canvas,
 };
@@ -17,6 +18,7 @@ use loupe_term::{
     insights_data::{InsightsData, ReadError, Report, Selection, Snapshot, Value},
     platform::{self, Wake},
 };
+use crate::comparison_screen::{self, CompareView};
 
 #[derive(Default)]
 pub(super) struct InsightsScreen {
@@ -28,6 +30,8 @@ pub(super) struct InsightsScreen {
     revision: u64,
     kept_revision: u64,
     notice: Option<(String, Vec<String>)>,
+    compare: CompareView,
+    return_to: Option<Selection>,
 }
 
 /// Product provenance is cheap to retain on Live. Its path stays in Host.
@@ -72,6 +76,8 @@ impl InsightsScreen {
         self.help = false;
         self.staged = false;
         self.notice = None;
+        self.compare = CompareView::default();
+        self.return_to = None;
     }
 
     pub(super) fn help_open(&self) -> bool {
@@ -81,13 +87,14 @@ impl InsightsScreen {
     /// A key on Insights. `i`, the screen's own key, and the theme and calm keys are the
     /// presenter's.
     pub(super) fn key(&mut self, name: &str, source: InsightsSource) -> Effect {
+        let Some(selected) = self.data.selection() else { return Effect::Stay };
         match name {
             "q" => return Effect::Quit,
             "escape" if self.help => {
                 self.help = false;
                 return Effect::Paint;
             }
-            "escape" => return Effect::Back,
+            "escape" if !matches!(selected.report, Report::Compare(_)) => return Effect::Back,
             "?" | "h" => {
                 self.help = !self.help;
                 return Effect::Paint;
@@ -112,15 +119,54 @@ impl InsightsScreen {
             }
             _ => {}
         }
+        if let Report::Compare(older) = selected.report {
+            let mut next = selected;
+            match name {
+                "v" | "escape" => {
+                    next = self.return_to.take().unwrap_or(Selection::ENTRY);
+                }
+                "[" => next.report = Report::Compare(older.saturating_add(1)),
+                "]" => next.report = Report::Compare(older.saturating_sub(1)),
+                "left" | "right" => {
+                    next.period = match (selected.period, name) {
+                        (Which::Last7Days, "left") | (Which::ThisWeek, "left") => Which::Last7Days,
+                        (Which::Last7Days, _) => Which::ThisWeek,
+                        (period, "left") => view::step_period(period, -1),
+                        (period, _) => view::step_period(period, 1),
+                    };
+                    next.report = Report::Compare(0);
+                }
+                "p" | "P" => {
+                    if let Some(Value::Compare(report)) = self.data.visible()
+                        .and_then(|s| s.outcome.as_ref().ok()).map(|item| &item.value)
+                    {
+                        self.compare.step_project(report, if name == "p" { 1 } else { -1 });
+                        return Effect::Paint;
+                    }
+                }
+                "tab" | "shift-tab" => {
+                    self.compare.toggle();
+                    return Effect::Paint;
+                }
+                _ => {
+                    if let Some(motion) = motion(name) {
+                        self.compare.scroll(motion);
+                        return Effect::Paint;
+                    }
+                }
+            }
+            return self.select(selected, next, source);
+        }
+        if name == "v" {
+            self.return_to = Some(selected);
+            return self.select(selected, Selection { report: Report::Compare(0), period: Which::Last7Days }, source);
+        }
         if let Some(motion) = motion(name) {
             let Some(view) = self.view.as_mut() else { return Effect::Stay };
             view.scroll(motion);
             return Effect::Paint;
         }
         // Tab and the arrows change what is read; they need a selection to change.
-        let Some(selected) = self.data.selection() else {
-            return Effect::Stay;
-        };
         match next_selection(selected, name) {
             Some(next) => self.select(selected, next, source),
             None => Effect::Stay,
@@ -135,6 +181,9 @@ impl InsightsScreen {
         let (Some(view), Some(selected)) = (self.view.as_ref(), self.data.selection()) else {
             return Effect::Stay;
         };
+        if matches!(selected.report, Report::Compare(_)) {
+            return Effect::Stay;
+        }
         let mut next = selected;
         match view.click(x, y) {
             Some(Click::Tab(tab)) => {
@@ -156,6 +205,9 @@ impl InsightsScreen {
         }
         if next.period != selected.period {
             self.view.as_mut().unwrap().scroll(Motion::Start);
+        }
+        if matches!(next.report, Report::Compare(_)) {
+            self.compare.scroll(Motion::Start);
         }
         self.staged = self.data.loading_since().is_some();
         self.completed(source);
@@ -181,7 +233,7 @@ impl InsightsScreen {
     }
 
     pub(super) fn poll(&mut self, source: InsightsSource) -> bool {
-        if self.data.loading_since().is_none() || !self.data.poll() {
+        if !self.data.poll() {
             return false;
         }
         self.completed(source);
@@ -257,6 +309,7 @@ impl InsightsScreen {
             tab: match selection.report {
                 Report::Recap => Tab::Recap,
                 Report::Tools => Tab::Tools,
+                Report::Compare(_) => unreachable!("Compare has its own canvas"),
             },
             requested: selection.period,
             source: match source {
@@ -348,18 +401,29 @@ impl InsightsScreen {
         sink: &mut FrameSink<'_>,
     ) -> io::Result<()> {
         let was_full = *full;
+        if matches!(self.data.selection().map(|s| s.report), Some(Report::Compare(_))) {
+            let report = self.data.visible().and_then(|s| s.outcome.as_ref().ok())
+                .and_then(|item| match &item.value { Value::Compare(value) => Some(value), _ => None });
+            let notice = self.notice.as_ref().map(|(message, _)| message.as_str());
+            let canvas = self.compare.paint(state, size, report, notice, self.help);
+            let bytes = encoder.encode(&canvas, was_full);
+            *full = false;
+            return sink(&canvas, &bytes, was_full);
+        }
         let tab = self
             .data
             .selection()
             .map(|sel| match sel.report {
                 Report::Recap => Tab::Recap,
                 Report::Tools => Tab::Tools,
+                Report::Compare(_) => unreachable!("Compare has its own canvas"),
             })
             .unwrap_or(Tab::Recap);
         let help = self.help;
         let actionable = self.active_handoff_prompt().is_some();
         let canvas = self.frame(state, source, size);
-        if help || actionable || !handoff.is_idle() {
+        let show_compare = state.themes && !help && handoff.is_idle();
+        if help || actionable || !handoff.is_idle() || show_compare {
             let mut decorated = canvas.clone();
             handoff::decorate_insights_canvas(
                 &mut decorated,
@@ -369,6 +433,9 @@ impl InsightsScreen {
                 handoff,
                 &state.palette,
             );
+            if show_compare {
+                comparison_screen::hint(&mut decorated, &state.palette);
+            }
             let bytes = encoder.encode(&decorated, was_full);
             *full = false;
             return sink(&decorated, &bytes, was_full);
@@ -399,6 +466,7 @@ fn borrow_report(snapshot: &Snapshot) -> Option<view::Report<'_>> {
     Some(match &snapshot.outcome.as_ref().ok()?.value {
         Value::Recap(value) => view::Report::Recap(value),
         Value::Tools(value) => view::Report::Tools(value),
+        Value::Compare(_) => return None,
     })
 }
 
@@ -409,6 +477,7 @@ fn next_selection(mut selection: Selection, key: &str) -> Option<Selection> {
             selection.report = match selection.report {
                 Report::Recap => Report::Tools,
                 Report::Tools => Report::Recap,
+                Report::Compare(_) => return None,
             };
         }
         "left" => selection.period = view::step_period(selection.period, -1),

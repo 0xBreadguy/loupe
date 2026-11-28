@@ -14,7 +14,7 @@ use loupe_core::{
 };
 use std::{
     ffi::OsString,
-    fs::{self, File, OpenOptions},
+    fs,
     io::{self, Read, Write},
     path::{Path, PathBuf},
     process::{Command, ExitStatus, Stdio},
@@ -25,6 +25,8 @@ use std::{
     },
     time::{Duration, Instant},
 };
+#[cfg(unix)]
+use std::fs::{File, OpenOptions};
 
 const MAX_DRAFT_CHARS: usize = 400;
 const MAX_CLI_OUTPUT_BYTES: usize = 64 * 1024;
@@ -718,15 +720,23 @@ fn state_for_pending(pending: &PendingAction) -> HandoffState {
 }
 
 fn format_base_dir_display(path: &str) -> String {
-    if let Some(home) = std::env::var_os("HOME").map(|h| h.to_string_lossy().into_owned()) {
-        let home_trim = home.trim_end_matches('/');
+    if let Some(home) = loupe_core::platform::home_dir()
+        .map(|h| h.to_string_lossy().into_owned())
+    {
+        let home_trim = home.trim_end_matches(['/', '\\']);
         if !home_trim.is_empty() {
-            if path.trim_end_matches('/') == format!("{home_trim}/.t3") {
+            let trimmed = path.trim_end_matches(['/', '\\']);
+            let sep = if cfg!(windows) { '\\' } else { '/' };
+            if trimmed == format!("{home_trim}{sep}.t3")
+                || trimmed == format!("{home_trim}/.t3")
+            {
                 return "(default)".into();
             }
-            let prefix = format!("{home_trim}/");
-            if let Some(rest) = path.strip_prefix(&prefix) {
-                return format!("~/{rest}");
+            for suffix in ["/", "\\"] {
+                let prefix = format!("{home_trim}{suffix}");
+                if let Some(rest) = path.strip_prefix(&prefix) {
+                    return format!("~{suffix}{rest}");
+                }
             }
         }
     }
@@ -869,12 +879,26 @@ struct ValidatedBinary {
     mode: u32,
 }
 
+fn strip_verbatim_prefix(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Some(s) = path.to_str() {
+            if let Some(rest) = s.strip_prefix(r"\\?\") {
+                if rest.as_bytes().get(1) == Some(&b':') {
+                    return PathBuf::from(rest);
+                }
+            }
+        }
+    }
+    path
+}
+
 /// Resolve `t3` only from trusted absolute PATH directories or `$HOME/.local/bin`,
 /// verifying ownership (root or effective user) and non-group/world-writability on the
 /// executable AND every ancestor directory component from `/` down.
 fn find_t3_binary() -> Result<ValidatedBinary, String> {
     let path_env = std::env::var_os("PATH");
-    let home_env = std::env::var_os("HOME");
+    let home_env = loupe_core::platform::home_dir();
     find_t3_binary_in(path_env.as_deref(), home_env.as_deref())
 }
 
@@ -882,23 +906,40 @@ fn find_t3_binary_in(
     path_env: Option<&std::ffi::OsStr>,
     home_env: Option<&std::ffi::OsStr>,
 ) -> Result<ValidatedBinary, String> {
+    let candidates: &[&str] = if cfg!(windows) {
+        &["t3.exe", "t3.cmd", "t3.bat", "t3"]
+    } else {
+        &["t3"]
+    };
     if let Some(path_val) = path_env {
         for dir in std::env::split_paths(path_val) {
             if dir.as_os_str().is_empty() || !dir.is_absolute() {
                 continue;
             }
-            let cand = dir.join("t3");
-            if let Some(valid) = validate_trusted_executable(&cand) {
-                return Ok(valid);
+            for name in candidates {
+                let cand = dir.join(name);
+                if let Some(valid) = validate_trusted_executable(&cand) {
+                    return Ok(valid);
+                }
             }
         }
     }
     if let Some(home) = home_env.filter(|h| !h.is_empty()) {
         let home_path = Path::new(home);
         if home_path.is_absolute() {
-            let local = home_path.join(".local/bin/t3");
-            if let Some(valid) = validate_trusted_executable(&local) {
-                return Ok(valid);
+            let fallback_dirs: &[&str] = if cfg!(windows) {
+                &[".t3/bin", ".local/bin"]
+            } else {
+                &[".local/bin"]
+            };
+            for sub in fallback_dirs {
+                let dir = home_path.join(sub);
+                for name in candidates {
+                    let cand = dir.join(name);
+                    if let Some(valid) = validate_trusted_executable(&cand) {
+                        return Ok(valid);
+                    }
+                }
             }
         }
     }
@@ -928,6 +969,7 @@ fn trusted_child_path_from(path_env: Option<&std::ffi::OsStr>) -> Result<OsStrin
         if !is_safe_dir_tree(&canon) {
             continue;
         }
+        let canon = strip_verbatim_prefix(canon);
         if !safe_dirs.contains(&canon) {
             safe_dirs.push(canon);
         }
@@ -987,7 +1029,9 @@ fn validate_trusted_executable(candidate: &Path) -> Option<ValidatedBinary> {
         if !meta.is_file() {
             return None;
         }
-        Some(ValidatedBinary { path: canon })
+        Some(ValidatedBinary {
+            path: strip_verbatim_prefix(canon),
+        })
     }
 }
 
@@ -1043,7 +1087,7 @@ fn has_gui_display_with(var: &dyn Fn(&str) -> Option<OsString>) -> bool {
             return false;
         }
     }
-    if cfg!(target_vendor = "apple") {
+    if cfg!(target_vendor = "apple") || cfg!(windows) {
         true
     } else {
         var("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty())
@@ -1155,7 +1199,7 @@ fn kill_and_reap_group(child: &mut std::process::Child) {
 
 fn run_bounded_command(
     mut cmd: Command,
-    validated: Option<&ValidatedBinary>,
+    #[cfg_attr(not(unix), allow(unused_variables))] validated: Option<&ValidatedBinary>,
     stdin_bytes: Vec<u8>,
     timeout: Duration,
     cancel: &AtomicBool,
@@ -1907,5 +1951,30 @@ mod tests {
         assert!(matches!(h.state(), HandoffState::ConfirmStart { armed: false, .. }));
         h.key("escape", &host, (120, 30));
         assert!(h.state().is_idle());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn find_t3_binary_finds_t3_cmd_without_verbatim_prefix() {
+        let base = std::env::temp_dir().join(format!("loupe-t3-cmd-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base);
+        let bin_dir = base.join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+        let cmd_path = bin_dir.join("t3.cmd");
+        fs::write(&cmd_path, "@echo off\r\n").unwrap();
+
+        let path_val = std::env::join_paths([&bin_dir]).unwrap();
+        let found = find_t3_binary_in(Some(path_val.as_os_str()), None).unwrap();
+        assert_eq!(
+            found.path.file_name().and_then(|n| n.to_str()),
+            Some("t3.cmd")
+        );
+        assert!(
+            !found.path.to_string_lossy().starts_with(r"\\?\"),
+            "cmd.exe wrapper path must not keep \\\\?\\ prefix: {:?}",
+            found.path
+        );
+
+        let _ = fs::remove_dir_all(&base);
     }
 }

@@ -48,6 +48,8 @@ pub struct Encoder {
     method: WidthMethod,
     env: TermEnv,
     cursor_after_cluster: bool,
+    force_cursor_after_cluster: bool,
+    avoid_bottom_right: bool,
     drift: bool,
     /// The terminal's last answer about mode 2027, which the width method follows.
     mode_2027: Option<u8>,
@@ -84,6 +86,8 @@ impl Encoder {
             explicit_width: false,
             method: select_width_method(&env, None),
             cursor_after_cluster: explicit_cursor_positioning(&env),
+            force_cursor_after_cluster: false,
+            avoid_bottom_right: false,
             env,
             drift: false,
             mode_2027: None,
@@ -133,7 +137,7 @@ impl Encoder {
     /// Choose again from everything the terminal has said, as the original does on every answer.
     fn reconsider(&mut self) -> bool {
         let method = select_width_method(&self.env, self.mode_2027);
-        let cursor = explicit_cursor_positioning(&self.env);
+        let cursor = explicit_cursor_positioning(&self.env) || self.force_cursor_after_cluster;
         let changed = method != self.method || cursor != self.cursor_after_cluster;
         self.method = method;
         self.cursor_after_cluster = cursor;
@@ -152,6 +156,18 @@ impl Encoder {
     /// Move the cursor after every cluster written without an explicit width (tests and checks).
     pub fn set_cursor_after_cluster(&mut self, on: bool) {
         self.cursor_after_cluster = on;
+    }
+
+    /// Always reposition the cursor after non-ASCII clusters, even after probe replies.
+    pub fn set_force_cursor_after_cluster(&mut self, on: bool) {
+        self.force_cursor_after_cluster = on;
+        self.cursor_after_cluster = explicit_cursor_positioning(&self.env) || on;
+    }
+
+    /// Avoid writing to the bottom-right cell and re-sync the cursor after reaching the right
+    /// margin, for legacy Windows `conhost.exe` builds that scroll despite `DECAWM` off.
+    pub fn set_avoid_bottom_right(&mut self, on: bool) {
+        self.avoid_bottom_right = on;
     }
 
     /// Bytes for this frame. An unchanged diff is empty: no synchronized-output
@@ -259,7 +275,7 @@ impl Encoder {
             // not clear the screen, like the original's: where a terminal measures a cluster
             // differently from the layout, some cell is not written, and it keeps what was there.
             out.extend_from_slice(b"\x1b[0m");
-            if resized {
+            if resized || self.avoid_bottom_right {
                 // After a resize the screen is cleared first, which the original does not do.
                 // This program starts fast enough to draw before a new window has its final size;
                 // the original, slower to start, draws once at the final size, on an empty
@@ -297,6 +313,14 @@ impl Encoder {
     fn place(&mut self, out: &mut Vec<u8>, x: usize, y: usize, laid: &Laid, i: usize, full: bool) {
         let cell = laid.cells[i];
         let cols = laid.w;
+        let cell_width = match cell.glyph {
+            Glyph::Plain(_) => 1,
+            Glyph::Start { width, .. } => (width as usize).max(1),
+            Glyph::Cont { .. } => return,
+        };
+        if self.avoid_bottom_right && y + 1 >= laid.h && x + cell_width >= cols {
+            return;
+        }
         let restyle = !self.style_known || self.fg != cell.fg || self.bg != cell.bg || self.bold != cell.bold;
         // The original starts a new run, with a cursor move, at every change of style. After
         // printable ASCII the cursor is where that move would put it in any terminal, so the move
@@ -350,6 +374,9 @@ impl Encoder {
             Glyph::Cont { .. } => 0,
         };
         self.cursor.0 = advance(x, width.max(1), cols);
+        if self.avoid_bottom_right && x + width.max(1) >= cols {
+            self.cursor_known = false;
+        }
     }
 }
 
@@ -1252,5 +1279,27 @@ mod row_reuse_tests {
             scramble(&mut canvas, &mut rng, 2);
             assert_eq!(fast.encode(&canvas, false), reference(&mut slow, &canvas, false));
         }
+    }
+
+    #[test]
+    fn windows_console_compat_avoids_bottom_right_and_keeps_cluster_reposition() {
+        let mut canvas = Canvas::new(4, 2);
+        canvas.set(0, 0, '✓', 0xff_ffff, Some(0), false);
+        canvas.set(1, 0, 'A', 0xff_ffff, Some(0), false);
+        canvas.set(3, 0, 'R', 0xff_ffff, Some(0), false);
+        canvas.set(3, 1, 'X', 0xff_ffff, Some(0), false);
+
+        let mut enc = Encoder::new();
+        enc.set_force_cursor_after_cluster(true);
+        enc.set_avoid_bottom_right(true);
+        // Probe replies must not clear forced cursor repositioning.
+        let _ = enc.terminal_xtversion("Windows Terminal 1.25");
+        let _ = enc.terminal_mode_2027(0);
+
+        let bytes = String::from_utf8(enc.encode(&canvas, true)).unwrap();
+        assert!(bytes.contains("\x1b[2J"), "clears screen on full frame: {bytes:?}");
+        assert!(bytes.contains("✓\x1b[1;2HA"), "repositions after non-ASCII cluster: {bytes:?}");
+        assert!(!bytes.contains('X'), "bottom-right cell is skipped to prevent conhost scroll: {bytes:?}");
+        assert!(bytes.contains("R\x1b[2;1H"), "repositions after reaching right margin: {bytes:?}");
     }
 }
